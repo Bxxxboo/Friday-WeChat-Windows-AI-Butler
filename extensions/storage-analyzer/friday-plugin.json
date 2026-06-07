@@ -1,0 +1,32 @@
+{
+  "id": "storage-analyzer",
+  "name": "Storage Analyzer 存储分析",
+  "version": "1.0.0",
+  "description": "来自 KKKKhazix/khazix-skills：只读扫描磁盘占用，分级清理建议，生成交互式 HTML 报告。",
+  "author": "Khazix (KKKKhazix/khazix-skills)",
+  "skills": [
+    {
+      "id": "storage-analyzer",
+      "label": "存储分析",
+      "icon": "💾",
+      "category": "plugin",
+      "prompt": "帮我分析这台电脑的磁盘存储占用，找出占空间大户并给出分级清理建议。\n\n请先 read_text_file 读取 {plugin_dir}/SKILL.md，严格按其中流程执行：\n1. 只读扫描：python {plugin_dir}/scripts/scan.py，输出保存到临时 JSON\n2. 读 references/windows.md 做 Windows 分级分析\n3. 写 analysis JSON 后运行 python {plugin_dir}/scripts/server.py 打开交互报告\n\n铁律：全程只读扫描；删除/清理必须经我审批；Windows 用 python 而非 python3。"
+    },
+    {
+      "id": "disk-cleanup",
+      "label": "磁盘清理建议",
+      "icon": "🧹",
+      "category": "plugin",
+      "prompt": "我的磁盘/ C 盘空间不够了。请按 {plugin_dir}/SKILL.md 的 storage-analyzer 流程做只读分析，告诉我哪些可以安全清理、哪些需要谨慎，并生成交互式 HTML 报告。"
+    }
+  ],
+  "rules": [
+    {
+      "id": "storage-readonly",
+      "title": "存储分析只读原则",
+      "content": "执行 storage-analyzer 相关任务时：扫描阶段只读；禁止擅自 rm/mv/清空回收站；清理命令仅展示或经用户审批后执行；可释放空间须标注为估算。技能与脚本位于 {plugin_dir}。",
+      "enabled": true,
+      "always_apply": false
+    }
+  ]
+}

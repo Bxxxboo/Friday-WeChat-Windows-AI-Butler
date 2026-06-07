@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from friday.safety import (
+    RiskLevel,
+    classify_tool,
+    evaluate_tool,
+    path_in_workspace,
+)
+from friday.storage import UserSettings
+
+
+def test_classify_tool_risk_levels():
+    assert classify_tool("read_text_file") == RiskLevel.READ
+    assert classify_tool("write_text_file") == RiskLevel.WRITE
+    assert classify_tool("run_powershell") == RiskLevel.EXEC
+    assert classify_tool("clipboard_write") == RiskLevel.WRITE
+
+
+def test_path_in_workspace_inside(workspace: Path):
+    root = str(workspace.resolve()).replace("\\", "/")
+    inside = str((workspace / "inside.txt").resolve()).replace("\\", "/")
+    assert path_in_workspace(inside, root) is True
+
+
+def test_path_in_workspace_outside(workspace: Path):
+    root = str(workspace.resolve()).replace("\\", "/")
+    assert path_in_workspace("C:/Windows/System32", root) is False
+
+
+def test_path_in_workspace_dotdot(workspace: Path):
+    root = str(workspace.resolve()).replace("\\", "/")
+    escape = str((workspace / ".." / "outside.txt").resolve()).replace("\\", "/")
+    assert path_in_workspace(escape, root) is False
+
+
+def test_evaluate_read_blocked_outside_workspace(workspace: Path):
+    settings = UserSettings(
+        workspace=str(workspace).replace("\\", "/"),
+        restrict_to_workspace=True,
+    )
+    decision = evaluate_tool(settings, "read_text_file", {"path": "C:/Windows/notepad.exe"})
+    assert decision.allowed is False
+    assert "超出" in decision.reason
+
+
+def test_evaluate_read_allowed_inside_workspace(workspace: Path):
+    settings = UserSettings(
+        workspace=str(workspace).replace("\\", "/"),
+        restrict_to_workspace=True,
+    )
+    inside = str((workspace / "inside.txt").resolve()).replace("\\", "/")
+    decision = evaluate_tool(settings, "read_text_file", {"path": inside})
+    assert decision.allowed is True
+    assert decision.needs_approval is False
+
+
+def test_evaluate_clipboard_write_needs_approval():
+    settings = UserSettings(require_approval_writes=True)
+    decision = evaluate_tool(settings, "clipboard_write", {"text": "secret"})
+    assert decision.allowed is True
+    assert decision.needs_approval is True
+
+
+def test_powershell_download_blocked():
+    settings = UserSettings(allow_powershell=True)
+    decision = evaluate_tool(
+        settings,
+        "run_powershell",
+        {"command": "Invoke-WebRequest -Uri https://example.com/a.exe -OutFile E:/a.exe"},
+    )
+    assert decision.allowed is False
+    assert "download_software" in decision.reason or "download_file" in decision.reason
+
+
+def test_powershell_http_probe_blocked():
+    settings = UserSettings(allow_powershell=True)
+    decision = evaluate_tool(
+        settings,
+        "run_powershell",
+        {"command": '$page = Invoke-WebRequest -Uri "https://www.kugou.com/download/" -UseBasicParsing'},
+    )
+    assert decision.allowed is False
+
+
+def test_evaluate_write_disabled_by_setting():
+    settings = UserSettings(allow_write_files=False)
+    decision = evaluate_tool(settings, "write_text_file", {"path": "a.txt", "content": "x"})
+    assert decision.allowed is False
+    assert "禁用" in decision.reason
+
+
+def test_download_file_allowed_outside_workspace(workspace: Path):
+    settings = UserSettings(
+        workspace=str(workspace).replace("\\", "/"),
+        restrict_to_workspace=True,
+        require_approval_writes=False,
+    )
+    decision = evaluate_tool(
+        settings,
+        "download_file",
+        {"url": "https://d1.music.126.net/dmusic/setup.exe", "destination": "E:/NeteaseCloudMusic_Setup.exe"},
+    )
+    assert decision.allowed is True
+
+
+def test_should_request_approval_once_per_turn():
+    from friday.safety import TurnApprovalState, ToolDecision, mark_turn_approved, should_request_approval
+
+    settings = UserSettings(approve_once_per_turn=True, require_approval_exec=True)
+    state = TurnApprovalState()
+    decision = ToolDecision(True, True)
+
+    assert should_request_approval(settings, decision, state) is True
+    mark_turn_approved(state, decision)
+    assert should_request_approval(settings, decision, state) is False
+
+
+def test_large_download_still_needs_separate_approval():
+    from friday.safety import TurnApprovalState, ToolDecision, mark_turn_approved, should_request_approval
+
+    settings = UserSettings(approve_once_per_turn=True, require_approval_writes=True)
+    state = TurnApprovalState()
+    normal = ToolDecision(True, True)
+    mark_turn_approved(state, normal)
+
+    large = ToolDecision(True, True, large_download=True)
+    assert should_request_approval(settings, large, state) is True

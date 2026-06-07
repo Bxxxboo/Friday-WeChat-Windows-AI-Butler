@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt pyinstaller cryptography
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Build Windows package
+        shell: pwsh
+        run: |
+          python scripts/create_icon.py
+          python -m PyInstaller friday.spec --noconfirm --clean
+          powershell -ExecutionPolicy Bypass -File scripts/make-release.ps1
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*-Windows.zip
+          generate_release_notes: true

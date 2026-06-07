@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>星期五 · 源仓库</title>
+  <style>
+    :root {
+      --bg: #0a0d12;
+      --card: #141a28;
+      --border: rgba(212, 160, 86, 0.18);
+      --text: #e8eaef;
+      --muted: #8b949e;
+      --accent: #d4a056;
+      --link: #5b8fd9;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      background: radial-gradient(1200px 600px at 80% -10%, rgba(91,143,217,0.12), transparent),
+                  radial-gradient(900px 500px at 10% 100%, rgba(212,160,86,0.1), transparent),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 32px 20px 48px;
+      line-height: 1.65;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 12px;
+      margin-bottom: 14px;
+    }
+    h1 { font-size: clamp(28px, 5vw, 38px); margin-bottom: 8px; }
+    h1 em { font-style: normal; color: var(--accent); }
+    .sub { color: var(--muted); margin-bottom: 28px; font-size: 15px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px 24px;
+      margin-bottom: 16px;
+    }
+    .card h2 { font-size: 17px; margin-bottom: 12px; }
+    .url-box {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 12px 0;
+    }
+    .url-box input {
+      flex: 1 1 280px;
+      min-width: 0;
+      background: #0c1018;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      padding: 11px 12px;
+      font: inherit;
+      font-size: 13px;
+    }
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: rgba(212,160,86,0.14);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 16px;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn-primary { background: linear-gradient(135deg, #d4a056, #a67c32); color: #0a0d12; font-weight: 600; }
+    ol { padding-left: 20px; color: var(--muted); font-size: 14px; }
+    ol li { margin: 8px 0; }
+    ol strong { color: var(--text); }
+    code {
+      background: rgba(255,255,255,0.06);
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 12px;
+    }
+    .status {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 10px;
+      min-height: 1.2em;
+    }
+    .status.ok { color: #9dd49b; }
+    .status.err { color: #e88a7a; }
+    footer { margin-top: 28px; text-align: center; color: var(--muted); font-size: 12px; }
+    a { color: var(--link); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <span class="badge">Friday Source Repository</span>
+    <h1>星期五 <em>源仓库</em></h1>
+    <p class="sub">Windows AI 电脑管家 · 用于 GitHub「Import repository」的 Git 源地址</p>
+
+    <div class="card">
+      <h2>① 复制源仓库地址</h2>
+      <p style="color:var(--muted);font-size:14px;">
+        将下方地址粘贴到 GitHub 导入页的 <strong>The URL for your source repository</strong> 输入框。
+      </p>
+      <div class="url-box">
+        <input id="cloneUrl" type="url" readonly value="" placeholder="运行 scripts/push-gitee-source.ps1 后自动填入，或手动填写" />
+        <button type="button" class="btn" id="copyBtn">复制地址</button>
+      </div>
+      <div class="url-box">
+        <a class="btn btn-primary" id="importBtn" href="https://github.com/new/import" target="_blank" rel="noopener">打开 GitHub 导入页</a>
+        <a class="btn" id="repoBtn" href="#" target="_blank" rel="noopener">浏览源仓库网页</a>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>② 如何生成源地址（推荐 Gitee 中转）</h2>
+      <ol>
+        <li>安装 <a href="https://git-scm.com/download/win">Git</a>，注册 <a href="https://gitee.com">Gitee</a> 并创建私人令牌</li>
+        <li>在项目根目录运行：<br /><code>powershell -File scripts/push-gitee-source.ps1 -GiteeUser 你的用户名</code></li>
+        <li>脚本会推送代码到 Gitee，并更新本页的克隆地址</li>
+        <li>打开上方「GitHub 导入页」，粘贴地址，Owner 填 <strong>Bxxxboo</strong>，Repository name 填 <strong>friday</strong></li>
+        <li>导入完成后，在 GitHub 打 tag <code>v1.0.0</code> 并上传 Release 安装包（或运行 <code>scripts/publish-github.ps1</code>）</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2>③ 本地预览本页</h2>
+      <p style="color:var(--muted);font-size:14px;">
+        双击本文件，或运行 <code>powershell -File scripts/serve-source-repo.ps1</code> 在浏览器打开。
+      </p>
+    </div>
+
+    <footer>
+      版本 <span id="version">1.0.0</span> · 更新源目标 github.com/Bxxxboo/friday
+    </footer>
+  </div>
+  <script>
+    (function () {
+      const cloneInput = document.getElementById("cloneUrl");
+      const statusEl = document.getElementById("status");
+      const repoBtn = document.getElementById("repoBtn");
+
+      fetch("repo-info.json", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data) return;
+          if (data.version) document.getElementById("version").textContent = data.version;
+          if (data.clone_url) {
+            cloneInput.value = data.clone_url;
+            statusEl.textContent = "已加载源仓库地址（" + (data.pushed_at || "") + "）";
+            statusEl.className = "status ok";
+          }
+          if (data.web_url) {
+            repoBtn.href = data.web_url;
+            repoBtn.textContent = "浏览 Gitee 源仓库";
+          }
+        })
+        .catch(() => {});
+
+      document.getElementById("copyBtn").addEventListener("click", async () => {
+        const url = cloneInput.value.trim();
+        if (!url) {
+          statusEl.textContent = "请先在 Gitee 推送脚本运行后刷新，或手动填写 URL";
+          statusEl.className = "status err";
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(url);
+          statusEl.textContent = "已复制到剪贴板";
+          statusEl.className = "status ok";
+        } catch {
+          cloneInput.select();
+          document.execCommand("copy");
+          statusEl.textContent = "已复制（兼容模式）";
+          statusEl.className = "status ok";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

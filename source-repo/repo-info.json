@@ -1,0 +1,7 @@
+{
+  "clone_url": "",
+  "web_url": "",
+  "version": "1.0.0",
+  "pushed_at": "",
+  "note": "运行 scripts/push-gitee-source.ps1 后会自动更新 clone_url"
+}

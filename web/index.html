@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>星期五</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+  <script>
+    (function () {
+      var root = document.documentElement;
+      var params = new URLSearchParams(location.search);
+      var isDesktop = params.has("desktop");
+      if (isDesktop) root.classList.add("desktop");
+
+      var boot = params.get("boot");
+      var prefs = {};
+      try { prefs = JSON.parse(localStorage.getItem("friday_ui_prefs") || "{}"); } catch (e) {}
+      var mode = prefs.theme || "dark";
+      if (boot === "light" || boot === "dark") {
+        mode = boot;
+      } else if (mode === "system") {
+        mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      } else if (mode !== "light") {
+        mode = "dark";
+      }
+
+      root.dataset.themeMode = prefs.theme || mode;
+      root.dataset.theme = mode;
+      root.style.backgroundColor = mode === "light" ? "#f0ebe3" : "#0a0d12";
+      root.style.colorScheme = mode;
+
+      if (prefs.font_size) root.dataset.fontSize = prefs.font_size;
+    })();
+  </script>
+  <script>
+    (function () {
+      var BOOT_TIMEOUT_MS = 45000;
+      window.addEventListener("load", function () {
+        setTimeout(function () {
+          var overlay = document.getElementById("appBootOverlay");
+          if (!overlay || overlay.classList.contains("hidden")) return;
+          var p = overlay.querySelector("p");
+          if (!p || p.textContent.indexOf("加载失败") !== -1) return;
+          if (p.textContent.indexOf("超时") !== -1) return;
+          p.textContent = "加载超时，请完全关闭后重新打开";
+        }, BOOT_TIMEOUT_MS);
+      });
+    })();
+  </script>
+  <style>
+    html, body {
+      background: #0a0d12;
+    }
+    html[data-theme="light"], html[data-theme="light"] body {
+      background: #f0ebe3;
+    }
+  </style>
+  <link rel="stylesheet" href="/static/styles.css?v=53" />
+</head>
+<body>
+  <div class="app-boot-overlay" id="appBootOverlay" aria-live="polite">
+    <div class="app-boot-card">
+      <div class="app-boot-spin"></div>
+      <p>正在加载界面…</p>
+    </div>
+  </div>
+  <header class="titlebar" id="titlebar">
+    <div class="titlebar-drag pywebview-drag-region">
+      <div class="titlebar-brand">
+        <span class="titlebar-icon">五</span>
+        <span class="titlebar-name">星期五</span>
+      </div>
+    </div>
+    <div class="titlebar-controls">
+      <button class="win-btn" id="winMinimize" title="最小化" aria-label="最小化">
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <button class="win-btn" id="winMaximize" title="最大化" aria-label="最大化">
+        <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <button class="win-btn win-btn-close" id="winClose" title="关闭" aria-label="关闭">
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand">
+          <div class="brand-icon">五</div>
+          <span class="brand-name">星期五</span>
+        </div>
+        <button class="new-chat-btn" id="newChatBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          新对话
+        </button>
+      </div>
+
+      <div class="session-list" id="sessionList"></div>
+    </aside>
+
+    <main class="main">
+      <header class="chat-header">
+        <div class="chat-header-left pywebview-drag-region">
+          <h2 class="chat-title" id="chatTitle">新对话</h2>
+          <span class="conn-status" id="runtimeStatus"></span>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn" id="openHistoryBtn" title="操作历史" aria-label="操作历史">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+          </button>
+          <button class="icon-btn" id="openSettingsBtn" title="设置" aria-label="设置">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="chat-body">
+        <div class="ambient-bg" aria-hidden="true"></div>
+        <div class="welcome-panel" id="welcomePanel">
+          <div class="welcome-hero">
+            <span class="welcome-kicker">AI 电脑管家</span>
+            <h1 class="welcome-title">你好，我是<em>星期五</em></h1>
+            <p class="welcome-sub">整理文件、查看系统、生成文档——说一句话，我来动手。</p>
+          </div>
+          <div class="welcome-suggestions"></div>
+        </div>
+
+        <div class="chat-scroll hidden" id="chatScroll">
+          <div class="chat-log" id="chatLog"></div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-inner">
+          <div class="composer-mode-bar">
+            <div class="mode-switch" id="modeSwitch" role="group" aria-label="交互模式">
+              <button type="button" class="mode-btn" data-mode="ask" title="只读问答">Ask</button>
+              <button type="button" class="mode-btn active" data-mode="agent" title="确认后执行">Agent</button>
+              <button type="button" class="mode-btn" data-mode="yolo" title="工作区自动执行">Yolo</button>
+            </div>
+            <span class="mode-hint" id="modeHint">修改与执行前需你确认</span>
+          </div>
+          <div class="composer-row">
+        <div class="composer-input-wrap">
+          <div class="composer-attachment hidden" id="composerAttachment" aria-live="polite">
+            <img id="composerAttachmentPreview" alt="粘贴的截图预览" />
+            <div class="composer-attachment-meta">
+              <span class="composer-attachment-label">已附加截图</span>
+              <span class="composer-attachment-name" id="composerAttachmentName"></span>
+            </div>
+            <button type="button" class="icon-btn composer-attachment-remove" id="clearAttachmentBtn" title="移除截图" aria-label="移除截图">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <textarea id="chatInput" rows="1" placeholder="说说想让我帮你做什么… 可 Ctrl+V 粘贴截图 · 输入 / 选技能"></textarea>
+          <div class="slash-menu hidden" id="slashMenu" role="listbox" aria-label="技能补全"></div>
+        </div>
+        <button class="primary-btn stop-btn hidden" id="stopBtn" title="停止生成">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        </button>
+        <button class="primary-btn send-btn" id="sendBtn" title="发送">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <footer class="status-bar" id="statusBar" aria-label="运行状态">
+    <div class="status-bar-inner">
+      <div class="status-group status-services" title="服务连接状态">
+        <span class="status-dot" id="statusApiDot" aria-hidden="true"></span>
+        <span class="status-text" id="statusApiText">API 离线</span>
+        <span class="status-divider" aria-hidden="true"></span>
+        <span class="status-dot" id="statusVisionDot" aria-hidden="true"></span>
+        <span class="status-text" id="statusVisionText">视觉 离线</span>
+      </div>
+      <div class="status-group" title="当前会话 Token 用量">
+        <svg class="status-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.2a5.8 5.8 0 1 1 0 11.6A5.8 5.8 0 0 1 8 2.2Zm-.3 2.5h.6v3.4l2.8 1.6-.3.5-3.1-1.8V4.7Z"/></svg>
+        <span class="status-text">tokens <strong id="statusTokens">0</strong></span>
+      </div>
+      <div class="status-group" title="定时任务数量">
+        <svg class="status-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3 2h10v1H3V2Zm0 3h10v1H3V5Zm0 3h6v1H3V8Zm0 3h4v1H3v-1Zm5 2h8v1H8v-1Z"/></svg>
+        <span class="status-text">定时 <strong id="statusTasks">0</strong></span>
+      </div>
+      <div class="status-group" title="默认操作文件夹">
+        <svg class="status-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1 1h5.5A1.5 1.5 0 0 1 14 5.5v6A1.5 1.5 0 0 1 12.5 13h-9A1.5 1.5 0 0 1 2 11.5v-7Z"/></svg>
+        <span class="status-text status-accent" id="statusWorkspace">workspace</span>
+      </div>
+      <div class="status-group" title="当前模型">
+        <svg class="status-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 4 3 8l2 4 2-4-2-4Zm6 0-2 4 2 4 2-4-2-4ZM8 6.5 7 9h2L8 6.5Z"/></svg>
+        <span class="status-text status-accent" id="statusModel">—</span>
+      </div>
+    </div>
+  </footer>
+
+  <div class="history-backdrop hidden" id="historyBackdrop"></div>
+  <aside class="history-drawer hidden" id="historyDrawer" aria-label="操作历史">
+    <header class="history-header">
+      <div>
+        <h3>操作历史</h3>
+        <p class="history-desc">查看刚才移动、整理、写入的文件</p>
+      </div>
+      <button class="icon-btn" id="closeHistoryBtn" title="关闭" aria-label="关闭">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M18 6L6 18M6 6l12 12"></path>
+        </svg>
+      </button>
+    </header>
+    <div class="history-filters">
+      <button type="button" class="history-filter active" data-history-filter="writes">文件操作</button>
+      <button type="button" class="history-filter" data-history-filter="all">全部</button>
+    </div>
+    <div class="history-advanced-filters">
+      <select id="historyToolFilter" aria-label="按工具筛选">
+        <option value="">全部工具</option>
+        <option value="move_file">移动文件</option>
+        <option value="write_text_file">写入文件</option>
+        <option value="download_file">联网下载</option>
+        <option value="organize_directory">整理目录</option>
+        <option value="create_docx">创建 Word</option>
+        <option value="create_pptx">创建 PPT</option>
+        <option value="run_powershell">PowerShell</option>
+        <option value="run_python">Python</option>
+      </select>
+      <select id="historyRiskFilter" aria-label="按风险筛选">
+        <option value="">全部风险</option>
+        <option value="read">只读</option>
+        <option value="write">文件</option>
+        <option value="exec">执行</option>
+      </select>
+      <select id="historyTriggerFilter" aria-label="按来源筛选">
+        <option value="">全部来源</option>
+        <option value="chat">对话</option>
+        <option value="scheduled">定时</option>
+      </select>
+    </div>
+    <div class="history-body" id="historyList"></div>
+    <p class="history-empty hidden" id="historyEmpty">暂无记录。完成一次文件整理后会出现在这里。</p>
+    <footer class="history-footer">
+      <button type="button" class="ghost-btn" id="exportHistoryJsonBtn">导出 JSON</button>
+      <button type="button" class="ghost-btn" id="exportHistoryCsvBtn">导出 CSV</button>
+      <button type="button" class="ghost-btn" id="clearHistoryBtn">清空历史</button>
+    </footer>
+  </aside>
+
+  <div class="modal hidden" id="onboardingModal">
+    <div class="onboarding-window">
+      <div class="onboarding-dots">
+        <span class="onboarding-dot active" data-step="0"></span>
+        <span class="onboarding-dot" data-step="1"></span>
+        <span class="onboarding-dot" data-step="2"></span>
+        <span class="onboarding-dot" data-step="3"></span>
+      </div>
+
+      <section class="onboarding-step active" data-step="0">
+        <h2>欢迎使用星期五</h2>
+        <p class="onboarding-desc">你的 AI 电脑管家，帮你整理文件、查看系统、生成文档。只需简单设置，即可开始。</p>
+        <div class="onboarding-actions">
+          <button type="button" class="primary-btn" id="onboardingStartBtn">开始设置</button>
+        </div>
+      </section>
+
+      <section class="onboarding-step" data-step="1">
+        <h2>连接 AI 服务</h2>
+        <p class="onboarding-desc">填写 DeepSeek API Key，用于驱动星期五的智能能力。</p>
+        <label class="onboarding-field">
+          <span>DeepSeek API Key</span>
+          <input type="password" id="onboardingApiKey" placeholder="sk-..." autocomplete="off" />
+          <small>还没有 Key？前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">DeepSeek 官网</a> 免费申请</small>
+        </label>
+        <div class="onboarding-actions">
+          <button type="button" class="ghost-btn" id="onboardingBackBtn1">上一步</button>
+          <button type="button" class="ghost-btn" id="onboardingTestBtn">测试连接</button>
+          <button type="button" class="primary-btn" id="onboardingApiNextBtn">下一步</button>
+        </div>
+        <div class="settings-result" id="onboardingApiResult"></div>
+      </section>
+
+      <section class="onboarding-step" data-step="2">
+        <h2>选择默认文件夹</h2>
+        <p class="onboarding-desc">星期五帮你整理文件、保存文档时优先使用的目录。你也可以直接说「下载文件夹」「桌面」。</p>
+        <label class="onboarding-field">
+          <span>文件夹路径</span>
+          <div class="workspace-row">
+            <input type="text" id="onboardingWorkspace" placeholder="例如 D:/Documents" />
+            <button type="button" class="ghost-btn" id="onboardingPickFolderBtn">选择…</button>
+          </div>
+        </label>
+        <div class="onboarding-actions">
+          <button type="button" class="ghost-btn" id="onboardingBackBtn2">上一步</button>
+          <button type="button" class="primary-btn" id="onboardingFolderNextBtn">下一步</button>
+        </div>
+        <div class="settings-result" id="onboardingFolderResult"></div>
+      </section>
+
+      <section class="onboarding-step" data-step="3">
+        <h2>一切就绪</h2>
+        <p class="onboarding-desc">星期五已经准备好了。试试说「帮我查电脑状态」或「整理下载文件夹」吧。</p>
+        <div class="onboarding-actions">
+          <button type="button" class="primary-btn" id="onboardingFinishBtn">开始使用</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="settingsModal">
+    <div class="settings-window">
+      <header class="settings-header">
+        <h3>设置</h3>
+        <button class="icon-btn" id="closeSettingsBtn" title="关闭" aria-label="关闭">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M18 6L6 18M6 6l12 12"></path>
+          </svg>
+        </button>
+      </header>
+      <div class="settings-body">
+        <nav class="settings-nav">
+          <button class="settings-nav-item active" data-panel="api">API 连接</button>
+          <button class="settings-nav-item" data-panel="workspace">文件夹</button>
+          <button class="settings-nav-item" data-panel="general">通用</button>
+          <button class="settings-nav-item" data-panel="extensions">扩展</button>
+          <button class="settings-nav-item" data-panel="schedules">定时任务</button>
+        </nav>
+        <div class="settings-content">
+          <section class="settings-section active" id="panel-api">
+            <h4>API 连接</h4>
+            <p class="settings-desc">配置 DeepSeek 大模型接口，无需编辑后台文件。</p>
+            <form class="settings-form" id="settingsForm">
+              <label>
+                <span>DeepSeek API Key</span>
+                <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
+                <small id="apiKeyHint">留空则保留已保存的 Key</small>
+              </label>
+              <label>
+                <span>API Base URL</span>
+                <input type="text" id="baseUrl" placeholder="https://api.deepseek.com" />
+              </label>
+              <label>
+                <span>模型</span>
+                <select id="model">
+                  <option value="deepseek-v4-flash">deepseek-v4-flash（推荐，便宜快）</option>
+                  <option value="deepseek-v4-pro">deepseek-v4-pro（复杂推理）</option>
+                  <option value="deepseek-chat">deepseek-chat（兼容旧名）</option>
+                </select>
+              </label>
+              <div class="settings-actions-bar">
+                <div class="settings-actions-left">
+                  <span class="status-pill" id="apiStatus">API 未配置</span>
+                  <button type="button" class="ghost-btn" id="testBtn">测试连接</button>
+                </div>
+                <button type="submit" class="primary-btn">保存</button>
+              </div>
+              <div class="settings-result" id="settingsResult"></div>
+            </form>
+            <div class="settings-group vision-group">
+              <h5>视觉辅助模型（豆包 / Ark）</h5>
+              <p class="settings-hint">
+                DeepSeek 无法直接识图。启用后，星期五会通过豆包等多模态 API 将图片转为文字描述再回答。
+                「视觉模型/端点」请填火山引擎推理接入点 ID（如 <code>ep-2026…</code>），不是裸模型名。
+              </p>
+              <form class="settings-form" id="visionForm">
+                <label class="settings-check">
+                  <input type="checkbox" id="visionEnabled" />
+                  <span>启用视觉辅助</span>
+                </label>
+                <label>
+                  <span>豆包 / Ark API Key</span>
+                  <input type="password" id="visionApiKey" placeholder="ark-..." autocomplete="off" />
+                  <small id="visionApiKeyHint">留空则保留已保存的 Key</small>
+                </label>
+                <label>
+                  <span>视觉 API Base URL</span>
+                  <input type="text" id="visionBaseUrl" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
+                </label>
+                <label>
+                  <span>视觉模型 / 推理端点</span>
+                  <input type="text" id="visionModel" placeholder="ep-20260101xxxxxx-yyy" />
+                </label>
+                <div class="settings-actions-bar">
+                  <div class="settings-actions-left">
+                    <span class="status-pill" id="visionStatus">视觉辅助未配置</span>
+                    <button type="button" class="ghost-btn" id="testVisionBtn">测试视觉 API</button>
+                  </div>
+                  <button type="submit" class="primary-btn">保存视觉设置</button>
+                </div>
+                <div class="settings-result" id="visionResult"></div>
+              </form>
+            </div>
+          </section>
+          <section class="settings-section" id="panel-workspace">
+            <h4>默认操作文件夹</h4>
+            <p class="settings-desc">星期五帮你整理文件、保存文档时优先使用的目录。你也可以直接说「下载文件夹」「桌面」等。</p>
+            <form class="settings-form" id="workspaceForm">
+              <label>
+                <span>文件夹路径</span>
+                <div class="workspace-row">
+                  <input type="text" id="workspace" placeholder="例如 D:/Documents" />
+                  <button type="button" class="ghost-btn" id="pickWorkspaceBtn">选择…</button>
+                </div>
+              </label>
+              <div class="settings-actions">
+                <button type="submit" class="primary-btn">保存</button>
+              </div>
+              <div class="settings-result" id="workspaceResult"></div>
+            </form>
+            <div class="settings-subsection" id="pythonEnvSection">
+              <h5>Agent Python 环境</h5>
+              <p class="settings-hint">
+                在工作区创建独立虚拟环境 <code>.python-env</code>，供星期五执行复杂 Python 任务（pandas、绘图、批量处理等），与应用自身环境分离。
+              </p>
+              <div class="python-env-status" id="pythonEnvStatus">加载中…</div>
+              <div class="settings-actions">
+                <button type="button" class="ghost-btn" id="refreshPythonEnvBtn">刷新状态</button>
+                <button type="button" class="primary-btn" id="setupPythonEnvBtn">初始化 Python 环境</button>
+              </div>
+              <div class="settings-result" id="pythonEnvResult"></div>
+            </div>
+          </section>
+          <section class="settings-section" id="panel-general">
+            <h4>通用</h4>
+            <p class="settings-desc">界面外观与阅读体验，保存后立即生效。</p>
+            <form class="settings-form" id="generalForm">
+              <label>
+                <span>主题</span>
+                <select id="themeMode">
+                  <option value="dark">深色（夜间）</option>
+                  <option value="light">浅色（日间）</option>
+                  <option value="system">跟随系统</option>
+                </select>
+              </label>
+              <label>
+                <span>字体大小</span>
+                <select id="fontSize">
+                  <option value="small">小</option>
+                  <option value="medium">标准</option>
+                  <option value="large">大</option>
+                </select>
+              </label>
+              <label>
+                <span>默认交互模式</span>
+                <select id="interactionModeDefault">
+                  <option value="ask">Ask · 只读问答</option>
+                  <option value="agent">Agent · 确认后执行</option>
+                  <option value="yolo">Yolo · 确认一次后自动</option>
+                </select>
+                <small>输入框上方可随时切换；此处为启动时的默认模式</small>
+              </label>
+              <div class="settings-actions">
+                <button type="submit" class="primary-btn">保存</button>
+              </div>
+              <div class="settings-result" id="generalResult"></div>
+              <div class="settings-group diagnostics-group">
+                <h5>诊断</h5>
+                <p class="settings-hint">应用数据与日志保存在 <code id="appdataPathHint">%APPDATA%\Friday</code></p>
+                <div class="settings-actions">
+                  <button type="button" class="ghost-btn" id="openLogFolderBtn">打开日志文件夹</button>
+                  <button type="button" class="ghost-btn" id="refreshLogPreviewBtn">刷新日志摘要</button>
+                </div>
+                <pre class="log-preview" id="logPreview">（暂无日志）</pre>
+              </div>
+              <div class="settings-group update-group">
+                <h5>版本与更新</h5>
+                <p class="settings-hint">
+                  当前版本 <strong id="appVersionLabel">—</strong>
+                  · 更新源 <a id="updateSourceLink" href="https://github.com/Bxxxboo/friday" target="_blank" rel="noopener">GitHub Releases</a>
+                </p>
+                <div class="settings-actions">
+                  <button type="button" class="ghost-btn" id="checkUpdateBtn">检查更新</button>
+                  <a class="ghost-btn hidden" id="downloadUpdateLink" href="#" target="_blank" rel="noopener">下载新版本</a>
+                </div>
+                <div class="settings-result" id="updateResult"></div>
+              </div>
+              <p class="settings-advanced-entry">
+                <button type="button" class="link-btn" id="openAdvancedSecurityBtn">高级安全设置</button>
+              </p>
+            </form>
+          </section>
+          <section class="settings-section" id="panel-extensions">
+            <h4>扩展</h4>
+            <p class="settings-desc">管理技能模板、行为规则，或从 GitHub 安装插件包（自动应用 skill 与 rule）。</p>
+
+            <div class="ext-tabs">
+              <button type="button" class="ext-tab active" data-ext-tab="skills">技能</button>
+              <button type="button" class="ext-tab" data-ext-tab="rules">规则</button>
+              <button type="button" class="ext-tab" data-ext-tab="plugins">插件</button>
+            </div>
+
+            <div class="ext-panel" data-ext-panel="skills">
+              <p class="settings-hint">技能会出现在欢迎页快捷按钮和输入框 <code>/</code> 补全中。</p>
+              <div id="skillManageList" class="skill-manage-list"></div>
+              <form class="settings-form" id="skillForm">
+                <label>
+                  <span>名称</span>
+                  <input type="text" id="skillLabel" placeholder="例如：备份桌面" required />
+                </label>
+                <label>
+                  <span>图标（emoji）</span>
+                  <input type="text" id="skillIcon" value="✨" maxlength="4" />
+                </label>
+                <label>
+                  <span>指令内容</span>
+                  <textarea id="skillPrompt" rows="3" placeholder="告诉星期五要做什么…" required></textarea>
+                </label>
+                <div class="settings-actions">
+                  <button type="submit" class="primary-btn">添加技能</button>
+                </div>
+              </form>
+              <div class="settings-result" id="skillResult"></div>
+            </div>
+
+            <div class="ext-panel hidden" data-ext-panel="rules">
+              <p class="settings-hint">规则会写入 AI 系统提示，用于定制语气、流程与偏好（始终生效）。</p>
+              <div id="ruleManageList" class="rule-manage-list"></div>
+              <form class="settings-form" id="ruleForm">
+                <label>
+                  <span>规则标题</span>
+                  <input type="text" id="ruleTitle" placeholder="例如：简洁回复" required />
+                </label>
+                <label>
+                  <span>规则内容</span>
+                  <textarea id="ruleContent" rows="3" placeholder="描述星期五应遵守的行为…" required></textarea>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="ruleAlwaysApply" checked />
+                  <span>始终应用此规则</span>
+                </label>
+                <div class="settings-actions">
+                  <button type="submit" class="primary-btn">添加规则</button>
+                </div>
+              </form>
+              <div class="settings-result" id="ruleResult"></div>
+            </div>
+
+            <div class="ext-panel hidden" data-ext-panel="plugins">
+              <p class="settings-hint">
+                插件是 GitHub 仓库中的 <code>friday-plugin.json</code>，包含技能与规则。
+                格式示例见项目 <code>extensions/demo-office/</code>。
+              </p>
+              <div id="pluginCatalog" class="plugin-catalog"></div>
+              <div class="plugin-install-row">
+                <input type="text" id="pluginSourceInput" placeholder="owner/repo 或 owner/repo@分支 或 GitHub 链接" />
+                <button type="button" class="primary-btn" id="pluginInstallBtn">从 GitHub 安装</button>
+              </div>
+              <div id="pluginList" class="plugin-list"></div>
+              <div class="settings-result" id="pluginResult"></div>
+            </div>
+          </section>
+          <section class="settings-section" id="panel-schedules">
+            <h4>定时任务</h4>
+            <p class="settings-desc">让星期五在指定时间自动执行指令，例如「每周五整理下载文件夹」。需保持应用运行。</p>
+
+            <label class="settings-check schedule-auto-approve">
+              <input type="checkbox" id="autoApproveScheduledWrites" />
+              <span>定时任务自动批准文件修改（无人值守时写入、移动、整理无需手动确认）</span>
+            </label>
+            <p class="settings-hint schedule-auto-approve-hint">默认关闭。开启后定时任务可在你不在电脑旁时自动修改文件，请仅在信任的任务上启用。</p>
+
+            <div class="schedule-toolbar">
+              <button type="button" class="primary-btn" id="scheduleNewBtn">新建任务</button>
+              <button type="button" class="ghost-btn" id="schedulePresetBtn">每周五整理下载</button>
+            </div>
+
+            <div class="schedule-list" id="scheduleList"></div>
+            <p class="schedule-empty hidden" id="scheduleEmpty">还没有定时任务。试试「每周五整理下载」快速创建。</p>
+
+            <div class="schedule-form-wrap hidden" id="scheduleFormWrap">
+              <h5 id="scheduleFormTitle">新建定时任务</h5>
+              <form class="settings-form" id="scheduleForm">
+                <label>
+                  <span>任务名称</span>
+                  <input type="text" id="scheduleTitle" placeholder="例如：每周五整理下载" required />
+                </label>
+                <label>
+                  <span>任务指令</span>
+                  <textarea id="schedulePrompt" rows="3" placeholder="告诉星期五要做什么…" required></textarea>
+                </label>
+                <div class="schedule-form-row">
+                  <label>
+                    <span>频率</span>
+                    <select id="scheduleFrequency">
+                      <option value="weekly">每周</option>
+                      <option value="daily">每天</option>
+                      <option value="interval">固定间隔</option>
+                      <option value="cron">Cron 表达式</option>
+                    </select>
+                  </label>
+                  <label id="scheduleDayRow">
+                    <span>星期</span>
+                    <select id="scheduleDayOfWeek">
+                      <option value="0">周一</option>
+                      <option value="1">周二</option>
+                      <option value="2">周三</option>
+                      <option value="3">周四</option>
+                      <option value="4" selected>周五</option>
+                      <option value="5">周六</option>
+                      <option value="6">周日</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="schedule-form-row" id="scheduleTimeRow">
+                  <label>
+                    <span>时</span>
+                    <input type="number" id="scheduleHour" min="0" max="23" value="9" />
+                  </label>
+                  <label>
+                    <span>分</span>
+                    <input type="number" id="scheduleMinute" min="0" max="59" value="0" />
+                  </label>
+                </div>
+                <label id="scheduleIntervalRow" class="hidden">
+                  <span>间隔（小时）</span>
+                  <input type="number" id="scheduleIntervalHours" min="1" max="168" value="6" />
+                </label>
+                <label id="scheduleCronRow" class="hidden">
+                  <span>Cron 表达式</span>
+                  <input type="text" id="scheduleCronExpr" placeholder="0 9 * * 5（分 时 日 月 周）" />
+                  <small class="settings-hint">示例：每天 9:00 为 <code>0 9 * * *</code>，每周五 9:00 为 <code>0 9 * * 5</code></small>
+                </label>
+                <div class="schedule-form-row">
+                  <label class="settings-check">
+                    <input type="checkbox" id="scheduleRetryOnFailure" checked />
+                    <span>失败后自动重试</span>
+                  </label>
+                  <label>
+                    <span>最大重试次数</span>
+                    <input type="number" id="scheduleMaxRetries" min="0" max="5" value="1" />
+                  </label>
+                </div>
+                <label class="settings-check">
+                  <input type="checkbox" id="scheduleEnabled" checked />
+                  <span>启用此任务</span>
+                </label>
+                <div class="settings-actions">
+                  <button type="button" class="ghost-btn" id="scheduleCancelBtn">取消</button>
+                  <button type="submit" class="primary-btn">保存任务</button>
+                </div>
+              </form>
+            </div>
+            <div class="settings-result" id="scheduleResult"></div>
+          </section>
+          <section class="settings-section" id="panel-security">
+            <button type="button" class="link-btn settings-back-link hidden" id="securityBackBtn">← 返回通用设置</button>
+            <h4>高级安全设置</h4>
+            <p class="settings-desc">限制 AI 访问与修改文件的范围与方式，防止误操作。建议保持「仅限默认文件夹」开启。</p>
+            <form class="settings-form" id="securityForm">
+              <div class="settings-group">
+                <h5>路径与审批</h5>
+                <label class="settings-check">
+                  <input type="checkbox" id="restrictToWorkspace" />
+                  <span>文件访问仅限默认操作文件夹（读取、搜索、写入、移动等；联网下载到用户指定路径如 E 盘不受此限）</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="approveOncePerTurn" checked />
+                  <span>当前对话只需确认一次（大文件、非官方下载仍单独确认；新建对话后重新计数）</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="requireApprovalWrites" />
+                  <span>修改文件、联网下载或剪贴板前需我批准（写入、移动、整理、创建文档、下载文件、写入剪贴板）</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="requireApprovalExec" />
+                  <span>执行 PowerShell / Python 前需我批准</span>
+                </label>
+              </div>
+              <div class="settings-group">
+                <h5>允许使用的工具</h5>
+                <p class="settings-hint">取消勾选将完全禁用对应能力，AI 无法调用。</p>
+                <label class="settings-check">
+                  <input type="checkbox" id="allowWriteFiles" />
+                  <span>允许写入文本文件</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="allowMoveFiles" />
+                  <span>允许移动 / 重命名文件</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="allowOrganize" />
+                  <span>允许整理目录</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="allowCreateDocuments" />
+                  <span>允许创建 Word / PPT 文档</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="allowPowershell" />
+                  <span>允许执行 PowerShell 命令</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="allowPython" />
+                  <span>允许执行 Python 代码（工作区 .python-env）</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="allowWebBrowse" />
+                  <span>允许浏览网页（查找下载链接、阅读公开页面）</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="allowDownloads" />
+                  <span>允许联网下载文件到本地</span>
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="requireTrustedDownloads" checked />
+                  <span>仅允许官方/可信来源下载（TLS 校验 + 官方域名库；非官方需额外确认）</span>
+                </label>
+              </div>
+              <div class="settings-actions">
+                <button type="button" class="ghost-btn" id="applyStrictPresetBtn">应用严格预设</button>
+                <button type="submit" class="primary-btn">保存</button>
+              </div>
+              <div class="settings-result" id="securityResult"></div>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="yoloUnlockModal" aria-modal="true" role="dialog" aria-labelledby="yoloUnlockTitle">
+    <div class="modal-card yolo-unlock-card">
+      <h3 id="yoloUnlockTitle">开启 Yolo 模式</h3>
+      <p class="modal-summary">
+        确认后，<strong>当前对话</strong>内在默认操作文件夹中的写入、删除、执行命令、下载等操作将<strong>自动执行</strong>，不再反复弹出确认。
+      </p>
+      <ul class="yolo-unlock-list">
+        <li>路径限制在工作区（联网下载到指定盘符除外）</li>
+        <li>切换回 Agent/Ask 或新建对话后需重新确认</li>
+        <li>仍会被安全策略拦截的危险操作不会执行</li>
+      </ul>
+      <div class="modal-actions">
+        <button type="button" class="ghost-btn" id="yoloUnlockCancel">取消</button>
+        <button type="button" class="primary-btn" id="yoloUnlockConfirm">确认开启</button>
+      </div>
+    </div>
+  </div>
+
+  <script defer src="/static/vendor/marked.min.js"></script>
+  <script defer src="/static/vendor/purify.min.js"></script>
+  <script defer src="/static/utils.js?v=53"></script>
+  <script defer src="/static/sessions.js?v=51"></script>
+  <script defer src="/static/settings.js?v=54"></script>
+  <script defer src="/static/onboarding.js?v=51"></script>
+  <script defer src="/static/skills.js?v=51"></script>
+  <script defer src="/static/extensions.js?v=51"></script>
+  <script defer src="/static/history.js?v=51"></script>
+  <script defer src="/static/schedules.js?v=51"></script>
+  <script defer src="/static/mode.js?v=51"></script>
+  <script defer src="/static/statusbar.js?v=52"></script>
+  <script defer src="/static/chat.js?v=53"></script>
+  <script defer src="/static/app.js?v=51"></script>
+</body>
+</html>

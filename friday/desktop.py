@@ -1,0 +1,288 @@
+from __future__ import annotations
+
+import os
+import secrets
+import shutil
+import sys
+import threading
+import urllib.error
+import urllib.request
+
+from friday.logging_config import setup_logging
+from friday.net import find_free_port
+from friday.paths import app_icon_path, get_appdata_dir, stable_icon_path
+from friday.splash import blank_html, resolved_boot_theme, splash_background
+from friday.storage import load_settings
+
+_log = None  # 在 main() 中赋值
+_startup_state: dict[str, int | str | None] = {"port": None, "token": None}
+
+
+def _enable_dpi_awareness() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)):
+            return
+    except (AttributeError, OSError):
+        pass
+    try:
+        import ctypes
+
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except (AttributeError, OSError):
+        try:
+            import ctypes
+
+            ctypes.windll.user32.SetProcessDPIAware()
+        except OSError:
+            pass
+
+
+def _set_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Friday.AIDesktop.2")
+    except (AttributeError, OSError):
+        pass
+
+
+def _resolve_icon_path() -> str | None:
+    src = app_icon_path()
+    if not src.is_file():
+        return None
+    try:
+        dest = stable_icon_path()
+        shutil.copy2(src, dest)
+        return str(dest.resolve())
+    except OSError:
+        return str(src.resolve())
+
+
+class WindowApi:
+    def __init__(self) -> None:
+        self._window = None
+
+    def bind(self, window) -> None:
+        self._window = window
+
+    def is_maximized(self) -> bool:
+        if self._window:
+            return bool(self._window.maximized)
+        return False
+
+    def minimize_window(self) -> None:
+        if self._window:
+            self._window.minimize()
+
+    def maximize_window(self) -> None:
+        if self._window:
+            self._window.maximize()
+
+    def restore_window(self) -> None:
+        if self._window:
+            self._window.restore()
+
+    def close_window(self) -> None:
+        if self._window:
+            self._window.destroy()
+
+    def pick_folder(self, initial: str = "") -> str:
+        if not self._window:
+            return ""
+        try:
+            import webview
+
+            directory = initial if initial and os.path.isdir(initial) else ""
+            result = self._window.create_file_dialog(
+                webview.FileDialog.FOLDER,
+                directory=directory,
+                allow_multiple=False,
+            )
+            if result:
+                return str(result[0]).replace("\\", "/")
+            return ""
+        except Exception:
+            if _log:
+                _log.exception("打开文件夹选择对话框失败")
+            return ""
+
+    def open_appdata_folder(self) -> bool:
+        """在资源管理器中打开 %APPDATA%/Friday。"""
+        try:
+            import subprocess
+
+            path = get_appdata_dir()
+            if sys.platform == "win32":
+                os.startfile(str(path))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+            return True
+        except Exception:
+            if _log:
+                _log.exception("打开日志文件夹失败")
+            return False
+
+
+def _startup_failure_html(title: str, message: str) -> str:
+    log_dir = str(get_appdata_dir()).replace("\\", "/")
+    return (
+        f"<body style='font-family:sans-serif;padding:24px;line-height:1.6'>"
+        f"<h3>{title}</h3><p>{message}</p>"
+        f"<p>日志目录：<code>{log_dir}</code></p>"
+        f"<p>请打开上述文件夹，查看 <strong>friday.log</strong> 获取详细错误。</p>"
+        f"</body>"
+    )
+
+
+def wait_for_server(port: int, timeout: float = 45.0) -> bool:
+    import json
+    import time
+
+    deadline = time.time() + timeout
+    url = f"http://127.0.0.1:{port}/api/health"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=0.8) as resp:
+                if resp.status != 200:
+                    time.sleep(0.05)
+                    continue
+                body = json.loads(resp.read().decode("utf-8"))
+                if body.get("status") == "ok":
+                    return True
+        except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError):
+            time.sleep(0.05)
+    return False
+
+
+def _prepare_backend() -> None:
+    import uvicorn
+
+    try:
+        port = find_free_port()
+        token = secrets.token_hex(32)
+        os.environ["FRIDAY_API_TOKEN"] = token
+        from friday.auth import set_api_token
+
+        set_api_token(token)
+        _startup_state["port"] = port
+        _startup_state["token"] = token
+
+        from friday.server import app
+
+        _log.info("启动后端服务 port=%d", port)
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    except Exception:
+        _log.exception("后端线程异常")
+
+
+def main() -> None:
+    global _log
+    setup_logging()
+    from friday.logging_config import get_logger
+
+    _log = get_logger("desktop")
+
+    _enable_dpi_awareness()
+    os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
+    os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
+    _set_windows_app_id()
+
+    settings = load_settings()
+    boot_theme = resolved_boot_theme(settings)
+    splash_bg = splash_background(settings)
+
+    import webview
+
+    _log.info("创建启动窗口")
+    window_api = WindowApi()
+    window = webview.create_window(
+        title="星期五",
+        html=blank_html(settings),
+        width=980,
+        height=720,
+        min_size=(820, 600),
+        background_color=splash_bg,
+        frameless=True,
+        easy_drag=False,
+        text_select=True,
+        zoomable=False,
+        js_api=window_api,
+    )
+    window_api.bind(window)
+
+    icon_holder: dict[str, str | None] = {"path": None}
+
+    def _load_icon() -> None:
+        icon_holder["path"] = _resolve_icon_path()
+
+    def _open_main_app() -> None:
+        import time
+
+        deadline = time.time() + 45.0
+        while _startup_state["port"] is None and time.time() < deadline:
+            time.sleep(0.05)
+
+        port = _startup_state["port"]
+        if port is None:
+            _log.error("后端未能分配端口")
+            window.load_html(_startup_failure_html("星期五启动失败", "后端初始化超时。"))
+            return
+
+        if wait_for_server(port):
+            token = _startup_state.get("token") or ""
+            main_url = f"http://127.0.0.1:{port}/?desktop=1&boot={boot_theme}"
+            _log.info("后端就绪 port=%d，加载主界面", port)
+            try:
+                with urllib.request.urlopen(main_url, timeout=5.0) as resp:
+                    resp.read()
+            except (urllib.error.URLError, TimeoutError, OSError):
+                pass
+            window.load_url(main_url)
+            try:
+                from friday.scheduler import start_scheduler
+
+                start_scheduler()
+            except Exception:
+                _log.exception("定时调度器启动失败")
+        else:
+            _log.error("后端启动失败 port=%d", port)
+            window.load_html(
+                _startup_failure_html(
+                    "星期五启动失败",
+                    "后端未响应，请检查端口是否被占用。",
+                )
+            )
+
+    def _on_gui_start() -> None:
+        # 窗口先显示纯色背景，再启动后端
+        threading.Thread(target=_load_icon, daemon=True).start()
+        threading.Thread(target=_prepare_backend, daemon=True).start()
+        threading.Thread(target=_open_main_app, daemon=True).start()
+
+    webview_dir = get_appdata_dir() / "webview2"
+    webview_dir.mkdir(parents=True, exist_ok=True)
+
+    start_kwargs: dict = {
+        "gui": "edgechromium",
+        "func": _on_gui_start,
+        "private_mode": False,
+        "storage_path": str(webview_dir),
+    }
+    if icon_holder["path"]:
+        start_kwargs["icon"] = icon_holder["path"]
+    elif (path := _resolve_icon_path()):
+        start_kwargs["icon"] = path
+
+    webview.start(**start_kwargs)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,32 @@
+{
+  "id": "vision-bridge",
+  "name": "Vision Bridge 图片识别",
+  "version": "1.0.0",
+  "description": "通过豆包/Ark 视觉模型辅助 DeepSeek 理解截图与图片（describe_image 工具）。",
+  "author": "Reasonix / Friday",
+  "skills": [
+    {
+      "id": "describe-screen",
+      "label": "看懂截图",
+      "icon": "👁️",
+      "category": "plugin",
+      "prompt": "请先用 screenshot 截屏（或指定图片路径），再用 describe_image 分析图片内容，然后根据描述回答我的问题。"
+    },
+    {
+      "id": "read-image-file",
+      "label": "识别图片文件",
+      "icon": "🖼️",
+      "category": "plugin",
+      "prompt": "我会给你一张图片的路径。请用 describe_image 读取并描述图片，再告诉我你看到了什么。"
+    }
+  ],
+  "rules": [
+    {
+      "id": "use-vision-bridge",
+      "title": "图片必走视觉桥接",
+      "content": "用户提到图片、截图、界面、照片时，必须先调用 describe_image（或先 screenshot 再 describe_image），不要假装能直接看见图片。",
+      "enabled": true,
+      "always_apply": true
+    }
+  ]
+}
