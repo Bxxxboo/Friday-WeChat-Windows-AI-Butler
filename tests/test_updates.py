@@ -28,9 +28,9 @@ def test_pick_download_prefers_windows_zip():
 def test_check_updates_no_repo_override(monkeypatch):
     monkeypatch.delenv("FRIDAY_GITHUB_REPO", raising=False)
     payload = {
-        "tag_name": "v1.0.1",
+        "tag_name": "v1.0.2",
         "body": "fix",
-        "html_url": "https://github.com/o/r/releases/tag/v1.0.1",
+        "html_url": "https://github.com/o/r/releases/tag/v1.0.2",
         "assets": [{"name": "Friday-Windows.zip", "browser_download_url": "https://x/a.zip"}],
     }
 
@@ -52,5 +52,5 @@ def test_check_updates_no_repo_override(monkeypatch):
     assert info.checked is True
     assert info.source_repo == GITHUB_REPO
     assert info.update_available is True
-    assert info.latest == "1.0.1"
+    assert info.latest == "1.0.2"
     assert info.download_url == "https://x/a.zip"

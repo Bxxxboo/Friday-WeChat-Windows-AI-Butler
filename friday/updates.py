@@ -62,8 +62,11 @@ def _pick_download_url(data: dict) -> str:
 
 
 def check_for_updates(repo: str | None = None) -> UpdateInfo:
-    repo = (repo or _DEFAULT_REPO).strip()
     current = __version__
+    if repo is None:
+        repo = _DEFAULT_REPO.strip()
+    else:
+        repo = repo.strip()
     source_url = f"https://github.com/{repo}" if repo else GITHUB_HOME
     if not repo:
         return UpdateInfo(
