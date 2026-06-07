@@ -35,7 +35,12 @@ if (-not $GiteeToken) {
 }
 
 $Headers = @{ Authorization = "token $GiteeToken" }
-$Check = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$GiteeUser/$RepoName" -Headers $Headers -ErrorAction SilentlyContinue
+$Check = $null
+try {
+    $Check = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$GiteeUser/$RepoName" -Headers $Headers
+} catch {
+    if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw }
+}
 if (-not $Check) {
     Write-Host "Creating Gitee repo $RepoName ..." -ForegroundColor Cyan
     $Body = @{
