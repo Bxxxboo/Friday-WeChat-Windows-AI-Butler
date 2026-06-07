@@ -140,6 +140,7 @@ class SettingsPayload(BaseModel):
     auto_approve_scheduled_writes: bool | None = None
     approve_once_per_turn: bool | None = None
     interaction_mode: str | None = None
+    ui_language: str | None = None
     vision_api_key: str = ""
     vision_base_url: str = ""
     vision_model: str = ""
@@ -169,6 +170,7 @@ class SettingsResponse(BaseModel):
     auto_approve_scheduled_writes: bool
     approve_once_per_turn: bool
     interaction_mode: str
+    ui_language: str = "zh"
     vision_api_key_masked: str
     vision_base_url: str
     vision_model: str
@@ -710,6 +712,7 @@ def _to_response(cfg: UserSettings) -> SettingsResponse:
         auto_approve_scheduled_writes=cfg.auto_approve_scheduled_writes,
         approve_once_per_turn=cfg.approve_once_per_turn,
         interaction_mode=cfg.interaction_mode,
+        ui_language=getattr(cfg, "ui_language", "zh") or "zh",
         vision_api_key_masked=masked_vision_key(cfg),
         vision_base_url=cfg.vision_base_url,
         vision_model=cfg.vision_model,

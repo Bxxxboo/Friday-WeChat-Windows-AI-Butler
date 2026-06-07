@@ -67,7 +67,7 @@
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "新对话" }),
+        body: JSON.stringify({ title: F.t?.("chat.title.default") || "新对话" }),
       },
       15000
     );

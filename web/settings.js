@@ -11,11 +11,19 @@
 
   /* ── 主题 / UI 偏好 ── */
 
-  function cacheUiPrefs(theme, fontSize) {
+  function cacheUiPrefs(theme, fontSize, uiLanguage) {
     localStorage.setItem(
       "friday_ui_prefs",
-      JSON.stringify({ theme, font_size: fontSize })
+      JSON.stringify({
+        theme,
+        font_size: fontSize,
+        ui_language: uiLanguage || window.FridayI18n?.getLanguage?.() || "zh",
+      })
     );
+  }
+
+  function t(key, params) {
+    return window.FridayI18n?.t?.(key, params) ?? key;
   }
 
   function resolveTheme(mode) {
@@ -49,7 +57,9 @@
   function applyUiSettings(data) {
     applyTheme(data.theme || "dark");
     applyFontSize(data.font_size || "medium");
-    cacheUiPrefs(data.theme || "dark", data.font_size || "medium");
+    const lang = data.ui_language || "zh";
+    window.FridayI18n?.setLanguage?.(lang);
+    cacheUiPrefs(data.theme || "dark", data.font_size || "medium", lang);
   }
 
   /* ── 安全表单 ── */
@@ -132,6 +142,8 @@
     if (visionEnabled) updateVisionStatus(data.vision_ready, data.vision_enabled);
     document.getElementById("themeMode").value = data.theme || "dark";
     document.getElementById("fontSize").value = data.font_size || "medium";
+    const langEl = document.getElementById("uiLanguage");
+    if (langEl) langEl.value = data.ui_language || "zh";
     const modeDefault = document.getElementById("interactionModeDefault");
     if (modeDefault) modeDefault.value = data.interaction_mode || "agent";
     F.setInteractionMode?.(data.interaction_mode || "agent", { persist: false, skipYoloGate: true });
@@ -250,8 +262,9 @@
   async function saveAppearanceSettings(event) {
     event.preventDefault();
     F.appearanceResult.className = "settings-result";
-    F.appearanceResult.textContent = "保存中...";
+    F.appearanceResult.textContent = t("appearance.saving");
     const payload = {
+      ui_language: document.getElementById("uiLanguage")?.value || "zh",
       theme: document.getElementById("themeMode").value,
       font_size: document.getElementById("fontSize").value,
       interaction_mode: document.getElementById("interactionModeDefault")?.value || "agent",
@@ -265,7 +278,7 @@
     applyUiSettings(data);
     F.setInteractionMode?.(data.interaction_mode || payload.interaction_mode, { persist: false });
     F.appearanceResult.className = "settings-result ok";
-    F.appearanceResult.textContent = "外观设置已保存。";
+    F.appearanceResult.textContent = t("appearance.saved");
   }
 
   async function saveSecuritySettings(event) {
@@ -411,7 +424,7 @@
         pathHint.textContent = data.path.replace(/[/\\]friday\.log$/i, "");
       }
       const lines = data.lines || [];
-      preview.textContent = lines.length ? lines.join("\n") : "（暂无日志）";
+      preview.textContent = lines.length ? lines.join("\n") : t("logs.empty");
     } catch {
       preview.textContent = "无法读取日志，请稍后重试。";
     }
@@ -423,7 +436,7 @@
       await window.pywebview.api.open_appdata_folder();
       if (resultEl) {
         resultEl.className = "settings-result ok";
-        resultEl.textContent = "已打开日志文件夹。";
+        resultEl.textContent = t("logs.opened");
       }
       return;
     }
@@ -444,6 +457,7 @@
 
   /* ── 挂载 ── */
 
+  F.t = t;
   F.cacheUiPrefs = cacheUiPrefs;
   F.resolveTheme = resolveTheme;
   F.applyTheme = applyTheme;
@@ -546,7 +560,7 @@
     const sourceLink = document.getElementById("updateSourceLink");
     if (resultEl) {
       resultEl.className = "settings-result";
-      resultEl.textContent = "正在检查…";
+      resultEl.textContent = t("updates.checking");
     }
     try {
       const res = await F.apiFetch("/api/updates/check");
@@ -559,7 +573,7 @@
       if (data.update_available) {
         if (resultEl) {
           resultEl.className = "settings-result ok";
-          resultEl.textContent = `发现新版本 ${data.latest}（当前 ${data.current}）`;
+          resultEl.textContent = t("updates.found", { latest: data.latest, current: data.current });
         }
         if (downloadLink && data.download_url) {
           downloadLink.href = data.download_url;
@@ -575,7 +589,7 @@
       } else {
         if (resultEl) {
           resultEl.className = "settings-result ok";
-          resultEl.textContent = `已是最新版本 ${data.current}`;
+          resultEl.textContent = t("updates.latest", { version: data.current });
         }
         downloadLink?.classList.add("hidden");
       }
@@ -589,7 +603,7 @@
     } catch {
       if (resultEl) {
         resultEl.className = "settings-result error";
-        resultEl.textContent = "检查更新失败";
+        resultEl.textContent = t("updates.fail");
       }
     }
   }

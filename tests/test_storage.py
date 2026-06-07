@@ -28,3 +28,7 @@ def test_settings_persist_fields(tmp_appdata):
 
 def test_settings_default_auto_approve_scheduled_writes():
     assert UserSettings().auto_approve_scheduled_writes is False
+
+
+def test_settings_default_ui_language():
+    assert UserSettings().ui_language == "zh"

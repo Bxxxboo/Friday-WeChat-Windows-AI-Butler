@@ -45,7 +45,16 @@ if (-not $SkipGithubRelease) {
     Write-Host ""
     Write-Host "=== 3/3 GitHub Release (备用) ===" -ForegroundColor Cyan
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        Write-Host "gh CLI not found; skip GitHub Release (Gitee already published)." -ForegroundColor Yellow
+        if ($env:GITHUB_TOKEN) {
+            Write-Host "gh not found; using GitHub API with GITHUB_TOKEN ..." -ForegroundColor Yellow
+            $apiArgs = @{ RepoOwner = $RepoOwner }
+            if ($GitHubRepoName) { $apiArgs.RepoName = $GitHubRepoName }
+            if ($SkipBuild) { $apiArgs.SkipBuild = $true }
+            & (Join-Path $Root "scripts\publish-github-release.ps1") @apiArgs
+        } else {
+            Write-Host "gh CLI and GITHUB_TOKEN not available; skip GitHub Release." -ForegroundColor Yellow
+            Write-Host "  Set `$env:GITHUB_TOKEN and run: scripts\publish-github-release.cmd" -ForegroundColor Yellow
+        }
     } else {
         $ghArgs = @{ RepoOwner = $RepoOwner; SkipRelease = $false }
         if ($GitHubRepoName) { $ghArgs.RepoName = $GitHubRepoName }

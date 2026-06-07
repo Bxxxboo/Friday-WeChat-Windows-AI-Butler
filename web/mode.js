@@ -11,11 +11,11 @@
     return;
   }
 
-  const MODE_HINTS = {
-    ask: "仅查阅与分析，不会修改文件",
-    agent: "每次写入、执行、下载都会弹出确认",
-    yolo: "已授权：工作区内自动执行，不再反复确认",
-    yolo_pending: "请先完成开启确认，否则与 Agent 相同",
+  const MODE_HINT_KEYS = {
+    ask: "mode.hint.ask",
+    agent: "mode.hint.agent",
+    yolo: "mode.hint.yolo",
+    yolo_pending: "mode.hint.yolo_pending",
   };
 
   let interactionMode = "agent";
@@ -34,8 +34,10 @@
   }
 
   function yoloHintText() {
-    if (interactionMode !== "yolo") return MODE_HINTS[interactionMode] || "";
-    return yoloUnlocked ? MODE_HINTS.yolo : MODE_HINTS.yolo_pending;
+    if (interactionMode !== "yolo") {
+      return F.t?.(MODE_HINT_KEYS[interactionMode]) || "";
+    }
+    return F.t?.(yoloUnlocked ? MODE_HINT_KEYS.yolo : MODE_HINT_KEYS.yolo_pending) || "";
   }
 
   function applyModeUi() {
@@ -183,4 +185,5 @@
   F.refreshYoloUnlockState = refreshYoloUnlockState;
   F.bindModeSwitch = bindModeSwitch;
   applyModeUi();
+  window.addEventListener("friday:languagechange", () => applyModeUi());
 })();

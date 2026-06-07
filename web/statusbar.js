@@ -55,16 +55,20 @@
 
     const apiOnline = Boolean(data.api_online);
     setDot(els.apiDot, apiOnline ? "online" : "offline");
-    if (els.apiText) els.apiText.textContent = apiOnline ? "API 在线" : "API 离线";
+    if (els.apiText) {
+      els.apiText.textContent = F.t?.(apiOnline ? "status.api.online" : "status.api.offline") || "";
+    }
 
     const visionEnabled = Boolean(data.vision_enabled);
     const visionOnline = Boolean(data.vision_online);
     if (!visionEnabled) {
       setDot(els.visionDot, "disabled");
-      if (els.visionText) els.visionText.textContent = "视觉 关";
+      if (els.visionText) els.visionText.textContent = F.t?.("status.vision.disabled") || "";
     } else {
       setDot(els.visionDot, visionOnline ? "online" : "offline");
-      if (els.visionText) els.visionText.textContent = visionOnline ? "视觉 在线" : "视觉 离线";
+      if (els.visionText) {
+        els.visionText.textContent = F.t?.(visionOnline ? "status.vision.on" : "status.vision.off") || "";
+      }
     }
 
     if (els.tokens && data.tokens_total != null) {
@@ -121,4 +125,5 @@
   F.refreshStatusBar = refreshStatusBar;
 
   startPolling();
+  window.addEventListener("friday:languagechange", () => void refreshStatusBar());
 })();

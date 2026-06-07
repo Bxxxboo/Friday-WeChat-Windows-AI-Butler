@@ -103,6 +103,7 @@ class UserSettings:
     auto_approve_scheduled_writes: bool = False
     approve_once_per_turn: bool = True
     interaction_mode: str = "agent"
+    ui_language: str = "zh"
     vision_api_key: str = ""
     vision_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     vision_model: str = ""
