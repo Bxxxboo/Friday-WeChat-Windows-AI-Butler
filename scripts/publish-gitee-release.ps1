@@ -50,14 +50,20 @@ if (-not $Zip) { throw "Release zip not found. Run scripts/make-release.ps1 firs
 
 $ReleaseId = $null
 $TagEncoded = [Uri]::EscapeDataString($Tag)
-try {
-    $existing = Invoke-RestMethod -Uri "https://gitee.com/api/v5/repos/$Repo/releases/tags/$TagEncoded?access_token=$GiteeToken"
-    if ($existing -and $existing.id) {
-        $ReleaseId = $existing.id
-        Write-Host "Gitee release $Tag exists (id $ReleaseId), uploading asset ..." -ForegroundColor Yellow
+foreach ($lookupUri in @(
+    "https://gitee.com/api/v5/repos/$Repo/releases/tags/$TagEncoded",
+    "https://gitee.com/api/v5/repos/$Repo/releases/tags/$TagEncoded?access_token=$GiteeToken"
+)) {
+    try {
+        $existing = Invoke-RestMethod -Uri $lookupUri
+        if ($existing -and $existing.id) {
+            $ReleaseId = $existing.id
+            Write-Host "Gitee release $Tag exists (id $ReleaseId), uploading asset ..." -ForegroundColor Yellow
+            break
+        }
+    } catch {
+        continue
     }
-} catch {
-    # fall through to create
 }
 if (-not $ReleaseId) {
     Write-Host "Creating Gitee release $Tag on $Repo ..." -ForegroundColor Cyan
