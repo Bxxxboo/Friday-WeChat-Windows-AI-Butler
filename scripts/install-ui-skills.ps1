@@ -1,8 +1,8 @@
-# 从 GitHub 下载 UI 设计相关 Agent Skills 到 .cursor/skills/
+# 从 GitHub 下载 UI 设计相关 Agent Skills 到 .friday/skills/
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
-$skillsRoot = Join-Path $PWD ".cursor\skills"
+$skillsRoot = Join-Path $PWD ".friday\skills"
 $tmp = Join-Path $env:TEMP "friday-skills-dl"
 New-Item -ItemType Directory -Force -Path $skillsRoot, $tmp | Out-Null
 
@@ -30,7 +30,7 @@ function Install-SkillDir($source, $destName) {
     $dest = Join-Path $skillsRoot $destName
     if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
     Copy-Item $source $dest -Recurse -Force
-    Write-Host "  -> .cursor/skills/$destName"
+    Write-Host "  -> .friday/skills/$destName"
 }
 
 # 1 Impeccable
@@ -60,8 +60,8 @@ Install-SkillDir $motion "motion-dev-animations"
 $icons = Download-Repo "better-auth/better-icons" "better-icons"
 New-Item -ItemType Directory -Force -Path (Join-Path $skillsRoot "better-icons") | Out-Null
 Copy-Item (Join-Path $icons "skills\SKILL.md") (Join-Path $skillsRoot "better-icons\SKILL.md") -Force
-Write-Host "  -> .cursor/skills/better-icons"
+Write-Host "  -> .friday/skills/better-icons"
 
 Write-Host ""
-Write-Host "Skills installed under .cursor/skills/" -ForegroundColor Green
+Write-Host "Skills installed under .friday/skills/" -ForegroundColor Green
 Get-ChildItem $skillsRoot -Directory | ForEach-Object { Write-Host "  - $($_.Name)" }

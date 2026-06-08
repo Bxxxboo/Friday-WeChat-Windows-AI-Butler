@@ -27,16 +27,16 @@ git clone https://github.com/carmahhawwari/ui-design-brain.git \
 ### Option B — Project skill (shared with team)
 
 ```bash
-# Clone into your project's .cursor/skills directory
+# Clone into your project's .friday/skills directory
 git clone https://github.com/carmahhawwari/ui-design-brain.git \
-  .cursor/skills/ui-design-brain
+  .friday/skills/ui-design-brain
 ```
 
 ### Option C — Manual
 
 Copy the `SKILL.md` and `components.md` files into either:
 - `~/.cursor/skills/ui-design-brain/` (personal)
-- `.cursor/skills/ui-design-brain/` (project)
+- `.friday/skills/ui-design-brain/` (project)
 
 ## Usage
 

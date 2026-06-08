@@ -19,7 +19,8 @@
 
 - 工具输出智能压缩、重复工具循环检测、前缀漂移日志
 - 配置包导出/导入包含 `mcp_servers.json`
-- 内置技能「制定计划」
+- Release 安装包文件名带版本号（`Friday-Windows-v1.2.0.zip`），更新源优先匹配带版本号文件
+- Agent 配置目录由 `.cursor` 更名为 `.friday`（本地 Cursor 可用 `scripts/link-cursor-dev.ps1` 联接）
 
 ## 1.1.3（2026-06-08）
 

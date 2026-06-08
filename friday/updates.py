@@ -48,6 +48,9 @@ def _is_newer(current: str, latest: str) -> bool:
 def _pick_download_url(data: dict) -> str:
     fallback = str(data.get("html_url", ""))
     assets = data.get("assets") or []
+    versioned: list[str] = []
+    windows_zip: list[str] = []
+    other_zip: list[str] = []
     preferred: list[str] = []
     for asset in assets:
         name = str(asset.get("name", ""))
@@ -55,12 +58,22 @@ def _pick_download_url(data: dict) -> str:
         if not url:
             continue
         lower = name.lower()
-        if lower.endswith(".zip") and ("windows" in lower or "安装" in name or "星期五" in name):
-            return url
         if lower.endswith(".zip"):
-            preferred.append(url)
+            if "windows" in lower or "安装" in name or "星期五" in name:
+                if lower.startswith("friday-windows-v"):
+                    versioned.append(url)
+                else:
+                    windows_zip.append(url)
+            else:
+                other_zip.append(url)
         elif lower.endswith(".exe"):
             preferred.append(url)
+    if versioned:
+        return versioned[0]
+    if windows_zip:
+        return windows_zip[0]
+    if other_zip:
+        return other_zip[0]
     if preferred:
         return preferred[0]
     return fallback

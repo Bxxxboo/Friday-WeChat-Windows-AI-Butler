@@ -10,7 +10,7 @@
  *
  * What it does:
  *   1. Finds every harness-specific skills directory (.claude/skills,
- *      .cursor/skills, .agents/skills, etc.).
+ *      .friday/skills, .agents/skills, etc.).
  *   2. For each deprecated skill name (with and without i- prefix),
  *      checks if the directory exists and its SKILL.md mentions
  *      "impeccable" (to avoid deleting unrelated user skills).
