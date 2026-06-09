@@ -41,11 +41,21 @@ if sys.platform == "win32" and not getattr(sys, "frozen", False):
     try:
         import ctypes
 
-        _hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        _k32 = ctypes.windll.kernel32
+        _u32 = ctypes.windll.user32
+        _hwnd = _k32.GetConsoleWindow()
         if _hwnd:
-            ctypes.windll.user32.ShowWindow(_hwnd, 0)
+            _u32.ShowWindow(_hwnd, 0)
+            _k32.FreeConsole()
     except (AttributeError, OSError):
         pass
+
+try:
+    from friday.api_connect import ensure_ssl_environment
+
+    ensure_ssl_environment()
+except Exception:
+    pass
 
 from friday.single_instance import ensure_single_instance
 

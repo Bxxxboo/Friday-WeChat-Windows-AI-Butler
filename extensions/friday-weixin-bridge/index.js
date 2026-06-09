@@ -60,28 +60,71 @@ function loadContextToken(accountId, peerId) {
   }
 }
 
+async function refreshBridgeToken(bridge) {
+  try {
+    const resp = await fetch(`${bridge.baseUrl}/api/auth/token`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const token = String(data?.token ?? "").trim();
+    if (!token) return null;
+    try {
+      const raw = fs.readFileSync(bridge.configPath, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        parsed.token = token;
+        fs.writeFileSync(
+          bridge.configPath,
+          `${JSON.stringify(parsed, null, 2)}\n`,
+          "utf-8",
+        );
+      }
+    } catch {
+      // 内存重试即可；写回失败不阻断
+    }
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+async function postInbound(bridge, payload, token) {
+  return fetch(`${bridge.baseUrl}/api/weixin/inbound`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Friday-Token": token,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(bridge.timeoutMs),
+  });
+}
+
 async function forwardToFriday(api, { text, senderId, accountId, contextToken }) {
   const bridge = resolveBridgeConfig();
   if (!bridge) {
     return { handled: true, text: unavailableText() };
   }
 
+  const payload = {
+    text,
+    sender_id: senderId,
+    account_id: accountId,
+    context_token: contextToken,
+    channel: WEIXIN_CHANNEL,
+  };
+
   try {
-    const resp = await fetch(`${bridge.baseUrl}/api/weixin/inbound`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Friday-Token": bridge.token,
-      },
-      body: JSON.stringify({
-        text,
-        sender_id: senderId,
-        account_id: accountId,
-        context_token: contextToken,
-        channel: WEIXIN_CHANNEL,
-      }),
-      signal: AbortSignal.timeout(bridge.timeoutMs),
-    });
+    let token = bridge.token;
+    let resp = await postInbound(bridge, payload, token);
+    if (resp.status === 401) {
+      const fresh = await refreshBridgeToken(bridge);
+      if (fresh) {
+        token = fresh;
+        resp = await postInbound(bridge, payload, token);
+      }
+    }
     if (!resp.ok) {
       api.logger?.warn?.(`friday-weixin-bridge: HTTP ${resp.status}`);
       return { handled: true, text: unavailableText("星期五暂时不可用，请确认客户端已启动。") };

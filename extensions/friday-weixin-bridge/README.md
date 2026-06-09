@@ -13,7 +13,7 @@
 在项目根目录执行：
 
 ```powershell
-openclaw plugins install "e:\cursor\workspace\星期五\extensions\friday-weixin-bridge"
+openclaw plugins install "E:\Friday\extensions\friday-weixin-bridge"
 openclaw config set plugins.entries.friday-weixin-bridge.enabled true
 openclaw gateway restart
 ```
@@ -26,7 +26,7 @@ openclaw gateway restart
 
 ## 使用
 
-1. 启动星期五：`.\.venv\Scripts\python run.py`
+1. 启动星期五：`.\.python-env\Scripts\pythonw.exe run.py`（或双击桌面「星期五」）
 2. 用手机给已绑定的微信 Bot 发文字，例如：「列出桌面文件」
 3. 若涉及写入/执行类操作，星期五会在微信发审批消息，回复 **同意** 或 **拒绝** 即可
 

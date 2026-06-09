@@ -140,11 +140,12 @@ def compress_tool_message_content(content: str) -> str:
 def detect_repeated_tool_loop(
     messages: list[dict[str, Any]],
     *,
-    window: int = 6,
+    window: int = 8,
     repeat_threshold: int = 3,
 ) -> tuple[bool, str]:
     """检测最近是否重复同一工具调用（参数相同或同名空转）。"""
     signatures: list[str] = []
+    names: list[str] = []
     for msg in reversed(messages):
         if msg.get("role") != "assistant":
             continue
@@ -154,13 +155,23 @@ def detect_repeated_tool_loop(
             args = str(fn.get("arguments", ""))
             sig = hashlib.sha1(f"{name}|{args}".encode("utf-8")).hexdigest()[:12]
             signatures.append(sig)
+            if name:
+                names.append(name)
         if len(signatures) >= window:
             break
     if len(signatures) < repeat_threshold:
         return False, ""
-    recent = signatures[:repeat_threshold]
-    if len(set(recent)) == 1:
-        return True, "检测到连续重复的工具调用，建议合并步骤或换一种方式。"
+    recent_sigs = signatures[:repeat_threshold]
+    if len(set(recent_sigs)) == 1:
+        return True, "检测到连续重复的工具调用（参数相同），请合并步骤、改写脚本，或向用户说明卡点。"
+    recent_names = names[:repeat_threshold]
+    if len(recent_names) >= repeat_threshold and len(set(recent_names)) == 1:
+        tool = recent_names[0]
+        return (
+            True,
+            f"已连续 {repeat_threshold} 次调用 {tool} 但进展不明显，请停止重复试探，"
+            "改用不同工具/路径/脚本，或调用 update_session_plan 调整计划。",
+        )
     return False, ""
 
 
@@ -170,3 +181,83 @@ def sort_tool_definitions(definitions: list[dict[str, Any]]) -> list[dict[str, A
         definitions,
         key=lambda item: str((item.get("function") or {}).get("name", "")),
     )
+
+
+def sanitize_agent_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """修复 OpenAI 兼容 API 要求的 tool 消息顺序，丢弃孤儿 tool / 未完成 tool 轮次。"""
+    if not messages:
+        return messages
+
+    out: list[dict[str, Any]] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        role = str(msg.get("role", ""))
+
+        if role == "system":
+            out.append(msg)
+            i += 1
+            continue
+
+        if role == "tool":
+            i += 1
+            continue
+
+        if role == "assistant" and msg.get("tool_calls"):
+            calls = [c for c in (msg.get("tool_calls") or []) if isinstance(c, dict)]
+            call_ids = [str(c.get("id", "")).strip() for c in calls if str(c.get("id", "")).strip()]
+            block = [msg]
+            j = i + 1
+            seen: set[str] = set()
+            while j < len(messages) and messages[j].get("role") == "tool":
+                tid = str(messages[j].get("tool_call_id", "")).strip()
+                if tid in call_ids:
+                    block.append(messages[j])
+                    seen.add(tid)
+                j += 1
+            if call_ids and seen == set(call_ids):
+                out.extend(block)
+            else:
+                stripped = dict(msg)
+                stripped.pop("tool_calls", None)
+                note = "[此前工具调用未完成，已从上下文中省略]"
+                content = str(stripped.get("content") or "").strip()
+                stripped["content"] = f"{content}\n{note}".strip() if content else note
+                out.append(stripped)
+            i = j
+            continue
+
+        out.append(msg)
+        i += 1
+
+    return out
+
+
+def iter_message_blocks(messages: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """将消息列表拆成不可拆的块（assistant+tool_calls 与其 tool 结果为一组）。"""
+    blocks: list[list[dict[str, Any]]] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            block = [msg]
+            j = i + 1
+            while j < len(messages) and messages[j].get("role") == "tool":
+                block.append(messages[j])
+                j += 1
+            blocks.append(block)
+            i = j
+            continue
+        if msg.get("role") == "tool":
+            i += 1
+            continue
+        blocks.append([msg])
+        i += 1
+    return blocks
+
+
+def flatten_message_blocks(blocks: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    flat: list[dict[str, Any]] = []
+    for block in blocks:
+        flat.extend(block)
+    return flat

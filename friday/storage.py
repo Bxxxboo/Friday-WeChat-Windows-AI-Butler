@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from friday.io_utils import atomic_write_json, load_json
@@ -83,6 +83,7 @@ def _decrypt_key(stored: str) -> str:
 @dataclass
 class UserSettings:
     api_key: str = ""
+    llm_provider: str = "deepseek"
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-chat"
     workspace: str = ""
@@ -106,6 +107,7 @@ class UserSettings:
     interaction_mode: str = "agent"
     ui_language: str = "zh"
     vision_api_key: str = ""
+    vision_provider: str = "ark"
     vision_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     vision_model: str = ""
     vision_enabled: bool = False
@@ -119,6 +121,18 @@ class UserSettings:
     image_gen_save_dir: str = ""
     weixin_bridge_enabled: bool = True
     acknowledged_changelog_version: str = ""
+    api_proxy: str = ""
+    api_trust_env: bool = True
+    llm_profiles: dict = field(default_factory=dict)
+    vision_profiles: dict = field(default_factory=dict)
+    image_gen_profiles: dict = field(default_factory=dict)
+    llm_custom_endpoints: list = field(default_factory=list)
+    llm_custom_active: str = ""
+    vision_custom_endpoints: list = field(default_factory=list)
+    vision_custom_active: str = ""
+    image_gen_custom_endpoints: list = field(default_factory=list)
+    image_gen_custom_active: str = ""
+    onboarding_completed: bool = False
 
     @classmethod
     def from_dict(cls, data: dict) -> "UserSettings":
@@ -147,6 +161,72 @@ def _settings_path() -> Path:
     return get_appdata_dir() / "settings.json"
 
 
+def _encrypt_custom_endpoints(endpoints: list) -> list:
+    from friday.custom_endpoints import normalize_endpoints
+
+    out: list[dict[str, str]] = []
+    for entry in normalize_endpoints(endpoints):
+        item = dict(entry)
+        if item.get("api_key"):
+            item["api_key"] = _encrypt_key(item["api_key"])
+        out.append(item)
+    return out
+
+
+def _decrypt_custom_endpoints(endpoints: list) -> list:
+    from friday.custom_endpoints import normalize_endpoints
+
+    out: list[dict[str, str]] = []
+    for entry in normalize_endpoints(endpoints):
+        item = dict(entry)
+        if item.get("api_key"):
+            item["api_key"] = _decrypt_key(item["api_key"])
+        out.append(item)
+    return out
+
+
+def _encrypt_provider_profiles(profiles: dict, *, category: str) -> dict:
+    from friday.category_profiles import normalize_category_profiles
+    from friday.llm_profiles import normalize_profiles
+
+    if category == "llm":
+        entries = normalize_profiles(profiles)
+    else:
+        entries = normalize_category_profiles(UserSettings(), category, profiles)
+    out: dict[str, dict[str, str]] = {}
+    for pid, entry in entries.items():
+        item = dict(entry)
+        if item.get("api_key"):
+            item["api_key"] = _encrypt_key(item["api_key"])
+        out[pid] = item
+    return out
+
+
+def _decrypt_provider_profiles(profiles: dict, *, category: str) -> dict:
+    from friday.category_profiles import normalize_category_profiles
+    from friday.llm_profiles import normalize_profiles
+
+    if category == "llm":
+        entries = normalize_profiles(profiles)
+    else:
+        entries = normalize_category_profiles(UserSettings(), category, profiles)
+    out: dict[str, dict[str, str]] = {}
+    for pid, entry in entries.items():
+        item = dict(entry)
+        if item.get("api_key"):
+            item["api_key"] = _decrypt_key(item["api_key"])
+        out[pid] = item
+    return out
+
+
+def _encrypt_llm_profiles(profiles: dict) -> dict:
+    return _encrypt_provider_profiles(profiles, category="llm")
+
+
+def _decrypt_llm_profiles(profiles: dict) -> dict:
+    return _decrypt_provider_profiles(profiles, category="llm")
+
+
 def save_settings(settings: UserSettings) -> None:
     """保存设置到 %APPDATA%/Friday/settings.json，api_key 加密后落盘。"""
     from friday.portability import CURRENT_SETTINGS_SCHEMA_VERSION
@@ -155,6 +235,12 @@ def save_settings(settings: UserSettings) -> None:
     data["api_key"] = _encrypt_key(data["api_key"])
     data["vision_api_key"] = _encrypt_key(data.get("vision_api_key", ""))
     data["image_gen_api_key"] = _encrypt_key(data.get("image_gen_api_key", ""))
+    data["llm_profiles"] = _encrypt_llm_profiles(data.get("llm_profiles") or {})
+    data["vision_profiles"] = _encrypt_provider_profiles(data.get("vision_profiles") or {}, category="vision")
+    data["image_gen_profiles"] = _encrypt_provider_profiles(data.get("image_gen_profiles") or {}, category="image_gen")
+    data["llm_custom_endpoints"] = _encrypt_custom_endpoints(data.get("llm_custom_endpoints") or [])
+    data["vision_custom_endpoints"] = _encrypt_custom_endpoints(data.get("vision_custom_endpoints") or [])
+    data["image_gen_custom_endpoints"] = _encrypt_custom_endpoints(data.get("image_gen_custom_endpoints") or [])
     data["settings_schema_version"] = CURRENT_SETTINGS_SCHEMA_VERSION
     path = _settings_path()
     atomic_write_json(path, data)
@@ -163,9 +249,12 @@ def save_settings(settings: UserSettings) -> None:
 
 def load_settings() -> UserSettings:
     """从 %APPDATA%/Friday/settings.json 加载设置，api_key 自动解密。"""
-    from friday.portability import CURRENT_SETTINGS_SCHEMA_VERSION
+    from friday.portability import CURRENT_SETTINGS_SCHEMA_VERSION, try_migrate_legacy_appdata
 
     path = _settings_path()
+    if not path.exists():
+        try_migrate_legacy_appdata()
+        path = _settings_path()
     if not path.exists():
         _log.info("设置文件不存在，使用默认设置 | path=%s", path)
         return UserSettings()
@@ -180,9 +269,49 @@ def load_settings() -> UserSettings:
         data["vision_api_key"] = _decrypt_key(data["vision_api_key"])
     if "image_gen_api_key" in data:
         data["image_gen_api_key"] = _decrypt_key(data["image_gen_api_key"])
+    if "llm_profiles" in data:
+        data["llm_profiles"] = _decrypt_llm_profiles(data.get("llm_profiles") or {})
+    if "vision_profiles" in data:
+        data["vision_profiles"] = _decrypt_provider_profiles(data.get("vision_profiles") or {}, category="vision")
+    if "image_gen_profiles" in data:
+        data["image_gen_profiles"] = _decrypt_provider_profiles(data.get("image_gen_profiles") or {}, category="image_gen")
+    for key in ("llm_custom_endpoints", "vision_custom_endpoints", "image_gen_custom_endpoints"):
+        if key in data:
+            data[key] = _decrypt_custom_endpoints(data.get(key) or [])
     settings = UserSettings.from_dict(data)
     if schema < CURRENT_SETTINGS_SCHEMA_VERSION:
         settings = _migrate_settings_schema(settings, schema)
+    # 空字符串会覆盖 dataclass 默认值，导致 OpenAI SDK 报 Connection error
+    fixes: dict[str, str] = {}
+    if not str(settings.base_url or "").strip():
+        fixes["base_url"] = UserSettings.base_url
+    if not str(settings.model or "").strip():
+        fixes["model"] = UserSettings.model
+    if not str(settings.vision_base_url or "").strip():
+        fixes["vision_base_url"] = UserSettings.vision_base_url
+    if fixes:
+        settings = settings.merge(fixes)
+        save_settings(settings)
+        _log.info("已修复空 base_url/model | base_url=%s model=%s", settings.base_url, settings.model)
+    from friday.category_profiles import repair_isolated_category_settings
+
+    repaired = repair_isolated_category_settings(settings)
+    if repaired != settings:
+        save_settings(repaired)
+        _log.info("已修复视觉/生图与服务商不匹配的配置")
+        settings = repaired
+
+    from friday.llm_profiles import active_provider_id, normalize_profiles, seed_profiles_from_active
+
+    profiles = normalize_profiles(settings.llm_profiles)
+    active = active_provider_id(settings)
+    active_key = (profiles.get(active) or {}).get("api_key", "").strip()
+    if settings.api_key.strip() and not active_key:
+        seeded = seed_profiles_from_active(settings)
+        if seeded.llm_profiles != settings.llm_profiles:
+            save_settings(seeded)
+            _log.info("已从当前 API Key 回填服务商配置记忆 | provider=%s", active)
+            settings = seeded
     return settings
 
 
@@ -193,6 +322,86 @@ def _migrate_settings_schema(settings: UserSettings, old_schema: int) -> UserSet
     merged = asdict(settings)
     if old_schema < 1:
         merged.setdefault("allow_read_user_folders", True)
+    if old_schema < 2:
+        from friday.model_providers import infer_llm_provider, infer_vision_provider
+
+        merged.setdefault("llm_provider", infer_llm_provider(settings))
+        merged.setdefault("vision_provider", infer_vision_provider(settings))
+    if old_schema < 3:
+        from friday.llm_profiles import seed_profiles_from_active
+        from friday.model_providers import infer_llm_provider
+
+        merged["llm_provider"] = infer_llm_provider(settings)
+        seeded = seed_profiles_from_active(
+            UserSettings.from_dict({**merged, **{k: getattr(settings, k) for k in asdict(settings)}})
+        )
+        merged["llm_profiles"] = seeded.llm_profiles
+    if old_schema < 4:
+        from friday.custom_endpoints import seed_all_custom_endpoints
+        from friday.llm_profiles import normalize_profiles
+
+        base = UserSettings.from_dict({**merged, **{k: getattr(settings, k) for k in asdict(settings)}})
+        migrated = seed_all_custom_endpoints(base)
+        profiles = normalize_profiles(migrated.llm_profiles)
+        custom_profile = profiles.pop("custom", None)
+        if custom_profile and not migrated.llm_custom_endpoints:
+            from friday.custom_endpoints import upsert_endpoint
+
+            migrated = upsert_endpoint(
+                migrated,
+                "llm",
+                name=str(custom_profile.get("model") or "默认配置"),
+                api_key=custom_profile.get("api_key") or "",
+                base_url=custom_profile.get("base_url") or "",
+                model=custom_profile.get("model") or "",
+                preserve_key_if_empty=False,
+            )
+            migrated = migrated.merge({"llm_profiles": profiles})
+        merged.update(
+            {
+                "llm_custom_endpoints": migrated.llm_custom_endpoints,
+                "llm_custom_active": migrated.llm_custom_active,
+                "vision_custom_endpoints": migrated.vision_custom_endpoints,
+                "vision_custom_active": migrated.vision_custom_active,
+                "image_gen_custom_endpoints": migrated.image_gen_custom_endpoints,
+                "image_gen_custom_active": migrated.image_gen_custom_active,
+                "llm_profiles": migrated.llm_profiles,
+            }
+        )
+    if old_schema < 5:
+        from friday.custom_endpoints import get_active_id, provider_id_for_endpoint
+
+        base = UserSettings.from_dict({**merged, **{k: getattr(settings, k) for k in asdict(settings)}})
+        for cat, provider_field, active_field in (
+            ("llm", "llm_provider", "llm_custom_active"),
+            ("vision", "vision_provider", "vision_custom_active"),
+            ("image_gen", "image_gen_provider", "image_gen_custom_active"),
+        ):
+            provider = str(getattr(base, provider_field, "") or "").strip()
+            if provider == "custom":
+                active = get_active_id(base, cat)
+                if active:
+                    merged[provider_field] = provider_id_for_endpoint(active)
+                elif cat == "llm":
+                    merged[provider_field] = "deepseek"
+                elif cat == "vision":
+                    merged[provider_field] = "ark"
+                else:
+                    merged[provider_field] = "openai_compat"
+            elif provider.startswith("c:"):
+                merged[provider_field] = provider
+    if old_schema < 6:
+        base = UserSettings.from_dict({**merged, **{k: getattr(settings, k) for k in asdict(settings)}})
+        if base.onboarding_completed or base.api_ready or (base.workspace.strip() and base.api_key.strip()):
+            merged["onboarding_completed"] = True
+    if old_schema < 7:
+        from friday.category_profiles import seed_category_profiles_from_active
+
+        base = UserSettings.from_dict({**merged, **{k: getattr(settings, k) for k in asdict(settings)}})
+        seeded = seed_category_profiles_from_active(base, "vision")
+        seeded = seed_category_profiles_from_active(seeded, "image_gen")
+        merged["vision_profiles"] = seeded.vision_profiles
+        merged["image_gen_profiles"] = seeded.image_gen_profiles
     updated = UserSettings.from_dict(merged)
     save_settings(updated)
     _log.info("settings 已迁移 schema %d -> %d", old_schema, CURRENT_SETTINGS_SCHEMA_VERSION)
@@ -255,12 +464,62 @@ def resolved_workspace(settings: UserSettings) -> str:
 
 
 def merge_settings(current: UserSettings, payload: dict) -> UserSettings:
-    """合并前端传过来的部分设置更新；空 Key 保留原值。"""
-    merged = current.merge(payload)
+    """合并前端传过来的部分设置更新；空 Key 保留原值，空 URL/模型回退默认值。"""
+    from friday.category_profiles import merge_category_settings, persist_category_profile
+    from friday.custom_endpoints import merge_custom_settings, persist_custom_on_save
+    from friday.llm_profiles import merge_llm_settings, persist_active_profile
+
+    custom = merge_custom_settings(current, payload)
+    if custom is not None:
+        from friday.category_profiles import repair_isolated_category_settings
+
+        return repair_isolated_category_settings(custom)
+
+    switched = merge_llm_settings(current, payload)
+    if switched is not None:
+        return switched
+
+    for category in ("vision", "image_gen"):
+        switched = merge_category_settings(current, payload, category)
+        if switched is not None:
+            return switched
+
+    merged = current.merge({k: v for k, v in payload.items() if k not in {
+        "switch_llm_profile",
+        "switch_custom_endpoint",
+        "add_custom_endpoint",
+        "delete_custom_endpoint",
+        "switch_vision_profile",
+        "switch_image_gen_profile",
+        "custom_endpoint_category",
+        "custom_endpoint_id",
+        "custom_endpoint_name",
+    }})
     if "api_key" in payload and not str(payload.get("api_key", "")).strip():
         merged = merged.merge({"api_key": current.api_key})
     if "vision_api_key" in payload and not str(payload.get("vision_api_key", "")).strip():
         merged = merged.merge({"vision_api_key": current.vision_api_key})
     if "image_gen_api_key" in payload and not str(payload.get("image_gen_api_key", "")).strip():
         merged = merged.merge({"image_gen_api_key": current.image_gen_api_key})
+    if "base_url" in payload and not str(payload.get("base_url", "")).strip():
+        merged = merged.merge({"base_url": UserSettings.base_url})
+    if "model" in payload and not str(payload.get("model", "")).strip():
+        merged = merged.merge({"model": UserSettings.model})
+    if any(k in payload for k in ("api_key", "base_url", "model", "llm_provider")):
+        merged = persist_active_profile(merged)
+    if any(k in payload for k in ("vision_api_key", "vision_base_url", "vision_model", "vision_provider")):
+        merged = persist_category_profile(merged, "vision")
+    if any(
+        k in payload
+        for k in (
+            "image_gen_api_key",
+            "image_gen_base_url",
+            "image_gen_model",
+            "image_gen_provider",
+            "image_gen_fallback_urls",
+            "image_gen_default_size",
+        )
+    ):
+        merged = persist_category_profile(merged, "image_gen")
+    merged = persist_custom_on_save(merged, payload)
     return merged

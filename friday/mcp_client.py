@@ -14,6 +14,7 @@ from friday.io_utils import atomic_write_json, load_json
 from friday.logging_config import get_logger
 from friday.paths import get_appdata_dir
 from friday.portability import expand_config_path
+from friday.version import __version__
 
 _log = get_logger("mcp")
 
@@ -152,7 +153,7 @@ class MCPStdioClient:
             {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "friday", "version": "1.2.0"},
+                "clientInfo": {"name": "friday", "version": __version__},
             },
         )
         self._notify("notifications/initialized")

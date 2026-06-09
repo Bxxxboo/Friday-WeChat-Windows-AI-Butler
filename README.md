@@ -25,7 +25,7 @@ Windows AI 电脑管家：大模型理解意图 + 本地工具真正动手。
 ```powershell
 cd 星期五
 powershell -ExecutionPolicy Bypass -File setup.ps1
-.\.venv\Scripts\python run.py
+.\.python-env\Scripts\pythonw.exe run.py
 ```
 
 首次使用：启动后会引导你 **连接 AI 服务** 并 **选择默认文件夹**（约 3 步）。  
@@ -50,10 +50,10 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 创建桌面快捷方式：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/create_shortcut.ps1
+powershell -ExecutionPolicy Bypass -File release/create-shortcut.ps1
 ```
 
-优先指向 `dist/星期五/星期五.exe`；若尚未打包，则回退为开发模式（`pythonw run.py`）。
+开发模式使用 `.python-env\Scripts\pythonw.exe` 启动 `run.py`；打包后可将快捷方式改为指向 `dist/星期五/星期五.exe`。
 
 ## 移植到新电脑
 
@@ -76,7 +76,7 @@ winget install Python.Python.3.12
 
 1. 安装 Python 3.11+（推荐 3.12）
 2. 拷贝项目源码（**不要**拷贝 `.venv/`、`.python-env/`、`build/`、`dist/`）
-3. 在新目录执行 `setup.ps1`，用 `.\.venv\Scripts\python run.py` 启动
+3. 在新目录执行 `setup.ps1`，再运行 `scripts\run-dev.cmd` 或 `.\.python-env\Scripts\pythonw.exe run.py`
 
 ### 迁移用户数据（可选）
 
@@ -136,8 +136,8 @@ powershell -ExecutionPolicy Bypass -File scripts/make-release.ps1
 
 | 目录 | 用途 |
 |------|------|
-| `.venv/` | 星期五应用本身（FastAPI、pywebview 等） |
-| 工作区 `.python-env/` | Agent 执行脚本时的隔离环境（pandas 等，由设置页初始化） |
+| 项目 `.python-env/` | 星期五应用本身（FastAPI、pywebview 等，`setup.ps1` 创建） |
+| 工作区 `.python-env/` | Agent 执行脚本时的隔离环境（pandas 等，由设置页在工作区初始化） |
 
 ## 技术栈
 
@@ -149,7 +149,7 @@ powershell -ExecutionPolicy Bypass -File scripts/make-release.ps1
 ## 开发模式（浏览器调试）
 
 ```powershell
-.\.venv\Scripts\uvicorn friday.server:app --reload --port 8765
+.\.python-env\Scripts\uvicorn friday.server:app --reload --port 8765
 ```
 
 浏览器访问 `http://127.0.0.1:8765`
@@ -165,33 +165,34 @@ pytest
 
 | 文件 | 说明 |
 |------|------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | **源码架构与模块地图** |
 | [CHANGELOG.md](CHANGELOG.md) | 版本更新日志 |
 | [docs/RELEASE.md](docs/RELEASE.md) | 发布与双端同步流程 |
 | [docs/image-gen.md](docs/image-gen.md) | 生图功能配置 |
-| [docs/PLAN.md](docs/PLAN.md) | 项目计划 |
+| [docs/archive/PLAN.md](docs/archive/PLAN.md) | 历史项目计划（归档） |
+
+各目录另有 README：`friday/`、`web/`、`scripts/`、`tests/`。
 
 ## 项目结构
 
 ```
 星期五/
-├── run.py
-├── CHANGELOG.md
-├── assets/
-│   ├── friday.ico
-│   └── changelog.json      # 应用内更新公告
-├── friday.spec             # PyInstaller 配置
-├── tests/                  # pytest
-├── web/                    # 前端
-├── scripts/
-│   ├── build.ps1           # 一键打包
-│   ├── publish-release.ps1 # Gitee + GitHub 发布
-│   ├── release-notes.ps1   # 从 changelog 生成 Release 说明
-│   └── sync-remotes.ps1    # 双端 push
-├── docs/
+├── run.py                  # 入口 → friday.desktop.main()
+├── pyproject.toml          # pytest 配置
+├── assets/changelog.json
+├── friday.spec
 ├── friday/
-│   ├── desktop.py          # 桌面窗口
-│   ├── changelog.py        # 更新公告 API
-│   ├── server.py           # API + WebSocket
-│   └── tools/
-└── extensions/             # 内置/示例插件
+│   ├── README.md           # 包内模块索引
+│   ├── desktop.py          # pywebview 桌面壳
+│   ├── server.py           # FastAPI + WebSocket 路由
+│   ├── api/schemas.py      # HTTP 请求/响应模型
+│   ├── agent.py / brain.py # Agent 与 LLM
+│   ├── tools/              # 本地可调用工具
+│   └── weixin/             # 微信 OpenClaw 桥
+├── web/                    # 前端 SPA（见 web/README.md）
+├── tests/                  # pytest，按 agent/api/providers/… 分子目录
+├── scripts/                # 构建、发布、安装（见 scripts/README.md）
+├── release/                # 用户 zip 附件
+├── docs/ARCHITECTURE.md
+└── extensions/             # 内置插件
 ```

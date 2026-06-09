@@ -15,7 +15,7 @@ _log = get_logger("portability")
 
 _startup_notices: list[str] = []
 
-CURRENT_SETTINGS_SCHEMA_VERSION = 1
+CURRENT_SETTINGS_SCHEMA_VERSION = 7
 
 
 def pop_startup_notices() -> list[str]:
@@ -154,6 +154,101 @@ def repair_image_gen_save_dir(settings: UserSettings) -> tuple[UserSettings, lis
     return updated, notices
 
 
+_LEGACY_APPDATA_FOLDERS: dict[str, list[str]] = {
+    "Friday": ["Friday-Test"],
+    "Friday-Test": ["Friday"],
+}
+
+
+def _decrypt_with_fernet_file(stored: str, fernet_path: Path) -> str:
+    """用指定 .fernet_key 解密字段（不依赖当前 AppData 密钥）。"""
+    if not stored or not isinstance(stored, str):
+        return ""
+    if not stored.startswith("fernet:"):
+        return stored.strip()
+    if not fernet_path.is_file():
+        return ""
+    try:
+        from cryptography.fernet import Fernet
+
+        f = Fernet(fernet_path.read_bytes())
+        return f.decrypt(stored[len("fernet:"):].encode("utf-8")).decode("utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _settings_pair_usable(settings_path: Path, fernet_path: Path) -> bool:
+    """settings.json 与 .fernet_key 能否正确解密至少一个 API Key。"""
+    if not settings_path.is_file():
+        return False
+    data = load_json(settings_path)
+    if not isinstance(data, dict):
+        return False
+
+    candidates: list[str] = []
+    for field in ("api_key", "vision_api_key", "image_gen_api_key"):
+        stored = data.get(field, "")
+        if isinstance(stored, str) and stored.strip():
+            candidates.append(stored)
+
+    profiles = data.get("llm_profiles")
+    if isinstance(profiles, dict):
+        for entry in profiles.values():
+            if isinstance(entry, dict):
+                key = entry.get("api_key", "")
+                if isinstance(key, str) and key.strip():
+                    candidates.append(key)
+
+    if not candidates:
+        return True
+
+    for stored in candidates:
+        if stored.startswith("fernet:"):
+            if _decrypt_with_fernet_file(stored, fernet_path):
+                return True
+        elif stored.strip():
+            return True
+    return False
+
+
+def try_migrate_legacy_appdata() -> bool:
+    """从旧版 AppData 目录（如 Friday-Test）迁移 settings.json + .fernet_key。"""
+    import shutil
+
+    appdata = os.getenv("APPDATA")
+    if not appdata:
+        return False
+
+    from friday.edition import appdata_folder_name
+
+    current_name = appdata_folder_name()
+    current_dir = Path(appdata) / current_name
+    settings_path = current_dir / "settings.json"
+    fernet_path = current_dir / ".fernet_key"
+
+    if _settings_pair_usable(settings_path, fernet_path):
+        return False
+
+    for legacy_name in _LEGACY_APPDATA_FOLDERS.get(current_name, []):
+        legacy_dir = Path(appdata) / legacy_name
+        legacy_settings = legacy_dir / "settings.json"
+        legacy_fernet = legacy_dir / ".fernet_key"
+        if not _settings_pair_usable(legacy_settings, legacy_fernet):
+            continue
+
+        current_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(legacy_settings, settings_path)
+        if legacy_fernet.is_file():
+            shutil.copy2(legacy_fernet, fernet_path)
+        _log.info("已从旧数据目录迁移设置 | from=%s to=%s", legacy_dir, current_dir)
+        _remember_notice(
+            f"已从 {legacy_name} 自动迁移 API 设置（含 .fernet_key）。"
+            " 更新后若 Key 曾丢失，通常是因为只拷贝了 settings.json 而未带上加密密钥。"
+        )
+        return True
+    return False
+
+
 def scan_encryption_migration_issues() -> list[str]:
     """settings.json 与 .fernet_key 未配对迁移时给出明确提示。"""
     path = _settings_path()
@@ -165,12 +260,13 @@ def scan_encryption_migration_issues() -> list[str]:
         return []
 
     labels = {
-        "api_key": "DeepSeek API Key",
+        "api_key": "大模型 API Key",
         "vision_api_key": "视觉 API Key",
         "image_gen_api_key": "生图 API Key",
     }
     notices: list[str] = []
     prefix = "fernet:"
+    fernet_path = get_appdata_dir() / ".fernet_key"
 
     for field, label in labels.items():
         stored = data.get(field, "")
@@ -181,6 +277,20 @@ def scan_encryption_migration_issues() -> list[str]:
                 f"{label} 无法解密。请重新在设置中填写，"
                 f"或完整拷贝 {get_appdata_dir()} 文件夹（必须包含 .fernet_key）。"
             )
+
+    profiles = data.get("llm_profiles")
+    if isinstance(profiles, dict):
+        for provider_id, entry in profiles.items():
+            if not isinstance(entry, dict):
+                continue
+            stored = entry.get("api_key", "")
+            if not isinstance(stored, str) or not stored.startswith(prefix):
+                continue
+            if not _decrypt_with_fernet_file(stored, fernet_path):
+                notices.append(
+                    f"服务商「{provider_id}」的 API Key 无法解密。"
+                    f"请重新填写，或从备份恢复 settings.json 与 .fernet_key。"
+                )
     return notices
 
 
@@ -321,6 +431,9 @@ def run_portability_audit(settings: UserSettings) -> list[dict[str, object]]:
 def run_startup_portability_checks(settings: UserSettings) -> UserSettings:
     """启动时自愈配置并记录需展示给用户的提示。"""
     from friday.plugins import migrate_installed_plugin_manifests
+
+    if try_migrate_legacy_appdata():
+        settings = load_settings()
 
     migrated = migrate_installed_plugin_manifests()
     if migrated:

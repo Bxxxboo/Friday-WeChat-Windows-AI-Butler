@@ -226,7 +226,7 @@ def migrate_session_files() -> int:
     return migrated
 
 
-def create_session(title: str = "新对话", *, title_pinned: bool = False) -> ChatSession:
+def create_session(title: str = "新对话", *, title_pinned: bool = False, activate: bool = True) -> ChatSession:
     session_id = uuid.uuid4().hex[:12]
     now = time.time()
     session = ChatSession(
@@ -241,7 +241,8 @@ def create_session(title: str = "新对话", *, title_pinned: bool = False) -> C
     _save_session(session)
     index = _read_index()
     index["order"].insert(0, session_id)
-    index["active_session_id"] = session_id
+    if activate:
+        index["active_session_id"] = session_id
     _write_index(index["active_session_id"], index["order"])
     return session
 
@@ -281,12 +282,18 @@ def save_agent_state(
     messages: list[dict[str, Any]],
     *,
     user_text: str = "",
+    activate: bool = True,
+    promote_active: bool | None = None,
 ) -> ChatSession:
+    if promote_active is not None:
+        activate = promote_active
     session = get_session(session_id)
     if session is None:
         raise ValueError(f"会话不存在: {session_id}")
 
-    session.agent_messages = messages
+    from friday.context import sanitize_agent_messages
+
+    session.agent_messages = sanitize_agent_messages(messages)
     session.display_messages = _slim_display_messages(messages)
     session.updated_at = time.time()
     if (
@@ -302,7 +309,8 @@ def save_agent_state(
     if session.id in index["order"]:
         index["order"].remove(session.id)
     index["order"].insert(0, session.id)
-    index["active_session_id"] = session.id
+    if activate:
+        index["active_session_id"] = session.id
     _write_index(index["active_session_id"], index["order"])
     return session
 
@@ -311,6 +319,23 @@ def set_active_session(session_id: str) -> None:
     index = _read_index()
     index["active_session_id"] = session_id
     _write_index(index["active_session_id"], index["order"])
+
+
+def ensure_session_listed(session_id: str, *, prepend: bool = False) -> bool:
+    """确保会话 id 出现在侧边栏索引中（不改动当前激活会话）。"""
+    sid = session_id.strip()
+    if not sid or not session_exists(sid):
+        return False
+    index = _read_index()
+    order = index["order"]
+    if sid in order:
+        return False
+    if prepend:
+        order.insert(0, sid)
+    else:
+        order.append(sid)
+    _write_index(index["active_session_id"], order)
+    return True
 
 
 def rename_session(session_id: str, title: str) -> ChatSession:
@@ -496,7 +521,11 @@ def migrate_legacy_data_dir() -> None:
             _log.info("已从旧路径迁移 sessions | %s -> %s", old_sessions, new_sessions)
 
     old_settings = old_data_dir / "settings.json"
+    old_fernet = old_data_dir / ".fernet_key"
     if old_settings.exists():
         new_settings = appdata_dir / "settings.json"
         if not new_settings.exists():
             shutil.copy2(old_settings, new_settings)
+            if old_fernet.exists():
+                shutil.copy2(old_fernet, appdata_dir / ".fernet_key")
+                _log.info("已迁移 .fernet_key | %s -> %s", old_fernet, appdata_dir / ".fernet_key")

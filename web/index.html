@@ -73,13 +73,15 @@
       background: #f0ebe3;
     }
   </style>
-  <link rel="stylesheet" href="/static/styles.css?v=66" />
+  <link rel="stylesheet" href="/static/styles.css?v=81" />
 </head>
 <body>
   <div class="app-boot-overlay" id="appBootOverlay" aria-live="polite">
     <div class="app-boot-card">
-      <div class="app-boot-spin"></div>
-      <p data-i18n="boot.loading">正在加载界面…</p>
+      <div class="app-boot-mark" aria-hidden="true">五</div>
+      <div class="app-boot-spin" aria-hidden="true"></div>
+      <p class="app-boot-status" data-i18n="boot.loading">正在加载界面…</p>
+      <div class="app-boot-progress" aria-hidden="true"><span class="app-boot-progress-fill"></span></div>
     </div>
   </div>
   <header class="titlebar" id="titlebar">
@@ -159,42 +161,101 @@
       <div class="composer">
         <div id="planPanel" class="plan-panel collapsed">
           <button type="button" class="plan-panel-toggle" id="planPanelToggle" aria-expanded="false">
-            <span>计划 / 待办</span>
-            <span class="plan-panel-chevron">▾</span>
+            <span class="plan-panel-toggle-main">
+              <span class="plan-panel-icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"></path>
+                  <rect x="9" y="3" width="6" height="4" rx="1"></rect>
+                  <path d="M9 12h6M9 16h4"></path>
+                </svg>
+              </span>
+              <span class="plan-panel-title">计划 / 待办</span>
+              <span class="plan-panel-badge hidden" id="planTodoBadge" aria-hidden="true"></span>
+            </span>
+            <span class="plan-panel-chevron" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <path d="M6 9l6 6 6-6"></path>
+              </svg>
+            </span>
           </button>
-          <div class="plan-panel-body hidden-when-collapsed" id="planPanelBody">
-            <textarea id="planMarkdownInput" rows="3" placeholder="长任务计划（Markdown）…"></textarea>
-            <div id="planTodoList" class="plan-todo-list"></div>
-            <div class="plan-panel-actions">
-              <button type="button" class="ghost-btn" id="planAddTodoBtn">+ 待办</button>
-              <button type="button" class="primary-btn" id="planSaveBtn">保存计划</button>
+          <div class="plan-panel-body" id="planPanelBody">
+            <div class="plan-section">
+              <div class="plan-section-head">
+                <label class="plan-field-label" for="planMarkdownInput">任务计划</label>
+                <button type="button" class="plan-clear-btn" id="planClearPlanBtn" title="清空任务计划文本">清空</button>
+              </div>
+              <textarea id="planMarkdownInput" rows="3" spellcheck="false" placeholder="写下分步计划，支持 Markdown…"></textarea>
+            </div>
+            <div class="plan-section plan-todos-section">
+              <div class="plan-section-head">
+                <span class="plan-field-label">待办清单</span>
+                <div class="plan-todo-toolbar">
+                  <button type="button" class="plan-tool-btn" id="planParseBtn" title="从上方计划 Markdown 解析列表项">从计划生成</button>
+                  <button type="button" class="plan-add-btn" id="planAddTodoBtn">+ 添加</button>
+                  <button type="button" class="plan-clear-btn" id="planClearTodosBtn" title="清空全部待办">清空</button>
+                </div>
+              </div>
+              <div id="planTodoList" class="plan-todo-list"></div>
+              <p class="plan-todo-empty" id="planTodoEmpty">暂无待办。写计划后用「从计划生成」，或点「添加」自定义</p>
+            </div>
+            <div class="plan-panel-footer">
+              <span class="plan-save-hint" id="planSaveHint" aria-live="polite"></span>
+              <button type="button" class="primary-btn plan-save-btn" id="planSaveBtn">保存计划</button>
             </div>
           </div>
         </div>
         <div class="composer-inner">
-          <div class="composer-mode-bar">
-            <div class="mode-switch" id="modeSwitch" role="group" aria-label="交互模式">
-              <button type="button" class="mode-btn" data-mode="ask" data-i18n-title="mode.ask.title" title="只读问答" data-i18n="mode.ask">Ask</button>
-              <button type="button" class="mode-btn active" data-mode="agent" data-i18n-title="mode.agent.title" title="确认后执行" data-i18n="mode.agent">Agent</button>
-              <button type="button" class="mode-btn" data-mode="yolo" data-i18n-title="mode.yolo.title" title="工作区自动执行" data-i18n="mode.yolo">Yolo</button>
+          <div class="composer-shell">
+            <div class="composer-control-strip">
+              <div class="composer-control-modes">
+                <div class="mode-switch" id="modeSwitch" role="group" aria-label="交互模式">
+                  <span class="mode-switch-glider" id="modeSwitchGlider" aria-hidden="true"></span>
+                  <button type="button" class="mode-btn" data-mode="ask" aria-pressed="false">
+                    <svg class="mode-btn-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 1.2a5.3 5.3 0 1 1 0 10.6A5.3 5.3 0 0 1 8 2.7Zm-.2 2.4h.4v2.2l1.8 1-.2.4-2-1.2V5.1Z"/></svg>
+                    <span data-i18n="mode.ask">Ask</span>
+                  </button>
+                  <button type="button" class="mode-btn active" data-mode="agent" aria-pressed="true">
+                    <svg class="mode-btn-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.6 2.4 4.2v3.6c0 3.1 2.4 5.4 5.6 6.6l0 .1.1-.1c3.2-1.2 5.6-3.5 5.6-6.6V4.2L8 1.6Zm0 1.3 4.8 2.1v3c0 2.4-1.9 4.3-4.8 5.4-2.9-1.1-4.8-3-4.8-5.4v-3L8 2.9Zm-.3 2.8h.6v1.8l1.4.8-.3.5-1.7-1V5.7Z"/></svg>
+                    <span data-i18n="mode.agent">Agent</span>
+                  </button>
+                  <button type="button" class="mode-btn" data-mode="yolo" aria-pressed="false">
+                    <svg class="mode-btn-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M9.2 1.2 5.8 8.4H8l-1.2 6.4 4.8-7.8H9.6l.8-5.8Z"/></svg>
+                    <span data-i18n="mode.yolo">Yolo</span>
+                  </button>
+                </div>
+              </div>
+              <div class="composer-model-picker" id="composerModelPicker">
+                <button
+                  type="button"
+                  class="composer-model-trigger"
+                  id="composerModelTrigger"
+                  aria-haspopup="listbox"
+                  aria-expanded="false"
+                  aria-controls="composerModelMenu"
+                  disabled
+                >
+                  <span class="composer-model-trigger-copy">
+                    <span class="composer-model-provider" id="composerModelProvider">—</span>
+                    <span class="composer-model-id" id="composerModelId">—</span>
+                  </span>
+                  <svg class="composer-model-chevron" viewBox="0 0 16 16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M4 6l4 4 4-4"/></svg>
+                </button>
+                <div class="composer-model-menu hidden" id="composerModelMenu" role="listbox" aria-label="大模型"></div>
+                <select id="composerModelSwitch" class="sr-only" tabindex="-1" aria-hidden="true"></select>
+              </div>
             </div>
-            <span class="mode-hint" id="modeHint">修改与执行前需你确认</span>
-          </div>
-          <div class="composer-queue hidden" id="composerQueue" aria-live="polite">
-            <span class="composer-queue-dot"></span>
-            <span id="composerQueueText"></span>
-          </div>
-          <div class="composer-row">
+            <div class="composer-queue hidden" id="composerQueue" aria-live="polite">
+              <span class="composer-queue-dot"></span>
+              <span id="composerQueueText"></span>
+            </div>
+            <div class="composer-row">
         <div class="composer-input-wrap">
-          <div class="composer-attachment hidden" id="composerAttachment" aria-live="polite">
-            <img id="composerAttachmentPreview" alt="粘贴的截图预览" />
-            <div class="composer-attachment-meta">
-              <span class="composer-attachment-label" data-i18n="composer.attachment">已附加截图</span>
-              <span class="composer-attachment-name" id="composerAttachmentName"></span>
+          <div class="composer-attachments hidden" id="composerAttachments" aria-live="polite">
+            <div class="composer-attachments-head">
+              <span class="composer-attachments-label" id="composerAttachmentsLabel" data-i18n="composer.attachment">已附加截图</span>
+              <button type="button" class="composer-attachments-clear" id="clearAttachmentsBtn" data-i18n="composer.removeAllAttachments">全部移除</button>
             </div>
-            <button type="button" class="icon-btn composer-attachment-remove" id="clearAttachmentBtn" data-i18n-title="composer.removeAttachment" title="移除截图" aria-label="移除截图">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-            </button>
+            <div class="composer-attachments-list" id="composerAttachmentsList"></div>
           </div>
           <div class="composer-quote hidden" id="composerQuote" aria-live="polite">
             <div class="composer-quote-head">
@@ -217,6 +278,7 @@
         </button>
         </div>
           </div>
+          </div>
         </div>
       </div>
     </main>
@@ -238,9 +300,9 @@
         <svg class="status-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.2a5.8 5.8 0 1 1 0 11.6A5.8 5.8 0 0 1 8 2.2Zm-.3 2.5h.6v3.4l2.8 1.6-.3.5-3.1-1.8V4.7Z"/></svg>
         <span class="status-text"><span data-i18n="status.tokens">tokens</span> <strong id="statusTokens">0</strong></span>
         <span class="status-divider" aria-hidden="true"></span>
-        <span class="status-text" id="statusCacheWrap" hidden>
-          <span data-i18n="status.cache">缓存</span>
-          <strong id="statusCacheHit">0%</strong>
+        <span class="status-text" id="statusCacheWrap" data-i18n-title="status.cacheHint" title="当前会话前缀缓存命中率">
+          <span data-i18n="status.cache">缓存命中</span>
+          <strong id="statusCacheHit">—</strong>
         </span>
       </div>
       <div class="status-group" data-i18n-title="status.taskCount" title="定时任务数量">
@@ -327,9 +389,9 @@
 
       <section class="onboarding-step" data-step="1">
         <h2>连接 AI 服务</h2>
-        <p class="onboarding-desc">填写 DeepSeek API Key，用于驱动星期五的智能能力。</p>
+        <p class="onboarding-desc">填写大模型 API Key（默认 DeepSeek，也支持 OpenAI 兼容服务）。</p>
         <label class="onboarding-field">
-          <span>DeepSeek API Key</span>
+          <span>API Key</span>
           <input type="password" id="onboardingApiKey" placeholder="sk-..." autocomplete="off" />
           <small>还没有 Key？前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">DeepSeek 官网</a> 免费申请</small>
         </label>
@@ -390,139 +452,212 @@
         </button>
       </header>
       <div class="settings-body">
-        <nav class="settings-nav">
-          <button class="settings-nav-item active" data-panel="api" data-i18n="settings.nav.api">API 连接</button>
-          <button class="settings-nav-item" data-panel="workspace" data-i18n="settings.nav.workspace">文件夹</button>
-          <button class="settings-nav-item" data-panel="appearance" data-i18n="settings.nav.appearance">外观</button>
-          <button class="settings-nav-item" data-panel="logs" data-i18n="settings.nav.logs">数据移植与日志</button>
-          <button class="settings-nav-item" data-panel="security-updates" data-i18n="settings.nav.security">安全与更新</button>
-          <button class="settings-nav-item" data-panel="extensions" data-i18n="settings.nav.extensions">扩展</button>
-          <button class="settings-nav-item" data-panel="weixin">微信端 AI</button>
-          <button class="settings-nav-item" data-panel="schedules" data-i18n="settings.nav.schedules">定时任务</button>
+        <nav class="settings-nav" aria-label="设置分类">
+          <div class="settings-nav-group" role="group" aria-labelledby="settings-nav-ai">
+            <div class="settings-nav-label" id="settings-nav-ai" data-i18n="settings.nav.group.ai">AI 能力</div>
+            <button type="button" class="settings-nav-item active" data-panel="llm" data-i18n="settings.nav.llm">大模型</button>
+            <button type="button" class="settings-nav-item" data-panel="multimodal" data-i18n="settings.nav.multimodal">视觉与生图</button>
+          </div>
+          <div class="settings-nav-group" role="group" aria-labelledby="settings-nav-workspace">
+            <div class="settings-nav-label" id="settings-nav-workspace" data-i18n="settings.nav.group.workspace">工作区</div>
+            <button type="button" class="settings-nav-item" data-panel="workspace" data-i18n="settings.nav.workspace">文件夹</button>
+            <button type="button" class="settings-nav-item" data-panel="agent" data-i18n="settings.nav.agent">Agent 环境</button>
+          </div>
+          <div class="settings-nav-group" role="group" aria-labelledby="settings-nav-personal">
+            <div class="settings-nav-label" id="settings-nav-personal" data-i18n="settings.nav.group.personal">个性化</div>
+            <button type="button" class="settings-nav-item" data-panel="appearance" data-i18n="settings.nav.appearance">外观</button>
+            <button type="button" class="settings-nav-item" data-panel="extensions" data-i18n="settings.nav.extensions">扩展</button>
+          </div>
+          <div class="settings-nav-group" role="group" aria-labelledby="settings-nav-system">
+            <div class="settings-nav-label" id="settings-nav-system" data-i18n="settings.nav.group.system">系统</div>
+            <button type="button" class="settings-nav-item" data-panel="security" data-i18n="settings.nav.security">权限与安全</button>
+            <button type="button" class="settings-nav-item" data-panel="app" data-i18n="settings.nav.app">应用与数据</button>
+          </div>
+          <div class="settings-nav-group" role="group" aria-labelledby="settings-nav-other">
+            <div class="settings-nav-label" id="settings-nav-other" data-i18n="settings.nav.group.other">其他</div>
+            <button type="button" class="settings-nav-item" data-panel="weixin" data-i18n="settings.nav.weixin">微信桥接</button>
+            <button type="button" class="settings-nav-item" data-panel="schedules" data-i18n="settings.nav.schedules">定时任务</button>
+          </div>
         </nav>
         <div class="settings-content">
-          <section class="settings-section active" id="panel-api">
-            <h4>API 连接</h4>
-            <p class="settings-desc">配置 DeepSeek 大模型接口，无需编辑后台文件。</p>
+          <section class="settings-section active" id="panel-llm">
+            <h4 data-i18n="settings.llm.title">大模型</h4>
+            <p class="settings-desc" data-i18n="settings.llm.desc">配置对话大模型（OpenAI 兼容）与网络代理，无需编辑后台文件。</p>
             <form class="settings-form" id="settingsForm">
               <label>
-                <span>DeepSeek API Key</span>
-                <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
-                <small id="apiKeyHint">留空则保留已保存的 Key</small>
+                <span data-i18n="settings.llm.provider">服务商</span>
+                <div class="provider-select-row">
+                  <select id="llmProvider"></select>
+                  <button type="button" class="ghost-btn danger-text hidden" id="llmCustomDelete" data-i18n="settings.custom.delete">删除</button>
+                </div>
+                <small id="llmProviderHint" class="settings-hint-inline hidden"></small>
+                <small id="llmProfileHint" class="settings-hint-inline hidden"></small>
+              </label>
+              <label id="llmCustomNameWrap" class="hidden">
+                <span data-i18n="settings.custom.name">显示名称</span>
+                <input type="text" id="llmCustomName" placeholder="例如：本地 Ollama / 中转 A" autocomplete="off" />
               </label>
               <label>
-                <span>API Base URL</span>
+                <span data-i18n="settings.llm.apiKey">API Key</span>
+                <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
+                <small id="apiKeyHint">留空则保留已保存的 Key · <a id="llmKeyLink" href="#" target="_blank" rel="noopener" class="hidden" data-i18n="settings.llm.getKey">申请 Key</a></small>
+              </label>
+              <label>
+                <span data-i18n="settings.llm.baseUrl">API Base URL</span>
                 <input type="text" id="baseUrl" placeholder="https://api.deepseek.com" />
               </label>
-              <label>
-                <span>模型</span>
-                <select id="model">
-                  <option value="deepseek-v4-flash">deepseek-v4-flash（推荐，便宜快）</option>
-                  <option value="deepseek-v4-pro">deepseek-v4-pro（复杂推理）</option>
-                  <option value="deepseek-chat">deepseek-chat（兼容旧名）</option>
-                </select>
+              <label id="llmModelSelectWrap">
+                <span data-i18n="settings.llm.model">模型</span>
+                <select id="model"></select>
               </label>
+              <label id="llmModelCustomWrap" class="hidden">
+                <span data-i18n="settings.llm.modelCustom">模型 ID</span>
+                <input type="text" id="llmModelCustom" placeholder="provider/model-id" autocomplete="off" />
+              </label>
+              <div class="settings-group network-group">
+                <h5>网络与代理</h5>
+                <p class="settings-hint">
+                  公司/校园网若无法直连 API，请填写 HTTP 或 HTTPS 代理（如 <code>http://127.0.0.1:7890</code>）。
+                  留空则使用 Windows 系统代理（若已勾选下方选项）。
+                </p>
+                <label>
+                  <span>HTTP(S) 代理</span>
+                  <input type="text" id="apiProxy" placeholder="http://127.0.0.1:7890" autocomplete="off" />
+                </label>
+                <label class="settings-check">
+                  <input type="checkbox" id="apiTrustEnv" checked />
+                  <span>同时使用系统环境变量中的代理（HTTP_PROXY / HTTPS_PROXY）</span>
+                </label>
+              </div>
               <div class="settings-actions-bar">
                 <div class="settings-actions-left">
                   <span class="status-pill" id="apiStatus">API 未配置</span>
                   <button type="button" class="ghost-btn" id="testBtn">测试连接</button>
+                  <button type="button" class="ghost-btn" id="diagnoseBtn">网络诊断</button>
                 </div>
                 <button type="submit" class="primary-btn">保存</button>
               </div>
               <div class="settings-result" id="settingsResult"></div>
             </form>
+          </section>
+          <section class="settings-section" id="panel-multimodal">
+            <h4 data-i18n="settings.multimodal.title">视觉与生图</h4>
+            <p class="settings-desc" data-i18n="settings.multimodal.desc">识图与画图使用独立 API，与大模型 Key 分开配置。</p>
             <div class="settings-group vision-group">
-              <h5>视觉辅助模型（豆包 / Ark）</h5>
-              <p class="settings-hint">
-                DeepSeek 无法直接识图。启用后，星期五会通过豆包等多模态 API 将图片转为文字描述再回答。
-                「视觉模型/端点」请填火山引擎推理接入点 ID（如 <code>ep-2026…</code>），不是裸模型名。
+              <h5 data-i18n="settings.vision.title">视觉辅助模型</h5>
+              <p class="settings-hint" data-i18n="settings.vision.desc">
+                主对话模型若无法识图，可启用视觉辅助：通过多模态 API 将图片转为文字描述再回答。
               </p>
               <form class="settings-form" id="visionForm">
                 <label class="settings-check">
                   <input type="checkbox" id="visionEnabled" />
-                  <span>启用视觉辅助</span>
+                  <span data-i18n="settings.vision.enable">启用视觉辅助</span>
                 </label>
                 <label>
-                  <span>豆包 / Ark API Key</span>
+                  <span data-i18n="settings.vision.provider">视觉服务商</span>
+                  <div class="provider-select-row">
+                    <select id="visionProvider"></select>
+                    <button type="button" class="ghost-btn danger-text hidden" id="visionCustomDelete" data-i18n="settings.custom.delete">删除</button>
+                  </div>
+                  <small id="visionProviderHint" class="settings-hint-inline hidden"></small>
+                </label>
+                <label id="visionCustomNameWrap" class="hidden">
+                  <span data-i18n="settings.custom.name">显示名称</span>
+                  <input type="text" id="visionCustomName" placeholder="例如：GPT-4o 中转" autocomplete="off" />
+                </label>
+                <label>
+                  <span data-i18n="settings.vision.apiKey">视觉 API Key</span>
                   <input type="password" id="visionApiKey" placeholder="ark-..." autocomplete="off" />
-                  <small id="visionApiKeyHint">留空则保留已保存的 Key</small>
+                  <small id="visionApiKeyHint">留空则保留已保存的 Key · <a id="visionKeyLink" href="#" target="_blank" rel="noopener" class="hidden" data-i18n="settings.llm.getKey">申请 Key</a></small>
                 </label>
                 <label>
-                  <span>视觉 API Base URL</span>
+                  <span data-i18n="settings.vision.baseUrl">视觉 API Base URL</span>
                   <input type="text" id="visionBaseUrl" placeholder="https://ark.cn-beijing.volces.com/api/v3" />
                 </label>
-                <label>
-                  <span>视觉模型 / 推理端点</span>
-                  <input type="text" id="visionModel" placeholder="ep-20260101xxxxxx-yyy" />
+                <label id="visionModelSelectWrap" class="hidden">
+                  <span data-i18n="settings.vision.model">视觉模型</span>
+                  <select id="visionModel"></select>
                 </label>
-                <div class="settings-actions-bar">
-                  <div class="settings-actions-left">
+                <label id="visionModelCustomWrap" class="hidden">
+                  <span data-i18n="settings.llm.modelCustom">模型 ID</span>
+                  <input type="text" id="visionModelCustom" placeholder="gpt-4o" autocomplete="off" />
+                </label>
+                <label id="visionModelEndpointWrap">
+                  <span data-i18n="settings.vision.endpoint">视觉模型 / 推理端点</span>
+                  <input type="text" id="visionModelEndpoint" placeholder="ep-20260101xxxxxx-yyy" />
+                </label>
+                <div class="settings-form-footer">
+                  <div class="settings-status-row">
                     <span class="status-pill" id="visionStatus">视觉辅助未配置</span>
-                    <button type="button" class="ghost-btn" id="testVisionBtn">测试视觉 API</button>
                   </div>
-                  <button type="submit" class="primary-btn">保存视觉设置</button>
+                  <div class="settings-actions-bar">
+                    <button type="button" class="ghost-btn" id="testVisionBtn">测试视觉 API</button>
+                    <button type="submit" class="primary-btn">保存视觉设置</button>
+                  </div>
+                  <div class="settings-result" id="visionResult"></div>
                 </div>
-                <div class="settings-result" id="visionResult"></div>
               </form>
             </div>
             <div class="settings-group image-gen-group">
-              <h5>生图（OpenAI 兼容 / 火山方舟）</h5>
-              <p class="settings-hint">
-                与识图 Key 分开配置。默认适用于 OpenAI 兼容生图中转（如 <code>https://next.zhima.world</code>）；
-                也可选火山方舟。模型名称请向 API 提供商确认，测试时再填即可。
+              <h5 data-i18n="settings.imageGen.title">生图</h5>
+              <p class="settings-hint" data-i18n="settings.imageGen.desc">
+                与识图 Key 分开配置。支持 OpenAI 兼容中转、火山方舟、SiliconFlow、通义万相等。
               </p>
               <form class="settings-form" id="imageGenForm">
                 <label class="settings-check">
                   <input type="checkbox" id="imageGenEnabled" />
-                  <span>启用生图</span>
+                  <span data-i18n="settings.imageGen.enable">启用生图</span>
                 </label>
                 <label>
-                  <span>Provider</span>
-                  <select id="imageGenProvider">
-                    <option value="openai_compat">OpenAI 兼容中转</option>
-                    <option value="ark">火山方舟</option>
-                  </select>
+                  <span data-i18n="settings.imageGen.provider">生图服务商</span>
+                  <div class="provider-select-row">
+                    <select id="imageGenProvider"></select>
+                    <button type="button" class="ghost-btn danger-text hidden" id="imageGenCustomDelete" data-i18n="settings.custom.delete">删除</button>
+                  </div>
+                  <small id="imageGenProviderHint" class="settings-hint-inline hidden"></small>
+                </label>
+                <label id="imageGenCustomNameWrap" class="hidden">
+                  <span data-i18n="settings.custom.name">显示名称</span>
+                  <input type="text" id="imageGenCustomName" placeholder="例如：Seedream 中转" autocomplete="off" />
                 </label>
                 <label>
-                  <span>生图 API Key</span>
+                  <span data-i18n="settings.imageGen.apiKey">生图 API Key</span>
                   <input type="password" id="imageGenApiKey" placeholder="sk-..." autocomplete="off" />
-                  <small id="imageGenApiKeyHint">留空则保留已保存的 Key</small>
+                  <small id="imageGenApiKeyHint">留空则保留已保存的 Key · <a id="imageGenKeyLink" href="#" target="_blank" rel="noopener" class="hidden" data-i18n="settings.llm.getKey">申请 Key</a></small>
                 </label>
                 <label>
-                  <span>生图 API Base URL</span>
+                  <span data-i18n="settings.imageGen.baseUrl">生图 API Base URL</span>
                   <input type="text" id="imageGenBaseUrl" placeholder="https://next.zhima.world" />
-                  <small>备用端点填下方，主 URL 失败时自动切换</small>
+                  <small data-i18n="settings.imageGen.baseUrlHint">备用端点填下方，主 URL 失败时自动切换</small>
                 </label>
                 <label>
-                  <span>备用 Base URL（逗号分隔）</span>
+                  <span data-i18n="settings.imageGen.fallback">备用 Base URL（逗号分隔）</span>
                   <input type="text" id="imageGenFallbackUrls" placeholder="https://crs.happycode.online, https://sg.zhima.world" />
                 </label>
-                <label>
-                  <span>生图模型</span>
-                  <input type="text" id="imageGenModel" placeholder="测试时向 API 提供商确认 model 名" />
+                <label id="imageGenModelSelectWrap" class="hidden">
+                  <span data-i18n="settings.imageGen.model">生图模型</span>
+                  <select id="imageGenModelSelect"></select>
                 </label>
-                <label>
-                  <span>默认尺寸</span>
-                  <select id="imageGenDefaultSize">
-                    <option value="1024x1024">1024×1024（方图）</option>
-                    <option value="1280x720">1280×720（横图）</option>
-                    <option value="768x1024">768×1024（竖图）</option>
-                  </select>
+                <label id="imageGenModelTextWrap">
+                  <span data-i18n="settings.imageGen.model">生图模型</span>
+                  <input type="text" id="imageGenModel" placeholder="向 API 提供商确认 model 名" />
                 </label>
-                <div class="settings-actions-bar">
-                  <div class="settings-actions-left">
+                <div class="settings-form-footer">
+                  <div class="settings-status-row">
                     <span class="status-pill" id="imageGenStatus">生图未配置</span>
-                    <button type="button" class="ghost-btn" id="testImageGenBtn">测试生图</button>
                   </div>
-                  <button type="submit" class="primary-btn">保存生图设置</button>
+                  <div class="settings-actions-bar">
+                    <button type="button" class="ghost-btn" id="testImageGenBtn">测试生图</button>
+                    <button type="submit" class="primary-btn">保存生图设置</button>
+                  </div>
+                  <div class="settings-result" id="imageGenResult"></div>
                 </div>
-                <div class="settings-result" id="imageGenResult"></div>
               </form>
             </div>
           </section>
           <section class="settings-section" id="panel-workspace">
-            <h4>默认操作文件夹</h4>
-            <p class="settings-desc">星期五帮你整理文件、保存文档时优先使用的目录。你也可以直接说「下载文件夹」「桌面」等。</p>
+            <h4 data-i18n="settings.workspace.title">默认操作文件夹</h4>
+            <p class="settings-desc" data-i18n="settings.workspace.desc">星期五帮你整理文件、保存文档时优先使用的目录。你也可以直接说「下载文件夹」「桌面」等。</p>
             <form class="settings-form" id="workspaceForm">
               <label>
                 <span>文件夹路径</span>
@@ -536,15 +671,19 @@
               </div>
               <div class="settings-result" id="workspaceResult"></div>
             </form>
-            <div class="settings-subsection" id="pythonEnvSection">
-              <h5>Agent Python 环境</h5>
-              <p class="settings-hint">
-                在工作区创建独立虚拟环境 <code>.python-env</code>，供星期五执行复杂 Python 任务（pandas、绘图、批量处理等），与应用自身环境分离。
+          </section>
+          <section class="settings-section" id="panel-agent">
+            <h4 data-i18n="settings.agent.title">Agent 环境</h4>
+            <p class="settings-desc" data-i18n="settings.agent.desc">为复杂数据分析、绘图与批量处理准备独立 Python 运行环境，与应用自身环境隔离。</p>
+            <div class="settings-group" id="pythonEnvSection">
+              <h5 data-i18n="settings.agent.pythonTitle">Python 虚拟环境</h5>
+              <p class="settings-hint" data-i18n="settings.agent.pythonHint">
+                在默认操作文件夹下创建 <code>.python-env</code>。也可在对话中直接要求跑 Python，星期五会自动尝试初始化。
               </p>
               <div class="python-env-status" id="pythonEnvStatus">加载中…</div>
               <div class="settings-actions">
-                <button type="button" class="ghost-btn" id="refreshPythonEnvBtn">刷新状态</button>
-                <button type="button" class="primary-btn" id="setupPythonEnvBtn">初始化 Python 环境</button>
+                <button type="button" class="ghost-btn" id="refreshPythonEnvBtn" data-i18n="btn.refresh">刷新状态</button>
+                <button type="button" class="primary-btn" id="setupPythonEnvBtn" data-i18n="settings.agent.setupPython">初始化 Python 环境</button>
               </div>
               <div class="settings-result" id="pythonEnvResult"></div>
             </div>
@@ -582,65 +721,9 @@
               <div class="settings-result" id="appearanceResult"></div>
             </form>
           </section>
-          <section class="settings-section" id="panel-logs">
-            <h4 data-i18n="logs.title">数据移植与日志</h4>
-            <p class="settings-desc" data-i18n="logs.desc">导出/导入配置包，并查看运行日志与诊断信息。</p>
-            <div class="settings-group portable-group">
-              <h5>数据迁移</h5>
-              <p class="settings-hint">导出/导入配置包（含设置、技能、规则、插件；可选会话）。换机时请一并拷贝默认操作文件夹。</p>
-              <label class="settings-check">
-                <input type="checkbox" id="portableIncludeSessions" />
-                <span>导出时包含对话历史</span>
-              </label>
-              <div class="settings-actions">
-                <button type="button" class="ghost-btn" id="portableExportBtn">导出配置包</button>
-                <button type="button" class="ghost-btn" id="portableImportBtn">导入配置包</button>
-                <input type="file" id="portableImportInput" accept=".zip,application/zip" hidden />
-              </div>
-              <pre class="log-preview" id="portableReport">（导入/导出结果将显示在此）</pre>
-            </div>
-            <div class="settings-group diagnostics-group">
-              <p class="settings-hint">应用数据与日志保存在 <code id="appdataPathHint">%APPDATA%\Friday</code></p>
-              <div class="settings-actions">
-                <button type="button" class="ghost-btn" id="openLogFolderBtn" data-i18n="logs.openFolder">打开日志文件夹</button>
-                <button type="button" class="ghost-btn" id="refreshLogPreviewBtn" data-i18n="logs.refresh">刷新日志摘要</button>
-              </div>
-              <pre class="log-preview" id="logPreview" data-i18n="logs.empty">（暂无日志）</pre>
-            </div>
-            <div class="settings-result" id="logsResult"></div>
-          </section>
-          <section class="settings-section" id="panel-security-updates">
-            <h4 data-i18n="updates.title">安全与更新</h4>
-            <p class="settings-desc" data-i18n="updates.desc">检查版本更新，并限制 AI 访问与修改文件的范围与方式。</p>
-            <div class="settings-group update-group">
-              <h5 data-i18n="updates.version">版本与更新</h5>
-              <p class="settings-hint">
-                当前版本 <strong id="appVersionLabel">—</strong>
-                · 更新源 <a id="updateSourceLink" href="https://gitee.com/Bxxxboo/friday/releases" target="_blank" rel="noopener">Gitee Releases</a>
-                <span class="settings-hint-inline" data-i18n="updates.sourceHint">（国内免 VPN；GitHub 作备用）</span>
-              </p>
-              <div class="settings-actions">
-                <button type="button" class="ghost-btn" id="checkUpdateBtn" data-i18n="updates.check">检查更新</button>
-                <a class="ghost-btn hidden" id="downloadUpdateLink" href="#" target="_blank" rel="noopener" data-i18n="updates.download">下载新版本</a>
-              </div>
-              <div class="settings-result" id="updateResult"></div>
-            </div>
-            <div class="settings-group changelog-group">
-              <h5>更新公告</h5>
-              <p class="settings-hint">查看各版本的新功能、改进与修复说明。升级后首次启动会自动弹出未读公告。</p>
-              <div class="settings-actions">
-                <button type="button" class="ghost-btn" id="viewChangelogBtn">查看更新历史</button>
-              </div>
-            </div>
-            <div class="settings-group autostart-group">
-              <h5 data-i18n="autostart.title">启动</h5>
-              <label class="settings-check">
-                <input type="checkbox" id="launchAtLogon" />
-                <span data-i18n="autostart.label">登录 Windows 时自动启动星期五</span>
-              </label>
-              <p class="settings-hint" id="launchAtLogonHint"></p>
-              <div class="settings-result" id="autostartResult"></div>
-            </div>
+          <section class="settings-section" id="panel-security">
+            <h4 data-i18n="security.title">权限与安全</h4>
+            <p class="settings-desc" data-i18n="security.desc">限制 AI 访问与修改文件的范围、可调用的工具，以及登录时是否自动启动。</p>
             <form class="settings-form" id="securityForm">
               <div class="settings-group">
                 <h5>路径与审批</h5>
@@ -711,6 +794,63 @@
               </div>
               <div class="settings-result" id="securityResult"></div>
             </form>
+            <div class="settings-group autostart-group">
+              <h5 data-i18n="autostart.title">启动</h5>
+              <label class="settings-check">
+                <input type="checkbox" id="launchAtLogon" />
+                <span data-i18n="autostart.label">登录 Windows 时自动启动星期五</span>
+              </label>
+              <p class="settings-hint" id="launchAtLogonHint"></p>
+              <div class="settings-result" id="autostartResult"></div>
+            </div>
+          </section>
+          <section class="settings-section" id="panel-app">
+            <h4 data-i18n="settings.app.title">应用与数据</h4>
+            <p class="settings-desc" data-i18n="settings.app.desc">版本更新、配置迁移与运行日志。</p>
+            <div class="settings-group update-group">
+              <h5 data-i18n="updates.version">版本与更新</h5>
+              <p class="settings-hint">
+                当前版本 <strong id="appVersionLabel">—</strong>
+                · 更新源 <a id="updateSourceLink" href="https://gitee.com/Bxxxboo/friday/releases" target="_blank" rel="noopener">Gitee Releases</a>
+                <span class="settings-hint-inline" data-i18n="updates.sourceHint">（国内免 VPN；GitHub 作备用）</span>
+              </p>
+              <div class="settings-actions">
+                <button type="button" class="ghost-btn" id="checkUpdateBtn" data-i18n="updates.check">检查更新</button>
+                <a class="ghost-btn hidden" id="downloadUpdateLink" href="#" target="_blank" rel="noopener" data-i18n="updates.download">下载新版本</a>
+              </div>
+              <div class="settings-result" id="updateResult"></div>
+            </div>
+            <div class="settings-group changelog-group">
+              <h5 data-i18n="settings.app.changelog">更新公告</h5>
+              <p class="settings-hint" data-i18n="settings.app.changelogHint">查看各版本的新功能、改进与修复说明。升级后首次启动会自动弹出未读公告。</p>
+              <div class="settings-actions">
+                <button type="button" class="ghost-btn" id="viewChangelogBtn" data-i18n="settings.app.viewChangelog">查看更新历史</button>
+              </div>
+            </div>
+            <div class="settings-group portable-group">
+              <h5 data-i18n="logs.migration">数据迁移</h5>
+              <p class="settings-hint" data-i18n="logs.migrationHint">导出/导入配置包（含设置、技能、规则、插件；可选会话）。换机时请一并拷贝默认操作文件夹。</p>
+              <label class="settings-check">
+                <input type="checkbox" id="portableIncludeSessions" />
+                <span data-i18n="logs.includeSessions">导出时包含对话历史</span>
+              </label>
+              <div class="settings-actions">
+                <button type="button" class="ghost-btn" id="portableExportBtn" data-i18n="logs.export">导出配置包</button>
+                <button type="button" class="ghost-btn" id="portableImportBtn" data-i18n="logs.import">导入配置包</button>
+                <input type="file" id="portableImportInput" accept=".zip,application/zip" hidden />
+              </div>
+              <pre class="log-preview" id="portableReport" data-i18n="logs.reportPlaceholder">（导入/导出结果将显示在此）</pre>
+            </div>
+            <div class="settings-group diagnostics-group">
+              <h5 data-i18n="logs.diagnostics">日志与诊断</h5>
+              <p class="settings-hint">应用数据与日志保存在 <code id="appdataPathHint">%APPDATA%\Friday</code></p>
+              <div class="settings-actions">
+                <button type="button" class="ghost-btn" id="openLogFolderBtn" data-i18n="logs.openFolder">打开日志文件夹</button>
+                <button type="button" class="ghost-btn" id="refreshLogPreviewBtn" data-i18n="logs.refresh">刷新日志摘要</button>
+              </div>
+              <pre class="log-preview" id="logPreview" data-i18n="logs.empty">（暂无日志）</pre>
+            </div>
+            <div class="settings-result" id="logsResult"></div>
           </section>
           <section class="settings-section" id="panel-extensions">
             <h4>扩展</h4>
@@ -801,9 +941,9 @@
             </div>
           </section>
           <section class="settings-section" id="panel-weixin">
-            <h4>微信端 AI</h4>
+            <h4 data-i18n="settings.weixin.title">微信桥接</h4>
             <p class="settings-desc">
-              用手机微信给「星期五 AI」发文字，即可远程指挥这台电脑。点「一键配置」会自动安装 Node.js（若无）、OpenClaw、插件并写入桥接；完成后会自动弹出扫码窗口，扫码后点「刷新状态」即可。
+              用手机微信给「星期五 AI」发文字，即可远程指挥这台电脑。点「一键配置」会自动安装 Node.js（若无）、OpenClaw、微信插件与桥接，并弹出扫码窗口；扫码后点「刷新状态」即可使用。
             </p>
             <div class="weixin-setup-banner" id="weixinSetupBanner">
               <span class="weixin-setup-badge" id="weixinSetupBadge">检测中…</span>
@@ -823,6 +963,7 @@
               <button type="button" class="ghost-btn" id="weixinSetupRefreshBtn">刷新状态</button>
               <button type="button" class="ghost-btn" id="weixinSetupLoginBtn">打开微信扫码登录</button>
             </div>
+            <div class="settings-result weixin-setup-result" id="weixinSetupResult"></div>
             <ol class="weixin-setup-steps" id="weixinSetupSteps"></ol>
             <div class="settings-group weixin-setup-help">
               <h5>配置完成后怎么用？</h5>
@@ -832,7 +973,6 @@
                 3. 涉及改文件、跑命令时会用人话询问，回复 <strong>同意</strong> 或 <strong>拒绝</strong>
               </p>
             </div>
-            <div class="settings-result" id="weixinSetupResult"></div>
           </section>
           <section class="settings-section" id="panel-schedules">
             <h4>定时任务</h4>
@@ -963,22 +1103,23 @@
 
   <script defer src="/static/vendor/marked.min.js"></script>
   <script defer src="/static/vendor/purify.min.js"></script>
-  <script defer src="/static/i18n.js?v=3"></script>
-  <script defer src="/static/utils.js?v=60"></script>
+  <script defer src="/static/i18n.js?v=5"></script>
+  <script defer src="/static/utils.js?v=63"></script>
+  <script defer src="/static/providers.js?v=14"></script>
   <script defer src="/static/sessions.js?v=56"></script>
-  <script defer src="/static/settings.js?v=60"></script>
-  <script defer src="/static/weixin.js?v=2"></script>
-  <script defer src="/static/onboarding.js?v=51"></script>
+  <script defer src="/static/settings.js?v=65"></script>
+  <script defer src="/static/weixin.js?v=3"></script>
+  <script defer src="/static/onboarding.js?v=52"></script>
   <script defer src="/static/releaseNotes.js?v=1"></script>
   <script defer src="/static/skills.js?v=51"></script>
   <script defer src="/static/extensions.js?v=53"></script>
   <script defer src="/static/history.js?v=51"></script>
   <script defer src="/static/schedules.js?v=51"></script>
-  <script defer src="/static/mode.js?v=52"></script>
+  <script defer src="/static/mode.js?v=54"></script>
   <script defer src="/static/statusbar.js?v=54"></script>
-  <script defer src="/static/plan.js?v=1"></script>
-  <script defer src="/static/chat.js?v=59"></script>
-  <script defer src="/static/app.js?v=56"></script>
+  <script defer src="/static/plan.js?v=9"></script>
+  <script defer src="/static/chat.js?v=64"></script>
+  <script defer src="/static/app.js?v=58"></script>
 </body>
 </html>
 

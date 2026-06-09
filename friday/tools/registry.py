@@ -42,7 +42,17 @@ _DOWNLOAD_BLOCKED_TOOLS = frozenset({
     "open_url",
 })
 
-_EAGER_MODULES = ("filesystem", "shell", "python_runner", "system", "extensions", "vision", "image_gen", "plan_tools")
+_EAGER_MODULES = (
+    "filesystem",
+    "shell",
+    "python_runner",
+    "system",
+    "extensions",
+    "vision",
+    "image_gen",
+    "plan_tools",
+    "memory_tools",
+)
 _LAZY_MODULES = ("documents", "media", "web")
 _IMPORTED: set[str] = set()
 
@@ -176,7 +186,19 @@ def _tool_timeout(name: str, arguments: dict[str, Any] | None = None) -> int:
     if name == "describe_image":
         return TOOL_TIMEOUT_VISION
     if name == "generate_image":
-        return TOOL_TIMEOUT_IMAGE_GEN
+        from friday.image_gen import resolve_image_gen_timeouts
+        from friday.storage import load_settings
+
+        args = arguments or {}
+        try:
+            tool_timeout, _, _ = resolve_image_gen_timeouts(
+                load_settings(),
+                str(args.get("size", "")),
+                prompt=str(args.get("prompt", "")),
+            )
+            return tool_timeout
+        except Exception:
+            return TOOL_TIMEOUT_IMAGE_GEN
     if name == "download_file":
         args = arguments or {}
         if args.get("_allow_large") or args.get("confirm_large_download"):
@@ -201,6 +223,8 @@ def execute_tool(
     arguments: dict[str, Any],
     *,
     cancel_event: threading.Event | None = None,
+    on_heartbeat: Callable[[], None] | None = None,
+    heartbeat_interval: float = 30.0,
 ) -> str:
     if name.startswith("mcp_"):
         from friday.tools.mcp_bridge import execute_mcp_tool
@@ -217,6 +241,8 @@ def execute_tool(
     future = _TOOL_EXECUTOR.submit(_invoke_tool, name, arguments)
     deadline = time.monotonic() + timeout
     poll = max(0.05, min(CANCEL_POLL_INTERVAL, timeout))
+    last_heartbeat = time.monotonic()
+    heartbeat_every = max(5.0, float(heartbeat_interval))
 
     while True:
         if cancel_event and cancel_event.is_set():
@@ -228,6 +254,10 @@ def execute_tool(
         if remaining <= 0:
             _log.warning("工具执行超时 | tool=%s timeout=%ds", name, timeout)
             return f"工具执行超时（>{timeout}s），已终止。"
+
+        if on_heartbeat and time.monotonic() - last_heartbeat >= heartbeat_every:
+            on_heartbeat()
+            last_heartbeat = time.monotonic()
 
         try:
             return future.result(timeout=min(poll, remaining))

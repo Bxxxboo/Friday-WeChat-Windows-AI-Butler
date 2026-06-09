@@ -22,8 +22,9 @@ _FAST_PROMPT = (
 
 _SUPPORTED_MIME = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 
-_TINY_PNG_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+# 火山引擎视觉 API 要求图片边长 ≥14px；旧 1×1 探针会返回 400 InvalidParameter
+_TEST_PNG_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAI0lEQVR4nGO8siCMgRTARJJqhlENxAEmItXBwagGYgDJoQQAq+UB6i6tUwYAAAAASUVORK5CYII="
 )
 
 # 聊天截图：小图快传
@@ -38,11 +39,41 @@ _VISION_CACHE_MAX = 24
 _VISION_CACHE_TTL = 600.0
 
 
+_PLACEHOLDER_VISION_KEYS = frozenset({"ark-your-key-here", "sk-your-key-here"})
+
+
+def _vision_provider_id(settings: UserSettings) -> str:
+    from friday.model_providers import infer_vision_provider
+
+    return (infer_vision_provider(settings) or "ark").strip()
+
+
+def vision_config_hint(settings: UserSettings) -> str:
+    """视觉配置未完成时的简短原因（供设置页状态展示）。"""
+    if not settings.vision_enabled:
+        return ""
+    key = settings.vision_api_key.strip()
+    if not key or key in _PLACEHOLDER_VISION_KEYS:
+        return "请填写视觉 API Key"
+    provider = _vision_provider_id(settings)
+    if provider == "ark":
+        if key.startswith("sk-"):
+            return "Key 格式不匹配：火山方舟需 ark- 开头"
+        model = settings.vision_model.strip()
+        if not model:
+            return "请填写 ep- 推理接入点"
+        if not model.startswith("ep-"):
+            return "推理端点需 ep- 开头"
+    return ""
+
+
 def vision_ready(settings: UserSettings) -> bool:
     if not settings.vision_enabled:
         return False
+    if vision_config_hint(settings):
+        return False
     key = settings.vision_api_key.strip()
-    return bool(key and key not in {"ark-your-key-here", "sk-your-key-here"})
+    return bool(key and key not in _PLACEHOLDER_VISION_KEYS)
 
 
 def masked_vision_key(settings: UserSettings) -> str:
@@ -69,42 +100,60 @@ def is_vision_error(message: str) -> bool:
     return any(m in text for m in markers)
 
 
-def compose_chat_message(text: str, image_path: str = "", vision_summary: str = "") -> str:
+def compose_chat_message(
+    text: str,
+    image_path: str = "",
+    vision_summary: str = "",
+    *,
+    image_paths: list[str] | None = None,
+) -> str:
     """组装带截图的用户消息；若已预识图则注入结果，跳过二次工具调用。"""
     base = (text or "").strip()
-    path = (image_path or "").strip()
+    paths: list[str] = []
+    if image_paths:
+        paths = [p.strip() for p in image_paths if (p or "").strip()]
+    elif (image_path or "").strip():
+        paths = [image_path.strip()]
     summary = (vision_summary or "").strip()
 
-    if summary and not is_vision_error(summary):
+    if summary and paths and not is_vision_error(summary):
         parts = [f"[截图视觉分析]\n{summary}"]
         if base:
             parts.append(f"[用户问题]\n{base}")
         parts.append("[说明] 视觉分析已完成，请直接据此回答，勿再调用 describe_image。")
         return "\n\n".join(parts)
 
-    if not path:
+    if not paths:
         return base
 
-    hint = (
-        f"[用户粘贴了截图，绝对路径: {path}，"
-        "请先用 describe_image 分析图片内容，再根据用户问题回答。]"
-    )
+    if len(paths) == 1:
+        hint = (
+            f"[用户粘贴了截图，绝对路径: {paths[0]}，"
+            "请先用 describe_image 分析图片内容，再根据用户问题回答。]"
+        )
+    else:
+        listing = "\n".join(f"{idx}. {path}" for idx, path in enumerate(paths, start=1))
+        hint = (
+            f"[用户粘贴了 {len(paths)} 张截图，请对每张图依次调用 describe_image 分析，再根据用户问题回答。"
+            f"绝对路径：\n{listing}]"
+        )
     if base:
         return f"{base}\n\n{hint}"
+    if len(paths) > 1:
+        return f"请分析我粘贴的这 {len(paths)} 张截图。\n\n{hint}"
     return f"请分析我粘贴的这张截图。\n\n{hint}"
 
 
-def _vision_client(api_key: str, base_url: str):
-    import httpx
-    from openai import OpenAI
+def _vision_client(api_key: str, base_url: str, settings: UserSettings | None = None):
+    from friday.api_connect import build_openai_client
+    from friday.config import VISION_HTTP_TIMEOUT
 
-    timeout = httpx.Timeout(
-        connect=10.0,
-        read=float(VISION_HTTP_TIMEOUT),
-        write=20.0,
-        pool=10.0,
+    return build_openai_client(
+        api_key,
+        base_url,
+        settings,
+        read_timeout=float(VISION_HTTP_TIMEOUT),
     )
-    return OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
 
 
 def optimize_image_bytes(data: bytes) -> tuple[bytes, str]:
@@ -229,7 +278,7 @@ def describe_image(
     _log.info("开始识图 | path=%s model=%s %dKB detail=%s", path.name, model, len(data) // 1024, detail)
     t0 = time.perf_counter()
     try:
-        client = _vision_client(settings.vision_api_key.strip(), base_url)
+        client = _vision_client(settings.vision_api_key.strip(), base_url, settings)
         response = client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,
@@ -258,57 +307,25 @@ def describe_image(
         return content
     except Exception as exc:  # noqa: BLE001
         _log.warning("Vision API 失败 | %s", exc)
-        msg = str(exc)
-        hint = ""
-        if "timed out" in msg.lower() or "timeout" in msg.lower():
-            hint = "（网络较慢或 API 繁忙，可稍后重试）"
-        elif "404" in msg or "NotFound" in msg:
-            hint = "（请确认 ep- 端点 ID 正确）"
-        elif "does not support" in msg.lower():
-            hint = "（请选择视觉理解接入点）"
-        return f"视觉 API 调用失败: {msg[:240]}{hint}"
+        from friday.api_connect import format_api_error
+
+        return f"视觉 API 调用失败: {format_api_error(exc, context='api_test', service='视觉 API')}"
 
 
 def test_vision_connection(settings: UserSettings) -> tuple[bool, str]:
+    from friday.api_connect import diagnose_vision, invalidate_probe_cache
+
+    hint = vision_config_hint(settings)
     if not vision_ready(settings):
-        return False, "请先勾选「启用视觉辅助」并填写 API Key，再点「保存视觉设置」"
-    if not settings.vision_model.strip():
-        return False, "请填写视觉模型/推理端点 ID（火山引擎 ep- 开头），不要使用裸模型名"
-    try:
-        client = _vision_client(
-            settings.vision_api_key.strip(),
-            settings.vision_base_url.strip() or "https://ark.cn-beijing.volces.com/api/v3",
-        )
-        model = settings.vision_model.strip()
-        client.chat.completions.create(
-            model=model,
-            max_tokens=16,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "回复 ok"},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/png;base64,{_TINY_PNG_B64}",
-                                "detail": "low",
-                            },
-                        },
-                    ],
-                }
-            ],
-        )
-        return True, f"视觉识图测试通过（端点: {model}）"
-    except Exception as exc:  # noqa: BLE001
-        msg = str(exc)
-        hint = ""
-        if "404" in msg or "NotFound" in msg:
-            hint = "。请确认 ep- 端点 ID 正确且已在火山引擎控制台启用"
-        elif "does not support" in msg.lower() or "multimodal" in msg.lower():
-            hint = "。请选择「视觉理解」类接入点，勿选纯文本或图片生成模型"
-        elif "401" in msg or "403" in msg or "Authentication" in msg:
-            hint = "。请检查 API Key 是否有效、是否有该端点权限"
-        elif "timed out" in msg.lower() or "timeout" in msg.lower():
-            hint = "。请检查网络能否访问火山引擎 API"
-        return False, f"视觉测试失败: {msg[:240]}{hint}"
+        return False, hint or "请先勾选「启用视觉辅助」并填写 API Key，再点「保存视觉设置」"
+    steps = diagnose_vision(settings, include_api=True)
+    if steps and steps[-1].ok:
+        invalidate_probe_cache()
+        return True, steps[-1].detail
+    failed = next((s for s in reversed(steps) if not s.ok), steps[-1] if steps else None)
+    if failed is None:
+        return False, "视觉测试失败"
+    msg = failed.detail
+    if failed.hint:
+        msg = f"{msg}\n{failed.hint}"
+    return False, msg

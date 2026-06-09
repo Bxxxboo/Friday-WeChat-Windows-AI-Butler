@@ -1,6 +1,6 @@
 # Vision Bridge — 星期五内置版
 
-基于 [vision-bridge-setup](file:///E:/reasonix/workspace/.reasonix/skills/vision-bridge-setup.md) 集成，无需单独 MCP 进程。
+基于 vision-bridge-setup 集成，无需单独 MCP 进程。配置见下方「设置」步骤。
 
 ## 配置
 

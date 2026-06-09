@@ -11,24 +11,37 @@
 
   /* ── 会话 API ── */
 
-  async function fetchSessions() {
-    const res = await F.apiFetchWithTimeout("/api/sessions", {}, 20000);
-    if (!res.ok) throw new Error(`加载会话失败 (${res.status})`);
-    const data = await res.json();
-    F.sessions = data.sessions.map((item) => ({
+  function mapSessionSummary(item, existing) {
+    return {
       id: item.id,
       title: item.title,
       updatedAt: item.updated_at,
       createdAt: item.created_at,
-      messages: [],
-    }));
-    F.activeSessionId = data.active_session_id || F.sessions[0]?.id || "";
+      isWeixin: !!item.is_weixin,
+      messages: existing?.messages || [],
+    };
+  }
+
+  async function fetchSessions({ switchActive = true } = {}) {
+    const res = await F.apiFetchWithTimeout("/api/sessions", {}, 20000);
+    if (!res.ok) throw new Error(`加载会话失败 (${res.status})`);
+    const data = await res.json();
+    const prevActive = F.activeSessionId;
+    const byId = new Map(F.sessions.map((s) => [s.id, s]));
+    F.sessions = data.sessions.map((item) => mapSessionSummary(item, byId.get(item.id)));
+    const activeFromServer = data.active_session_id || F.sessions[0]?.id || "";
+    const keepCurrent = !switchActive && F.sessions.some((s) => s.id === prevActive);
+    F.activeSessionId = keepCurrent ? prevActive : activeFromServer;
     renderSessionList();
     if (F.activeSessionId) {
       await loadSessionDetail(F.activeSessionId, false);
-    } else {
+    } else if (switchActive) {
       await createSession(true);
     }
+  }
+
+  async function refreshSessionList() {
+    await fetchSessions({ switchActive: false });
   }
 
   async function loadSessionDetail(sessionId, activate = true) {
@@ -198,7 +211,10 @@
 
   function renderSessionList() {
     F.sessionList.innerHTML = "";
-    const sorted = [...F.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
+    const sorted = [...F.sessions].sort((a, b) => {
+      if (a.isWeixin !== b.isWeixin) return a.isWeixin ? -1 : 1;
+      return b.updatedAt - a.updatedAt;
+    });
     sorted.forEach((session) => {
       const btn = document.createElement("button");
       btn.className = "session-item" + (session.id === F.activeSessionId ? " active" : "");
@@ -325,6 +341,7 @@
   window.addEventListener("resize", closeSessionContextMenu);
 
   F.fetchSessions = fetchSessions;
+  F.refreshSessionList = refreshSessionList;
   F.loadSessionDetail = loadSessionDetail;
   F.createSession = createSession;
   F.renderSessionList = renderSessionList;

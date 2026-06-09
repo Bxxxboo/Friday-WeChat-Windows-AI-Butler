@@ -8,7 +8,6 @@ import json
 import os
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -16,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from friday.version import __version__, release_zip_name, resolve_release_zip_path
+from friday.version import __version__
 
 API = "https://api.github.com"
 UPLOAD = "https://uploads.github.com"
@@ -74,7 +73,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default="Bxxxboo/Friday-Zero-barrier-DeepSeek-Agent-for-Windows")
     parser.add_argument("--version", default=__version__)
-    parser.add_argument("--zip", default="")
+    parser.add_argument("--zip", default=str(ROOT / "release" / "Friday-Windows.zip"))
     parser.add_argument("--skip-upload", action="store_true")
     args = parser.parse_args()
 
@@ -124,23 +123,21 @@ def main() -> int:
     if args.skip_upload:
         print("Skip upload.")
     else:
-        zip_path = Path(args.zip) if args.zip else resolve_release_zip_path(ROOT, args.version)
+        zip_path = Path(args.zip)
         if not zip_path.is_file():
             print(f"Zip not found: {zip_path}", file=sys.stderr)
             return 1
-        asset_name = zip_path.name
         release = _request("GET", f"{API}/repos/{repo}/releases/{release_id}", token)
         for asset in release.get("assets") or []:
-            name = str(asset.get("name", ""))
-            if name == asset_name or name == "Friday-Windows.zip" or name.startswith("Friday-Windows-v"):
+            if asset.get("name") == "Friday-Windows.zip":
                 aid = asset["id"]
-                print(f"Removing existing asset {name} (id {aid}) ...")
+                print(f"Removing existing asset id {aid} ...")
                 _request("DELETE", f"{API}/repos/{repo}/releases/assets/{aid}", token)
-        print(f"Uploading {asset_name} ...")
+        print(f"Uploading {zip_path.name} ...")
         data = zip_path.read_bytes()
         _request(
             "POST",
-            f"{UPLOAD}/repos/{repo}/releases/{release_id}/assets?name={urllib.parse.quote(asset_name)}",
+            f"{UPLOAD}/repos/{repo}/releases/{release_id}/assets?name=Friday-Windows.zip",
             token,
             raw=data,
             content_type="application/zip",

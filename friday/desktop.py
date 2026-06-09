@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import secrets
 import shutil
 import subprocess
 import sys
@@ -9,10 +8,11 @@ import threading
 import urllib.error
 import urllib.request
 
+from friday.edition import app_user_model_id, window_title
 from friday.logging_config import setup_logging
 from friday.net import find_free_port
 from friday.paths import app_icon_path, get_appdata_dir, stable_icon_path
-from friday.splash import blank_html, resolved_boot_theme, splash_background
+from friday.splash import blank_html, boot_splash_html, resolved_boot_theme, splash_background
 from friday.storage import load_settings
 
 _log = None  # 在 main() 中赋值
@@ -48,7 +48,7 @@ def _set_windows_app_id() -> None:
     try:
         import ctypes
 
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Friday.AIDesktop.2")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_user_model_id())
     except (AttributeError, OSError):
         pass
 
@@ -219,8 +219,12 @@ class WindowApi:
             try:
                 import webview
 
+                folder_dialog = webview.FOLDER_DIALOG
+                file_dialog = getattr(webview, "FileDialog", None)
+                if file_dialog is not None:
+                    folder_dialog = file_dialog.FOLDER
                 result = self._window.create_file_dialog(
-                    webview.FileDialog.FOLDER,
+                    folder_dialog,
                     directory=directory,
                     allow_multiple=False,
                 )
@@ -292,11 +296,11 @@ def _prepare_backend() -> None:
 
     try:
         port = find_free_port()
-        token = secrets.token_hex(32)
+        from friday.auth import ensure_api_token, set_api_token
+
+        token = ensure_api_token()
         os.environ["FRIDAY_API_TOKEN"] = token
         os.environ["FRIDAY_PORT"] = str(port)
-        from friday.auth import set_api_token
-
         set_api_token(token)
         _startup_state["port"] = port
         _startup_state["token"] = token
@@ -360,24 +364,12 @@ def main() -> None:
     import webview
 
     threading.Thread(target=_prepare_backend, daemon=True).start()
-    port = _wait_for_backend()
-    main_url: str | None = None
-    failure_html: str | None = None
-    if port is not None:
-        token = _startup_state.get("token") or ""
-        token_q = f"&token={token}" if token else ""
-        main_url = f"http://127.0.0.1:{port}/?desktop=1&boot={boot_theme}{token_q}"
-        _log.info("后端就绪 port=%d，准备加载主界面", port)
-        _prefetch_url(main_url)
-    else:
-        _log.error("后端未能启动或未响应")
-        failure_html = _startup_failure_html(
-            "星期五启动失败",
-            "后端未响应，请检查端口是否被占用或查看 friday.log。",
-        )
 
     window_visible = {"shown": False}
+    boot_phase = {"step": "splash"}
     window_api = WindowApi()
+    app_icon = _resolve_icon_path()
+    failure_html: str | None = None
 
     def _apply_window_chrome(*, clip_thumbnail: bool = True) -> None:
         if sys.platform != "win32":
@@ -394,6 +386,7 @@ def main() -> None:
             splash_bg,
             dark=boot_theme == "dark",
             clip_thumbnail=clip_thumbnail,
+            icon_path=app_icon,
         )
 
     def _schedule_chrome_apply() -> None:
@@ -403,43 +396,92 @@ def main() -> None:
                 lambda d=delay: _apply_window_chrome(clip_thumbnail=d >= 0.15),
             ).start()
 
-    def _show_when_painted(*, force: bool = False) -> None:
+    def _force_show_window() -> None:
         if window_visible["shown"]:
             return
+        window_visible["shown"] = True
+        try:
+            window.show()
+        except Exception:
+            _log.exception("显示主窗口失败")
+        if sys.platform == "win32":
+            try:
+                import ctypes
 
-        def _attempt(try_no: int = 0) -> None:
-            if window_visible["shown"]:
-                return
-            ready = force
-            if not ready and try_no < 12:
-                try:
-                    ready = bool(
-                        window.evaluate_js(
-                            "(function(){"
-                            "if(document.readyState!=='complete')return false;"
-                            "var bg=getComputedStyle(document.documentElement).backgroundColor;"
-                            "if(!bg||bg==='rgba(0, 0, 0, 0)')return false;"
-                            "return !!document.getElementById('appBootOverlay')||!!document.body;"
-                            "})()",
-                            True,
-                        )
-                    )
-                except Exception:
-                    ready = try_no >= 4
-            if ready or try_no >= 12:
-                window_visible["shown"] = True
-                try:
-                    window.show()
-                    _schedule_chrome_apply()
-                except Exception:
-                    _log.exception("显示主窗口失败")
-            else:
-                threading.Timer(0.04, lambda: _attempt(try_no + 1)).start()
+                from friday.win32_chrome import find_app_window
 
-        _attempt()
+                hwnd = find_app_window()
+                if hwnd:
+                    user32 = ctypes.windll.user32
+                    if not user32.IsWindowVisible(hwnd):
+                        user32.ShowWindow(hwnd, 5)  # SW_SHOW
+            except (AttributeError, OSError, TypeError):
+                pass
+        _schedule_chrome_apply()
+
+    def _load_main_app() -> None:
+        def _splash_status(text: str) -> None:
+            try:
+                window.evaluate_js(
+                    "(function(t){var el=document.querySelector('.status');if(el)el.textContent=t;})("
+                    + repr(text)
+                    + ")",
+                    False,
+                )
+            except Exception:
+                pass
+
+        _splash_status("正在启动服务…")
+        port = _wait_for_backend()
+        if port is None:
+            _log.error("后端未能启动或未响应")
+            nonlocal failure_html
+            failure_html = _startup_failure_html(
+                "星期五启动失败",
+                "后端未响应，请检查端口是否被占用或查看 friday.log。",
+            )
+            boot_phase["step"] = "failure"
+            try:
+                window.load_html(failure_html)
+            except Exception:
+                _log.exception("加载失败页异常")
+            return
+
+        token = _startup_state.get("token") or ""
+        try:
+            from friday.weixin.config import write_bridge_config
+
+            write_bridge_config(int(port), token)
+        except OSError:
+            _log.exception("同步微信桥接配置失败")
+        token_q = f"&token={token}" if token else ""
+        main_url = f"http://127.0.0.1:{port}/?desktop=1&boot={boot_theme}{token_q}"
+        _log.info("后端就绪 port=%d，准备加载主界面", port)
+        _prefetch_url(main_url)
+        _splash_status("正在加载界面…")
+        boot_phase["step"] = "main"
+        try:
+            from friday.scheduler import start_scheduler
+
+            start_scheduler()
+        except Exception:
+            _log.exception("定时调度器启动失败")
+        try:
+            window.load_url(main_url)
+        except Exception:
+            _log.exception("加载主界面 URL 失败")
 
     def _on_page_loaded() -> None:
-        _show_when_painted(force=failure_html is not None)
+        step = boot_phase["step"]
+        if step == "splash":
+            _force_show_window()
+            boot_phase["step"] = "waiting"
+            threading.Thread(target=_load_main_app, daemon=True).start()
+            return
+        if step in ("main", "failure"):
+            _apply_window_chrome(clip_thumbnail=False)
+            if not window_visible["shown"]:
+                _force_show_window()
 
     def _on_restored() -> None:
         _apply_window_chrome()
@@ -460,26 +502,23 @@ def main() -> None:
     def _on_minimized() -> None:
         _apply_window_chrome(clip_thumbnail=True)
 
-    _log.info("创建启动窗口（隐藏至首帧绘制完成）")
+    _log.info("创建启动窗口（先显示启动页，后端并行加载）")
     create_kwargs: dict = {
-        "title": "星期五",
+        "title": window_title(),
         "width": 980,
         "height": 720,
         "min_size": (820, 600),
         "background_color": splash_bg,
         "frameless": True,
         "easy_drag": False,
-        "hidden": True,
+        "hidden": False,
         "shadow": False,
         "focus": False,
         "text_select": True,
         "zoomable": False,
         "js_api": window_api,
+        "html": boot_splash_html(settings, status="正在启动服务…"),
     }
-    if main_url:
-        create_kwargs["url"] = main_url
-    else:
-        create_kwargs["html"] = failure_html or blank_html(settings)
 
     window = webview.create_window(**create_kwargs)
     window_api.bind(window)
@@ -488,20 +527,10 @@ def main() -> None:
     window.events.minimized += _on_minimized
     window.events.resized += lambda _w, _h: _apply_window_chrome(clip_thumbnail=False)
 
-    icon_holder: dict[str, str | None] = {"path": None}
-
-    def _load_icon() -> None:
-        icon_holder["path"] = _resolve_icon_path()
-
     def _on_gui_start() -> None:
-        threading.Thread(target=_load_icon, daemon=True).start()
-        if port is not None:
-            try:
-                from friday.scheduler import start_scheduler
-
-                start_scheduler()
-            except Exception:
-                _log.exception("定时调度器启动失败")
+        if not window_visible["shown"]:
+            threading.Timer(0.35, _force_show_window).start()
+        threading.Timer(4.0, _force_show_window).start()
 
     webview_dir = get_appdata_dir() / "webview2"
     webview_dir.mkdir(parents=True, exist_ok=True)
@@ -512,10 +541,8 @@ def main() -> None:
         "private_mode": False,
         "storage_path": str(webview_dir),
     }
-    if icon_holder["path"]:
-        start_kwargs["icon"] = icon_holder["path"]
-    elif (path := _resolve_icon_path()):
-        start_kwargs["icon"] = path
+    if app_icon:
+        start_kwargs["icon"] = app_icon
 
     try:
         webview.start(**start_kwargs)

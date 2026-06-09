@@ -1,0 +1,25 @@
+{
+  "id": "karpathy-guidelines",
+  "name": "Karpathy 编码准则",
+  "version": "1.0.0",
+  "description": "Andrej Karpathy 风格的行为准则：先思考再写码、保持简单、精准改动、目标可验证。来源 forrestchang/andrej-karpathy-skills (MIT)。",
+  "author": "forrestchang / Friday 打包",
+  "skills": [
+    {
+      "id": "apply-guidelines",
+      "label": "Karpathy 准则",
+      "icon": "🧠",
+      "category": "plugin",
+      "prompt": "请 read_text_file 读取 {plugin_dir}/SKILL.md，严格按 Karpathy Guidelines 处理我接下来的任务：① 列出假设与可验证成功标准；② 给出最小必要改动方案；③ 需要写文件前先说明计划。"
+    }
+  ],
+  "rules": [
+    {
+      "id": "karpathy-guidelines",
+      "title": "Karpathy 编码准则",
+      "enabled": true,
+      "always_apply": true,
+      "content": "遵循 Karpathy Guidelines（forrestchang/andrej-karpathy-skills）：1) Think Before Coding — 明确假设，有歧义先问，更简单方案要提出。2) Simplicity First — 只做被要求的功能，不为单次使用抽象，不写 speculative 代码；200 行能 50 行完成则重写。3) Surgical Changes — 只改与请求直接相关的行，不顺手改相邻代码/格式，不删用户未要求的旧代码；仅清理自己改动产生的 orphan import/变量。4) Goal-Driven Execution — 把任务变成可验证目标（如先写失败测试再修 bug）；多步任务先列步骤与每步 verify 方式。简单任务可灵活权衡速度与谨慎。"
+    }
+  ]
+}

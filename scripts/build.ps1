@@ -3,9 +3,12 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 
 . (Join-Path $PSScriptRoot "friday-dist.ps1")
 
-$python = Join-Path $PWD ".venv\Scripts\python.exe"
-if (-not (Test-Path $python)) {
-    Write-Host "venv not found, run setup.ps1 first" -ForegroundColor Yellow
+$python = Join-Path $PWD ".python-env\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $python)) {
+    $python = Join-Path $PWD ".venv\Scripts\python.exe"
+}
+if (-not (Test-Path -LiteralPath $python)) {
+    Write-Host "Python env not found, run setup.ps1 first" -ForegroundColor Yellow
     exit 1
 }
 

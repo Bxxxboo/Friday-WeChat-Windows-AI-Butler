@@ -6,7 +6,13 @@ from pathlib import Path
 from friday.io_utils import atomic_write_json, load_json
 from friday.logging_config import get_logger
 from friday.paths import get_appdata_dir
-from friday.sessions import create_session, get_session, rename_session, session_exists
+from friday.sessions import (
+    create_session,
+    ensure_session_listed,
+    get_session,
+    rename_session,
+    session_exists,
+)
 
 _log = get_logger("weixin.sessions")
 
@@ -49,19 +55,53 @@ def _maybe_upgrade_weixin_title(session_id: str) -> None:
         rename_session(session_id, WEIXIN_SESSION_TITLE)
 
 
-def resolve_session_id(account_id: str, peer_id: str) -> str:
+def _notify_sessions_changed() -> None:
+    try:
+        from friday.ws_broadcast import notify_sessions_changed
+
+        notify_sessions_changed()
+    except Exception:
+        pass
+
+
+def resolve_session_id(account_id: str, peer_id: str, *, activate: bool = False) -> str:
     key = peer_key(account_id, peer_id)
     mapping = _read_mapping()
     existing = mapping.get(key, "").strip()
     if existing and session_exists(existing):
         _maybe_upgrade_weixin_title(existing)
+        ensure_session_listed(existing, prepend=True)
         return existing
 
-    session = create_session(WEIXIN_SESSION_TITLE, title_pinned=True)
+    session = create_session(WEIXIN_SESSION_TITLE, title_pinned=True, activate=activate)
     mapping[key] = session.id
     _write_mapping(mapping)
     _log.info("创建微信会话 | peer=%s session=%s", peer_id, session.id)
+    _notify_sessions_changed()
     return session.id
+
+
+def ensure_weixin_sessions_ready() -> str | None:
+    """启动时：为已登录微信账号预建「我的微信」会话并列入侧边栏。"""
+    from friday.storage import load_settings
+    from friday.weixin.client import resolve_account
+
+    if not getattr(load_settings(), "weixin_bridge_enabled", True):
+        return None
+
+    account = resolve_account("")
+    if account is None:
+        return None
+
+    peer_id = (account.user_id or "").strip()
+    if not peer_id:
+        return None
+
+    session_id = resolve_session_id(account.account_id, peer_id, activate=True)
+    ensure_session_listed(session_id, prepend=True)
+    migrate_weixin_session_titles()
+    _notify_sessions_changed()
+    return session_id
 
 
 def migrate_weixin_session_titles() -> int:

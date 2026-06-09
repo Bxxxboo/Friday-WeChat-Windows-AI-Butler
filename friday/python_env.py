@@ -38,6 +38,11 @@ def agent_env_dir(workspace: str) -> Path:
     return Path(workspace).expanduser().resolve() / ENV_DIR_NAME
 
 
+def _is_nested_agent_python(path: Path) -> bool:
+    """避免用另一个 .python-env 当 base，否则源码目录移动后工作区 venv 会集体失效。"""
+    return any(part.lower() == ENV_DIR_NAME for part in path.parts)
+
+
 def requirements_file() -> Path:
     return bundle_dir() / REQUIREMENTS_NAME
 
@@ -141,7 +146,9 @@ def find_system_python(*, skip_embed: bool = False, skip_winget: bool = False) -
             candidates.append(embed)
 
     if not is_frozen():
-        candidates.append(Path(sys.executable))
+        app_py = Path(sys.executable)
+        if app_py.is_file() and not _is_nested_agent_python(app_py):
+            candidates.append(app_py)
 
     local_app = os.getenv("LOCALAPPDATA", "")
     if local_app:
@@ -161,6 +168,8 @@ def find_system_python(*, skip_embed: bool = False, skip_winget: bool = False) -
             continue
         seen.add(key)
         if not path.is_file():
+            continue
+        if _is_nested_agent_python(path):
             continue
         try:
             out = subprocess.run(

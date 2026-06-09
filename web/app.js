@@ -14,20 +14,41 @@
 
   /* ── 启动（优先执行，避免后续绑定异常导致永远卡在加载页） ── */
 
+  const BOOT_MIN_MS = 1600;
+  const bootStarted = performance.now();
+  document.documentElement.classList.add("boot-active");
+
   async function bootstrap() {
     const overlay = document.getElementById("appBootOverlay");
     const setBootText = (text) => {
-      const hint = overlay?.querySelector("p");
-      if (hint) hint.textContent = text;
+      const hint = overlay?.querySelector(".app-boot-status") || overlay?.querySelector("p");
+      if (!hint || hint.textContent === text) return;
+      hint.classList.add("is-swapping");
+      setTimeout(() => {
+        hint.textContent = text;
+        hint.classList.remove("is-swapping");
+      }, 180);
     };
-    const hideOverlay = () => overlay?.classList.add("hidden");
+    const hideOverlay = () => {
+      if (!overlay || overlay.classList.contains("hidden")) return;
+      overlay.classList.add("is-leaving");
+      const finish = () => {
+        overlay.classList.add("hidden");
+        overlay.classList.remove("is-leaving");
+        document.documentElement.classList.remove("boot-active");
+        document.documentElement.classList.add("app-ready");
+      };
+      overlay.addEventListener("transitionend", finish, { once: true });
+      setTimeout(finish, 560);
+    };
 
     const bootWork = async () => {
       setBootText("正在同步数据…");
+      await F.ensureApiToken?.();
       await F.migrateLocalStorageSessions();
       setBootText("正在加载对话…");
       await F.fetchSessions();
-      setBootText("正在检查服务…");
+      setBootText("正在连接服务…");
       try {
         await F.loadSettings?.();
       } catch (err) {
@@ -35,6 +56,13 @@
       }
       const health = await F.apiFetchWithTimeout("/api/health", {}, 8000);
       if (!health.ok) throw new Error(`服务未就绪 (${health.status})`);
+    };
+
+    const waitBootMinimum = async () => {
+      const remain = BOOT_MIN_MS - (performance.now() - bootStarted);
+      if (remain > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remain));
+      }
     };
 
     try {
@@ -45,6 +73,9 @@
           setTimeout(() => reject(new Error("加载超时，请关闭后重新打开")), 30000);
         }),
       ]);
+      await waitBootMinimum();
+      setBootText("即将进入…");
+      await new Promise((resolve) => setTimeout(resolve, 340));
       hideOverlay();
       F.connectWs();
       F.updateInputState();
@@ -56,7 +87,7 @@
       console.error(err);
       const detail = err?.message || String(err);
       F.setConnectionStatus("加载失败，请重启应用", false);
-      const hint = overlay?.querySelector("p");
+      const hint = overlay?.querySelector(".app-boot-status") || overlay?.querySelector("p");
       if (hint) {
         hint.textContent =
           detail.includes("401") || detail.includes("Unauthorized")
@@ -74,7 +105,10 @@
 
   F.sendBtn?.addEventListener("click", () => {
     void F.sendChat(F.chatInput?.value || "");
-    if (F.chatInput) F.chatInput.value = "";
+    if (F.chatInput) {
+      F.chatInput.value = "";
+      F.updateInputState();
+    }
   });
 
   F.chatInput?.addEventListener("keydown", (event) => {
@@ -82,10 +116,17 @@
       event.preventDefault();
       void F.sendChat(F.chatInput.value);
       F.chatInput.value = "";
+      F.updateInputState();
     }
   });
 
-  F.chatInput?.addEventListener("input", () => F.updateInputState());
+  F.chatInput?.addEventListener("input", () => {
+    F.syncComposerInputHeight?.();
+    F.updateInputState();
+  });
+  F.chatInput?.addEventListener("paste", () => {
+    requestAnimationFrame(() => F.syncComposerInputHeight?.());
+  });
 
   document.getElementById("clearQuoteBtn")?.addEventListener("click", () => {
     F.clearComposerQuote?.();
@@ -95,7 +136,7 @@
   F.stopBtn?.addEventListener("click", () => F.stopChat());
 
   document.getElementById("newChatBtn")?.addEventListener("click", () => F.createSession(true));
-  document.getElementById("openSettingsBtn")?.addEventListener("click", () => F.openSettings("api"));
+  document.getElementById("openSettingsBtn")?.addEventListener("click", () => F.openSettings("llm"));
   document.getElementById("closeSettingsBtn")?.addEventListener("click", () => F.closeSettings());
 
   F.settingsModal?.addEventListener("click", (event) => {
@@ -123,6 +164,7 @@
   });
 
   document.getElementById("testBtn")?.addEventListener("click", F.testSettings);
+  document.getElementById("diagnoseBtn")?.addEventListener("click", F.diagnoseNetworkSettings);
   document.getElementById("testVisionBtn")?.addEventListener("click", F.testVisionSettings);
 
   F.settingsForm?.addEventListener("submit", F.saveSettings);
@@ -132,7 +174,9 @@
   document.getElementById("imageGenBaseUrl")?.addEventListener("input", (e) => {
     e.target.dataset.userEdited = e.target.value.trim() ? "1" : "";
   });
-  document.getElementById("imageGenProvider")?.addEventListener("change", F.onImageGenProviderChange);
+  document.getElementById("llmProvider")?.addEventListener("change", () => F.onLlmProviderChange?.());
+  document.getElementById("visionProvider")?.addEventListener("change", () => F.onVisionProviderChange?.());
+  document.getElementById("imageGenProvider")?.addEventListener("change", () => F.onImageGenProviderChange?.());
   F.workspaceForm?.addEventListener("submit", F.saveWorkspace);
   document.getElementById("pickWorkspaceBtn")?.addEventListener("click", F.pickWorkspaceFolder);
   F.appearanceForm?.addEventListener("submit", F.saveAppearanceSettings);

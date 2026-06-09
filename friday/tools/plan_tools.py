@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from friday.agent_context import current_session_id
-from friday.plan import update_session_plan
+from friday.plan import sync_todos_from_plan, update_session_plan
 from friday.tools._decorators import register_tool
 
 
@@ -31,6 +31,10 @@ def update_session_plan_tool(plan_markdown: str) -> str:
     result = update_session_plan(session_id, plan_markdown=plan_markdown)
     if not result.get("ok"):
         return str(result.get("message") or "更新失败")
+    sync = sync_todos_from_plan(session_id)
+    added = sync.get("added") or []
+    if added:
+        return f"已更新任务计划，并从 Markdown 同步 {len(added)} 条待办"
     return "已更新任务计划"
 
 

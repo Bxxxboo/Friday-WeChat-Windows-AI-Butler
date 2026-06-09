@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable
 
 import threading
 
 from friday.brain import ChatCompletionResult, DeepSeekBrain, UsageStats
-from friday.config import MAX_TOOL_RESULT_CHARS, MAX_TOOL_ROUNDS
+from friday.config import MAX_TOOL_RESULT_CHARS, MAX_TOOL_ROUNDS, MAX_TOOL_ROUNDS_CAP
 from friday.logging_config import get_logger
 from friday.safety import (
     PendingAction,
+    RiskLevel,
     TurnApprovalState,
     classify_tool,
     describe_approval_plain,
@@ -50,6 +52,7 @@ class FridayAgent:
         self.session_cache_hit_tokens = 0
         self.session_cache_miss_tokens = 0
         self._frozen_prefix: Any = None
+        self._loop_hint_injected = False
         self._pin_prefix(force=True)
 
     def _pin_prefix(self, *, force: bool = False) -> bool:
@@ -172,7 +175,9 @@ class FridayAgent:
         if not messages:
             self.reset()
             return
-        self.messages = list(messages)
+        from friday.context import sanitize_agent_messages
+
+        self.messages = sanitize_agent_messages(list(messages))
         self._pin_prefix(force=True)
 
     # ── 事件发射 ──
@@ -193,6 +198,13 @@ class FridayAgent:
             from friday.prefix_cache import log_prefix_drift
 
             log_prefix_drift(drift, fingerprint=self._frozen_prefix.fingerprint)
+
+        from friday.context import sanitize_agent_messages
+
+        sanitized = sanitize_agent_messages(self.messages)
+        if sanitized != self.messages:
+            _log.warning("已修复会话中损坏的 tool 消息顺序")
+            self.messages = sanitized
 
         prepared = self.brain.prepare_messages(
             self.messages,
@@ -264,6 +276,33 @@ class FridayAgent:
         )
 
     # ── 工具调用处理 ──
+
+    def _max_tool_rounds(self) -> int:
+        """复杂计划任务自动放宽工具轮次上限。"""
+        session_id = str((self.operation_meta or {}).get("session_id", ""))
+        if not session_id:
+            return MAX_TOOL_ROUNDS
+        from friday.plan import get_session_plan
+
+        plan = get_session_plan(session_id)
+        todos = plan.get("todos") or []
+        pending = sum(
+            1 for item in todos if isinstance(item, dict) and not item.get("done")
+        )
+        extra = min(pending * 2, 12)
+        return min(MAX_TOOL_ROUNDS_CAP, MAX_TOOL_ROUNDS + extra)
+
+    def _can_parallelize_round(self, tool_names: list[str]) -> bool:
+        if len(tool_names) < 2:
+            return False
+        from friday.plan import PLAN_TOOL_NAMES
+
+        for name in tool_names:
+            if not name or name in PLAN_TOOL_NAMES:
+                return False
+            if classify_tool(name) != RiskLevel.READ:
+                return False
+        return True
 
     def _latest_user_text(self) -> str:
         for msg in reversed(self.messages):
@@ -410,9 +449,27 @@ class FridayAgent:
 
             pending_old_text = read_text_if_exists(str(args.get("path", "")))
 
-        result = execute_tool(name, exec_args, cancel_event=self._cancel_event)
+        on_heartbeat = None
+        if on_event and name in ("generate_image", "describe_image"):
+            def on_heartbeat() -> None:
+                self._emit(on_event, "progress", {
+                    "tools": [name],
+                    "heartbeat": True,
+                    "step": idx,
+                    "tool_count": tool_count,
+                    "round": self._round_count + 1,
+                })
+
+        result = execute_tool(
+            name,
+            exec_args,
+            cancel_event=self._cancel_event,
+            on_heartbeat=on_heartbeat,
+        )
         if self._cancel_event.is_set() or result == CANCELLED_TOOL_MESSAGE:
             return CANCELLED_MESSAGE
+
+        self._maybe_update_plan_from_tool(name, args, result, on_event)
 
         if name == "write_text_file" and result.startswith("已写入"):
             from friday.file_diff import build_file_change_payload
@@ -442,6 +499,37 @@ class FridayAgent:
                 self._emit(on_event, "image_generated", {"path": img_path})
         return result
 
+    def _emit_plan_update(self, on_event: EventCallback | None) -> None:
+        session_id = str((self.operation_meta or {}).get("session_id", ""))
+        if not session_id:
+            return
+        from friday.plan import get_session_plan
+
+        plan = get_session_plan(session_id)
+        if plan.get("ok"):
+            self._emit(on_event, "plan_updated", plan)
+
+    def _maybe_update_plan_from_tool(
+        self,
+        name: str,
+        args: dict[str, Any],
+        result: str,
+        on_event: EventCallback | None,
+    ) -> None:
+        session_id = str((self.operation_meta or {}).get("session_id", ""))
+        if not session_id:
+            return
+        from friday.plan import PLAN_TOOL_NAMES, auto_complete_todos_from_tool, sync_todos_from_plan
+
+        if name in PLAN_TOOL_NAMES:
+            if name == "update_session_plan":
+                sync_todos_from_plan(session_id)
+            self._emit_plan_update(on_event)
+            return
+        changed = auto_complete_todos_from_tool(session_id, name, args, result)
+        if changed.get("changed"):
+            self._emit_plan_update(on_event)
+
     def _append_tool_result(self, call_id: str, name: str, result: str) -> None:
         """压缩并追加工具结果到消息历史。"""
         from friday.context import compress_tool_result
@@ -461,28 +549,31 @@ class FridayAgent:
             "content": compressed,
         })
 
+    def _parse_tool_call(self, call: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+        function = call.get("function") or {}
+        name = str(function.get("name", ""))
+        raw_args = str(function.get("arguments", ""))
+        args = parse_tool_arguments(raw_args)
+        call_id = str(call.get("id", ""))
+        return name, args, call_id
+
     def _execute_round(self, finish: ChatCompletionResult, on_event: EventCallback | None) -> None:
         """处理单轮工具调用列表。"""
         tool_count = len(finish.tool_calls)
         tool_names = [
             (c.get("function") or {}).get("name", "unknown") for c in finish.tool_calls
         ]
+        max_rounds = self._max_tool_rounds()
         self._emit(on_event, "progress", {
             "round": self._round_count + 1,
-            "max_rounds": MAX_TOOL_ROUNDS,
+            "max_rounds": max_rounds,
             "tool_count": tool_count,
             "tools": tool_names,
         })
 
-        for idx, call in enumerate(finish.tool_calls, 1):
-            if self._cancel_event.is_set():
-                break
-            function = call.get("function") or {}
-            name = str(function.get("name", ""))
-            raw_args = str(function.get("arguments", ""))
-            args = parse_tool_arguments(raw_args)
-            call_id = str(call.get("id", ""))
-
+        parsed: list[tuple[str, dict[str, Any], str]] = []
+        for call in finish.tool_calls:
+            name, args, call_id = self._parse_tool_call(call)
             if "__parse_error__" in args:
                 self._append_tool_result(
                     call_id,
@@ -490,7 +581,46 @@ class FridayAgent:
                     f"工具参数无效（JSON 解析失败）: {args['__parse_error__']}",
                 )
                 continue
+            parsed.append((name, args, call_id))
 
+        if not parsed:
+            return
+
+        if self._can_parallelize_round([name for name, _, _ in parsed]):
+            results: dict[str, str] = {}
+            with ThreadPoolExecutor(max_workers=min(4, len(parsed))) as pool:
+                futures = {
+                    pool.submit(
+                        self._execute_single_tool,
+                        name,
+                        args,
+                        tool_count,
+                        idx,
+                        on_event,
+                    ): call_id
+                    for idx, (name, args, call_id) in enumerate(parsed, 1)
+                }
+                for future in as_completed(futures):
+                    if self._cancel_event.is_set():
+                        break
+                    call_id = futures[future]
+                    try:
+                        results[call_id] = future.result()
+                    except Exception as exc:
+                        _log.exception("并行工具执行失败")
+                        results[call_id] = f"工具执行异常: {exc}"
+            if self._cancel_event.is_set():
+                return
+            for name, args, call_id in parsed:
+                result = results.get(call_id, "工具未返回结果")
+                if result == CANCELLED_MESSAGE:
+                    break
+                self._append_tool_result(call_id, name, result)
+            return
+
+        for idx, (name, args, call_id) in enumerate(parsed, 1):
+            if self._cancel_event.is_set():
+                break
             result = self._execute_single_tool(name, args, tool_count, idx, on_event)
             if result == CANCELLED_MESSAGE:
                 break
@@ -500,6 +630,7 @@ class FridayAgent:
 
     def run(self, user_text: str, on_event: EventCallback | None = None) -> str:
         self._cancel_event.clear()
+        self._loop_hint_injected = False
         from friday.agent_context import current_session_id
 
         session_id = str((self.operation_meta or {}).get("session_id", ""))
@@ -515,7 +646,8 @@ class FridayAgent:
             user_text = user_text + hint
         self.messages.append({"role": "user", "content": user_text})
 
-        for self._round_count in range(MAX_TOOL_ROUNDS):
+        max_rounds = self._max_tool_rounds()
+        for self._round_count in range(max_rounds):
             if self._cancel_event.is_set():
                 _log.info("对话已取消 @ round %d", self._round_count)
                 return self._finish_run(CANCELLED_MESSAGE)
@@ -526,9 +658,15 @@ class FridayAgent:
             if looping:
                 self._emit(on_event, "progress", {
                     "round": self._round_count + 1,
-                    "max_rounds": MAX_TOOL_ROUNDS,
+                    "max_rounds": max_rounds,
                     "hint": loop_hint,
                 })
+                if not self._loop_hint_injected:
+                    self.messages.append({
+                        "role": "user",
+                        "content": f"【系统提示】{loop_hint} 请立即调整策略，不要继续相同调用。",
+                    })
+                    self._loop_hint_injected = True
 
             finish = self._consume_stream(on_event)
             if self._cancel_event.is_set():
@@ -549,6 +687,12 @@ class FridayAgent:
                 reply = (finish.content or "").strip()
                 if not reply:
                     return self._wrap_up_reply(on_event, reason="empty_reply")
+                if session_id:
+                    from friday.plan import auto_complete_todos_from_assistant
+
+                    assistant_result = auto_complete_todos_from_assistant(session_id, reply)
+                    if assistant_result.get("changed"):
+                        self._emit_plan_update(on_event)
                 return self._finish_run(reply)
 
             # 执行工具轮次
@@ -557,5 +701,5 @@ class FridayAgent:
                 _log.info("对话已取消 @ round %d (工具执行)", self._round_count)
                 return self._finish_run(CANCELLED_MESSAGE)
 
-        _log.warning("达到最大轮次限制 rounds=%d | %s", MAX_TOOL_ROUNDS, self.brain.usage_summary())
+        _log.warning("达到最大轮次限制 rounds=%d | %s", max_rounds, self.brain.usage_summary())
         return self._wrap_up_reply(on_event, reason="round_limit")

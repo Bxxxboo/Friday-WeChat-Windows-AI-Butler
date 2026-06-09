@@ -15,7 +15,7 @@ from friday.weixin.openclaw_cli import cli_available, run_openclaw
 _log = get_logger("weixin.gateway")
 
 DEFAULT_GATEWAY_PORT = 18789
-_START_TIMEOUT_SEC = 20
+_START_TIMEOUT_SEC = 45
 
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 _DETACHED_PROCESS = getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
@@ -25,7 +25,9 @@ def _gateway_port() -> int:
     raw = os.environ.get("OPENCLAW_GATEWAY_PORT", "").strip()
     if raw.isdigit():
         return int(raw)
-    return DEFAULT_GATEWAY_PORT
+    from friday.edition import openclaw_gateway_port
+
+    return openclaw_gateway_port()
 
 
 def probe_gateway(*, port: int | None = None, timeout_sec: float = 2.0) -> bool:
@@ -62,9 +64,13 @@ def _parse_gateway_cmd(path: Path) -> tuple[list[str], dict[str, str]]:
         match = re.match(r"^\s*set\s+(\w+)=(.+?)\s*$", line, re.I)
         if match:
             env[match.group(1)] = match.group(2).strip()
-    quoted = re.findall(r'"([^"]+\.exe)"\s+(\S+\.js)\s+gateway(?:\s+--port\s+(\d+))?', text, re.I)
-    if quoted:
-        node_exe, script, port = quoted[-1]
+    match = re.search(
+        r'"([^"]+\.exe)"\s+"([^"]+\.js)"\s+gateway(?:\s+--port\s+(\d+))?',
+        text,
+        re.I,
+    )
+    if match:
+        node_exe, script, port = match.group(1), match.group(2), match.group(3)
         args = [node_exe, script, "gateway"]
         if port:
             args.extend(["--port", port])
@@ -72,31 +78,113 @@ def _parse_gateway_cmd(path: Path) -> tuple[list[str], dict[str, str]]:
     return [], env
 
 
-def _fallback_gateway_cmd(port: int) -> list[str] | None:
-    from friday.paths import get_appdata_dir
+def resolve_gateway_launch(*, port: int | None = None) -> tuple[list[str], dict[str, str]]:
+    """解析 Gateway 静默启动参数（优先 gateway.cmd，失败则 node 直启）。"""
+    from friday.weixin.config import openclaw_env
+
+    target_port = port if port is not None else _gateway_port()
+    env = openclaw_env()
+    cmd_path = _gateway_cmd_path()
+    if cmd_path.is_file():
+        args, file_env = _parse_gateway_cmd(cmd_path)
+        env.update(file_env)
+        if args:
+            return args, env
+    fallback = _fallback_gateway_cmd(target_port)
+    if fallback:
+        env["OPENCLAW_GATEWAY_PORT"] = str(target_port)
+        return fallback, env
+    return [], env
+
+
+def _resolve_node_exe() -> str | None:
     from friday.weixin.node_runtime import NODE_HOME
 
     node = shutil.which("node")
     if not node and (NODE_HOME / "node.exe").is_file():
         node = str(NODE_HOME / "node.exe")
-    if not node:
-        return None
-    npm_global = get_appdata_dir() / "runtime" / "npm-global"
+    return node
+
+
+def _resolve_openclaw_script() -> Path | None:
+    from friday.paths import get_appdata_dir
+    from friday.weixin.node_runtime import NPM_GLOBAL
+
     candidates = [
-        npm_global / "node_modules" / "openclaw" / "dist" / "index.js",
+        NPM_GLOBAL / "node_modules" / "openclaw" / "dist" / "index.js",
+        get_appdata_dir() / "runtime" / "npm-global" / "node_modules" / "openclaw" / "dist" / "index.js",
         Path(os.environ.get("APPDATA", "")) / "npm" / "node_modules" / "openclaw" / "dist" / "index.js",
         Path.home() / "AppData" / "Roaming" / "npm" / "node_modules" / "openclaw" / "dist" / "index.js",
     ]
     for script in candidates:
         if script.is_file():
-            return [node, str(script), "gateway", "--port", str(port)]
+            return script
     return None
 
 
-def _spawn_hidden(args: list[str], *, extra_env: dict[str, str] | None = None) -> None:
-    from friday.weixin.node_runtime import node_env
+def _fallback_gateway_cmd(port: int) -> list[str] | None:
+    node = _resolve_node_exe()
+    if not node:
+        return None
+    script = _resolve_openclaw_script()
+    if not script:
+        return None
+    return [node, str(script), "gateway", "--port", str(port)]
 
-    env = node_env(extra_env)
+
+def write_gateway_cmd(*, port: int | None = None) -> Path:
+    """写入 gateway.cmd 到 openclaw 状态目录（一键配置 / 自启依赖）。"""
+    target_port = port if port is not None else _gateway_port()
+    state_dir = openclaw_state_dir()
+    state_dir.mkdir(parents=True, exist_ok=True)
+    cmd_path = state_dir / "gateway.cmd"
+    node = _resolve_node_exe()
+    script = _resolve_openclaw_script()
+    if not node or not script:
+        raise FileNotFoundError("未找到 node 或 openclaw 安装路径，请先完成 OpenClaw 安装")
+    lines = [
+        "@echo off",
+        f'set "OPENCLAW_STATE_DIR={state_dir}"',
+        f'set "OPENCLAW_GATEWAY_PORT={target_port}"',
+        f'"{node}" "{script}" gateway --port {target_port}',
+    ]
+    cmd_path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+    _log.info("已写入 gateway.cmd | path=%s port=%d", cmd_path, target_port)
+    return cmd_path
+
+
+def _gateway_cmd_is_current(cmd_path: Path, target_port: int) -> bool:
+    if not cmd_path.is_file():
+        return False
+    try:
+        text = cmd_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    state = str(openclaw_state_dir()).replace("/", "\\").lower()
+    normalized = text.replace("/", "\\").lower()
+    if state not in normalized:
+        return False
+    if "friday-test" in normalized:
+        return False
+    return f"--port {target_port}" in text
+
+
+def ensure_gateway_cmd(*, port: int | None = None, force: bool = False) -> tuple[bool, str]:
+    target_port = port if port is not None else _gateway_port()
+    cmd_path = _gateway_cmd_path()
+    if not force and _gateway_cmd_is_current(cmd_path, target_port):
+        return True, f"gateway.cmd 已就绪（{cmd_path}）"
+    try:
+        path = write_gateway_cmd(port=target_port)
+        return True, f"已生成 gateway.cmd（{path}）"
+    except (OSError, FileNotFoundError) as exc:
+        return False, f"生成 gateway.cmd 失败：{exc}"
+
+
+def _spawn_hidden(args: list[str], *, extra_env: dict[str, str] | None = None) -> None:
+    from friday.weixin.config import openclaw_env
+
+    env = openclaw_env(extra_env)
     subprocess.Popen(
         args,
         env=env,
@@ -110,30 +198,15 @@ def _spawn_hidden(args: list[str], *, extra_env: dict[str, str] | None = None) -
 
 def _start_gateway_silent(*, port: int | None = None) -> tuple[bool, str]:
     """后台静默启动 Gateway，不弹出 CMD 窗口（不用 openclaw gateway restart）。"""
-    target_port = port if port is not None else _gateway_port()
-    cmd_path = _gateway_cmd_path()
-    if cmd_path.is_file():
-        try:
-            args, env = _parse_gateway_cmd(cmd_path)
-            if args:
-                _spawn_hidden(args, extra_env=env)
-                _log.info("已后台启动 OpenClaw Gateway（静默）| cmd=%s", " ".join(args[:3]))
-                return True, "Gateway 已在后台启动"
-            _spawn_hidden(["cmd", "/c", str(cmd_path)], extra_env=env)
-            _log.info("已后台启动 OpenClaw Gateway（gateway.cmd）")
-            return True, "Gateway 已在后台启动"
-        except OSError as exc:
-            return False, str(exc)
-
-    fallback = _fallback_gateway_cmd(target_port)
-    if fallback:
-        try:
-            _spawn_hidden(fallback, extra_env={"OPENCLAW_GATEWAY_PORT": str(target_port)})
-            _log.info("已后台启动 OpenClaw Gateway（node 直启）")
-            return True, "Gateway 已在后台启动"
-        except OSError as exc:
-            return False, str(exc)
-    return False, "未找到 gateway.cmd 或 openclaw 安装路径"
+    args, env = resolve_gateway_launch(port=port)
+    if not args:
+        return False, "未找到 gateway.cmd 或 openclaw 安装路径"
+    try:
+        _spawn_hidden(args, extra_env=env)
+        _log.info("已后台启动 OpenClaw Gateway（静默）| cmd=%s", " ".join(args[:3]))
+        return True, "Gateway 已在后台启动"
+    except OSError as exc:
+        return False, str(exc)
 
 
 def ensure_gateway_running(
@@ -143,6 +216,11 @@ def ensure_gateway_running(
     force_restart: bool = False,
 ) -> dict[str, object]:
     """探测 Gateway；未运行时静默后台拉起（默认不 restart、不弹窗）。"""
+    from friday.weixin.setup import ensure_openclaw_gateway_config, ensure_weixin_plugin_for_gateway
+
+    ensure_openclaw_gateway_config()
+    ensure_weixin_plugin_for_gateway()
+    ensure_gateway_cmd()
     target_port = port if port is not None else _gateway_port()
     if probe_gateway(port=target_port) and not force_restart:
         return {"running": True, "started": False, "port": target_port}
@@ -177,7 +255,7 @@ def ensure_gateway_running(
         "running": False,
         "started": False,
         "port": target_port,
-        "error": "Gateway 启动超时，可在设置 → 微信端 AI 重试",
+        "error": "Gateway 启动超时：请检查 openclaw.json 是否含 gateway.mode=local，或在设置 → 微信端 AI 点「启动 Gateway」",
     }
 
 

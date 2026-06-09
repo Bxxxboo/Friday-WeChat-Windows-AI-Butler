@@ -45,7 +45,10 @@ def stable_icon_path() -> Path:
 
 
 def get_appdata_dir() -> Path:
-    """获取 %APPDATA%/Friday 目录（应用数据根目录），不存在则自动创建。
+    """获取应用数据根目录，不存在则自动创建。
+
+    正式版：%APPDATA%/Friday
+    用户数据：%APPDATA%/Friday
 
     用于统一存储：
     - 设置文件 (settings.json)
@@ -53,12 +56,14 @@ def get_appdata_dir() -> Path:
     - 日志文件 (friday.log)
     - 加密密钥 (.fernet_key)
     """
+    from friday.edition import appdata_folder_name
+
     appdata = os.getenv("APPDATA")
+    folder = appdata_folder_name()
     if appdata:
-        base = Path(appdata) / "Friday"
+        base = Path(appdata) / folder
     else:
-        # 回退：放在项目 data/ 目录下（便携模式）
-        base = Path(__file__).resolve().parents[1] / "data"
+        base = Path(__file__).resolve().parents[1] / "data" / folder
     base.mkdir(parents=True, exist_ok=True)
     return base
 
@@ -72,9 +77,11 @@ def _first_existing(*candidates: Path) -> Path | None:
 
 def default_workspace_path(*, ensure_exists: bool = False) -> Path:
     """默认操作文件夹：用户文档/星期五。"""
+    from friday.edition import default_workspace_name
+
     home = Path.home()
     docs = _first_existing(home / "Documents", home / "文档") or home
-    target = docs / "星期五"
+    target = docs / default_workspace_name()
     if ensure_exists:
         target.mkdir(parents=True, exist_ok=True)
     return target

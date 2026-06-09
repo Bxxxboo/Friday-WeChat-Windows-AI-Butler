@@ -8,8 +8,11 @@ if (-not $workspace) {
 }
 
 Write-Host "工作区: $workspace" -ForegroundColor Cyan
-$python = Join-Path $PWD ".venv\Scripts\python.exe"
-if (-not (Test-Path $python)) {
+$python = Join-Path $PWD ".python-env\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $python)) {
+    $python = Join-Path $PWD ".venv\Scripts\python.exe"
+}
+if (-not (Test-Path -LiteralPath $python)) {
     Write-Host "请先运行 setup.ps1 安装星期五开发环境" -ForegroundColor Yellow
     exit 1
 }

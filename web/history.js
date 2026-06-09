@@ -69,6 +69,7 @@
       if (data.prompt) {
         closeHistory();
         F.chatInput.value = data.prompt;
+        F.updateInputState();
         F.chatInput.focus();
       }
     } catch (err) {

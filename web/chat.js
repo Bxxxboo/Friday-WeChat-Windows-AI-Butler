@@ -80,7 +80,15 @@
       F.removeThinking();
       removeProgress();
       if (event.code === 4401) {
-        F.setConnectionStatus("认证失败，请完全退出后重新打开", false);
+        void F.refreshApiToken?.().then((ok) => {
+          if (ok) {
+            F.wsRetryCount = 0;
+            F.setConnectionStatus("认证已恢复，正在重连...", false);
+            setTimeout(connectWs, 300);
+          } else {
+            F.setConnectionStatus("认证失败，请完全退出后重新打开", false);
+          }
+        });
         return;
       }
       F.setConnectionStatus("连接断开，重连中...");
@@ -95,6 +103,12 @@
   let progressNode = null;
   let pendingGeneratedImages = [];
   let progressTimer = null;
+  let progressStartedAt = null;
+
+  function isLongRunningVisualProgress(data) {
+    const tools = data.tools || [];
+    return tools.includes("generate_image") || tools.includes("describe_image");
+  }
 
   function resetPendingGeneratedImages() {
     pendingGeneratedImages = [];
@@ -113,9 +127,10 @@
     }
   }
 
-  function startProgressTimer(baseText) {
+  function startProgressTimer(baseText, startedAt) {
     stopProgressTimer();
-    const started = Date.now();
+    const started = startedAt || progressStartedAt || Date.now();
+    progressStartedAt = started;
     progressTimer = setInterval(() => {
       if (!progressNode) return;
       const elapsed = Math.floor((Date.now() - started) / 1000);
@@ -157,10 +172,9 @@
   }
 
   function showProgress(data) {
-    const tools = data.tools || [];
-    const isImageGen = tools.includes("generate_image");
-    // 生图由前端 1s 计时器更新，忽略后端重复 progress，避免进度条被重建、计时归零
-    if (data.heartbeat && progressNode && isImageGen) return;
+    const isLongRun = isLongRunningVisualProgress(data);
+    // 生图/识图由前端 1s 计时器更新；重复 progress 或 tool_start 不重建 DOM，避免计时归零
+    if (progressNode && progressStartedAt != null && (isLongRun || data.heartbeat)) return;
 
     removeProgress();
     const msg = formatProgressMessage(data);
@@ -170,13 +184,15 @@
     F.chatLog.appendChild(progressNode);
     F.scrollToBottom();
     F.removeThinking();
-    if (isImageGen) {
-      startProgressTimer(msg.replace(/…$/, ""));
+    if (isLongRun) {
+      progressStartedAt = Date.now();
+      startProgressTimer(msg.replace(/…$/, ""), progressStartedAt);
     }
   }
 
   function removeProgress() {
     stopProgressTimer();
+    progressStartedAt = null;
     if (progressNode) {
       progressNode.remove();
       progressNode = null;
@@ -259,22 +275,33 @@
         F.setConnectionStatus("就绪", true);
         if (data.usage) F.applyStatusUsage?.(data.usage);
         F.refreshStatusBar?.();
+        {
+          const todoId = F.getExecutingTodoId?.();
+          if (todoId) {
+            F.markTodoDoneById?.(todoId);
+            void F.saveSessionPlan?.({ silent: true });
+          }
+        }
         flushQueue();
         break;
       case "busy":
+        removeProgress();
         F.removeThinking();
         appendMessage("error", data.message || "请等待当前任务完成", false);
+        F.setBusy(false);
         if (F.wsConnected) {
           F.setConnectionStatus("就绪", true);
         }
         break;
       case "error":
+        removeProgress();
         clearStreamingMessage(false);
         F.removeThinking();
         appendMessage("error", data.message, false);
         F.setBusy(false);
         F.setConnectionStatus("就绪", true);
         F.refreshStatusBar?.();
+        F.clearTodoRunningState?.();
         flushQueue();
         break;
       case "status":
@@ -292,6 +319,13 @@
         showProgress(data);
         break;
       case "tool_start":
+        if (
+          (data.tool === "generate_image" || data.tool === "describe_image") &&
+          progressNode &&
+          progressStartedAt != null
+        ) {
+          break;
+        }
         showProgress({
           round: data.round,
           step: data.step,
@@ -319,6 +353,13 @@
         break;
       case "file_change":
         showFileChangeCard(data);
+        break;
+      case "plan_updated":
+        F.applySessionPlan?.(data);
+        break;
+      case "session_updated":
+      case "sessions_updated":
+        void F.refreshSessionList?.();
         break;
       case "operation_logged":
         F.onOperationLogged?.();
@@ -383,12 +424,22 @@
       badge.textContent = F.t?.("composer.queue.badge") || "排队中";
       node.appendChild(badge);
     }
-    if (extra.imagePreviewUrl) {
-      const img = document.createElement("img");
-      img.className = "message-image";
-      img.src = extra.imagePreviewUrl;
-      img.alt = "粘贴的截图";
-      node.appendChild(img);
+    const previewUrls = extra.imagePreviewUrls?.length
+      ? extra.imagePreviewUrls
+      : extra.imagePreviewUrl
+        ? [extra.imagePreviewUrl]
+        : [];
+    if (previewUrls.length) {
+      const wrap = document.createElement("div");
+      wrap.className = previewUrls.length > 1 ? "message-images" : "";
+      previewUrls.forEach((url, index) => {
+        const img = document.createElement("img");
+        img.className = "message-image";
+        img.src = url;
+        img.alt = previewUrls.length > 1 ? `粘贴的截图 ${index + 1}` : "粘贴的截图";
+        wrap.appendChild(img);
+      });
+      node.appendChild(wrap);
     }
     F.appendGeneratedImages(node, extra.generatedImages);
     if (kind === "assistant") {
@@ -409,41 +460,101 @@
 
   /* ── 粘贴截图 ── */
 
-  let pendingImage = null;
+  const MAX_PENDING_IMAGES = 10;
+  let pendingImages = [];
+
+  function i18nText(key, params, fallback) {
+    const text = window.FridayI18n?.t?.(key, params);
+    return text && text !== key ? text : fallback;
+  }
+
+  function attachmentSummary(count) {
+    if (count === 1) {
+      return i18nText("composer.attachment.one", null, "已附加 1 张图片");
+    }
+    return i18nText("composer.attachment.many", { n: count }, `已附加 ${count} 张图片`);
+  }
 
   function hasComposerAttachment() {
-    return Boolean(pendingImage?.path);
+    return pendingImages.some((item) => Boolean(item.path) && !item.uploading);
   }
 
-  function hideComposerAttachment() {
-    document.getElementById("composerAttachment")?.classList.add("hidden");
+  function hasComposerAttachmentPreview() {
+    return pendingImages.length > 0;
   }
 
-  function clearPendingImage(revokePreview = true) {
-    if (revokePreview && pendingImage?.previewUrl) {
-      URL.revokeObjectURL(pendingImage.previewUrl);
+  function hideComposerAttachments() {
+    document.getElementById("composerAttachments")?.classList.add("hidden");
+  }
+
+  function revokePreview(url) {
+    if (url) URL.revokeObjectURL(url);
+  }
+
+  function clearPendingImages(revokePreviews = true) {
+    if (revokePreviews) {
+      pendingImages.forEach((item) => revokePreview(item.previewUrl));
     }
-    pendingImage = null;
-    hideComposerAttachment();
-    const img = document.getElementById("composerAttachmentPreview");
-    if (img) img.removeAttribute("src");
+    pendingImages = [];
+    hideComposerAttachments();
+    const list = document.getElementById("composerAttachmentsList");
+    if (list) list.replaceChildren();
     F.updateInputState();
   }
 
-  function showPendingImage(data, previewUrl) {
-    if (pendingImage?.previewUrl && pendingImage.previewUrl !== previewUrl) {
-      URL.revokeObjectURL(pendingImage.previewUrl);
-    }
-    pendingImage = { path: data.path, filename: data.filename, previewUrl };
-    const bar = document.getElementById("composerAttachment");
-    const img = document.getElementById("composerAttachmentPreview");
-    const name = document.getElementById("composerAttachmentName");
-    if (bar && img) {
-      img.src = previewUrl;
-      if (name) name.textContent = data.filename || "截图";
-      bar.classList.remove("hidden");
-    }
+  function removePendingImageAt(index) {
+    const item = pendingImages[index];
+    if (!item) return;
+    revokePreview(item.previewUrl);
+    pendingImages.splice(index, 1);
+    renderPendingImages();
     F.updateInputState();
+  }
+
+  function renderPendingImages() {
+    const bar = document.getElementById("composerAttachments");
+    const list = document.getElementById("composerAttachmentsList");
+    const label = document.getElementById("composerAttachmentsLabel");
+    if (!bar || !list) return;
+
+    if (!pendingImages.length) {
+      hideComposerAttachments();
+      list.replaceChildren();
+      return;
+    }
+
+    bar.classList.remove("hidden");
+    const count = pendingImages.length;
+    if (label) {
+      label.textContent = attachmentSummary(count);
+    }
+    const clearBtn = document.getElementById("clearAttachmentsBtn");
+    if (clearBtn) {
+      clearBtn.textContent = i18nText("composer.removeAllAttachments", null, "全部移除");
+    }
+
+    list.replaceChildren();
+    pendingImages.forEach((item, index) => {
+      const chip = document.createElement("div");
+      chip.className = "composer-attachment-chip";
+      if (item.uploading) chip.classList.add("is-uploading");
+
+      const img = document.createElement("img");
+      img.src = item.previewUrl;
+      img.alt = item.filename || "截图";
+
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "icon-btn composer-attachment-remove";
+      btn.title = i18nText("composer.removeAttachment", null, "移除截图");
+      btn.setAttribute("aria-label", btn.title);
+      btn.innerHTML =
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+      btn.addEventListener("click", () => removePendingImageAt(index));
+
+      chip.append(img, btn);
+      list.appendChild(chip);
+    });
   }
 
   async function uploadPastedFile(file) {
@@ -474,69 +585,159 @@
     return res.json();
   }
 
+  function collectClipboardImages(event) {
+    const cd = event.clipboardData;
+    if (!cd) return [];
+
+    const files = [];
+    const seen = new Set();
+
+    const push = (file) => {
+      if (!file) return;
+      const type = file.type || "";
+      if (type && !type.startsWith("image/")) return;
+      const sig = `${type || "image/*"}:${file.size}`;
+      if (seen.has(sig)) return;
+      seen.add(sig);
+      files.push(file);
+    };
+
+    for (const item of cd.items || []) {
+      if (item.kind !== "file") continue;
+      if (item.type && !item.type.startsWith("image/")) continue;
+      push(item.getAsFile());
+    }
+    if (files.length) return files;
+
+    for (const file of cd.files || []) {
+      push(file);
+    }
+    return files;
+  }
+
+  let lastPasteAt = 0;
+  let lastPasteSig = "";
+
+  function isComposerPasteTarget(target) {
+    return Boolean(target?.closest?.(".composer-shell, .composer-input-wrap, #chatInput"));
+  }
+
   async function handlePasteImage(file) {
-    if (!file?.type?.startsWith("image/")) return;
+    if (!file) return;
+    const mime = file.type || "";
+    if (mime && !mime.startsWith("image/")) return;
     if (!F.apiReady) {
+      F.setConnectionStatus?.("请先完成 API 配置后再粘贴截图", false);
       if (F.openOnboarding) F.openOnboarding(1);
-      else if (F.openSettings) F.openSettings("api");
+      else if (F.openSettings) F.openSettings("llm");
+      return;
+    }
+    if (pendingImages.length >= MAX_PENDING_IMAGES) {
+      F.setConnectionStatus(
+        i18nText(
+          "composer.attachmentLimit",
+          { n: MAX_PENDING_IMAGES },
+          `最多附加 ${MAX_PENDING_IMAGES} 张图片`
+        ),
+        false
+      );
       return;
     }
     const previewUrl = URL.createObjectURL(file);
+    const slot = {
+      path: "",
+      filename: file.name || "截图.png",
+      previewUrl,
+      uploading: true,
+    };
+    pendingImages.push(slot);
+    renderPendingImages();
+    F.updateInputState();
     try {
       F.setConnectionStatus("正在保存截图...", false);
       const data = await uploadPastedFile(file);
-      showPendingImage(data, previewUrl);
+      slot.path = data.path;
+      slot.filename = data.filename || slot.filename;
+      slot.uploading = false;
+      renderPendingImages();
       F.setConnectionStatus("就绪", true);
       F.chatInput?.focus();
     } catch (err) {
-      URL.revokeObjectURL(previewUrl);
+      const idx = pendingImages.indexOf(slot);
+      if (idx >= 0) pendingImages.splice(idx, 1);
+      revokePreview(previewUrl);
+      renderPendingImages();
+      F.updateInputState();
       F.setConnectionStatus(`截图保存失败: ${(err.message || "未知错误").slice(0, 48)}`, false);
     }
   }
 
   function normalizeQueueItem(item) {
-    if (typeof item === "string") return { text: item, imagePath: "", previewUrl: "" };
+    if (typeof item === "string") {
+      return { text: item, imagePaths: [], previewUrls: [] };
+    }
+    const imagePaths = Array.isArray(item.imagePaths)
+      ? item.imagePaths.filter(Boolean)
+      : item.imagePath
+        ? [item.imagePath]
+        : [];
+    const previewUrls = Array.isArray(item.previewUrls)
+      ? item.previewUrls.filter(Boolean)
+      : item.previewUrl
+        ? [item.previewUrl]
+        : [];
     return {
       text: item.text || "",
-      imagePath: item.imagePath || "",
-      previewUrl: item.previewUrl || "",
+      imagePaths,
+      previewUrls,
     };
+  }
+
+  function defaultImagePrompt(count) {
+    if (count > 1) return `请分析我粘贴的这 ${count} 张截图`;
+    return "请分析我粘贴的这张截图";
   }
 
   function enqueueChat(item) {
     const normalized = normalizeQueueItem(item);
-    F.pendingQueue.push(normalized);
-    const displayText = normalized.text || "请分析我粘贴的这张截图";
-    appendMessage("user", displayText, true, {
-      imagePreviewUrl: normalized.previewUrl || undefined,
-      queued: true,
+    void F.addInstructionTodo?.(normalized).then(() => {
+      const displayText = normalized.text || defaultImagePrompt(normalized.imagePaths.length);
+      appendMessage("user", displayText, true, {
+        imagePreviewUrls: normalized.previewUrls.length ? normalized.previewUrls : undefined,
+      });
+      const pending = F.getPendingRunnableTodoCount?.() || 0;
+      F.setConnectionStatus(
+        pending === 1
+          ? "已加入待办，当前任务完成后自动执行"
+          : `已加入待办（${pending} 条待执行）`,
+        true
+      );
+      F.updateInputState();
     });
-    F.updateQueueIndicator?.();
-    F.setConnectionStatus(
-      F.pendingQueue.length === 1
-        ? "已加入队列，当前任务完成后自动执行"
-        : `已加入队列（${F.pendingQueue.length} 条待执行）`,
-      true
-    );
-    F.updateInputState();
   }
 
   function bindPasteHandlers() {
-    F.chatInput?.addEventListener("paste", (event) => {
-      const items = event.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith("image/")) {
-          event.preventDefault();
-          const file = item.getAsFile();
-          if (file) void handlePasteImage(file);
-          return;
-        }
+    document.addEventListener("paste", (event) => {
+      if (!isComposerPasteTarget(event.target)) return;
+      const files = collectClipboardImages(event);
+      if (!files.length) return;
+      const sig = files.map((file) => `${file.type || "image/*"}:${file.size}`).join("|");
+      const now = Date.now();
+      if (sig && sig === lastPasteSig && now - lastPasteAt < 400) return;
+      lastPasteAt = now;
+      lastPasteSig = sig;
+      event.preventDefault();
+      for (const file of files) {
+        void handlePasteImage(file);
       }
     });
 
-    document.getElementById("clearAttachmentBtn")?.addEventListener("click", () => {
-      clearPendingImage(true);
+    document.getElementById("clearAttachmentsBtn")?.addEventListener("click", () => {
+      clearPendingImages(true);
+    });
+
+    window.addEventListener("friday:languagechange", () => {
+      if (pendingImages.length) renderPendingImages();
     });
   }
 
@@ -560,21 +761,23 @@
   }
 
   function flushQueue() {
-    if (F.busy || F.pendingQueue.length === 0) return;
-    const item = normalizeQueueItem(F.pendingQueue.shift());
-    F.updateQueueIndicator?.();
-    void sendChat(item.text, true, {
-      imagePath: item.imagePath,
-      previewUrl: item.previewUrl,
-    });
+    void F.processNextTodo?.();
   }
 
   async function sendChat(message, fromQueue = false, options = {}) {
     const composed = F.composeMessageWithQuote(message.trim());
     const text = composed.trim();
-    const imagePath = options.imagePath || pendingImage?.path || "";
-    const previewUrl = options.previewUrl || pendingImage?.previewUrl || "";
-    if (!text && !imagePath) return;
+    const imagePaths = Array.isArray(options.imagePaths)
+      ? options.imagePaths.filter(Boolean)
+      : pendingImages.map((item) => item.path).filter(Boolean);
+    const previewUrls = Array.isArray(options.previewUrls)
+      ? options.previewUrls.filter(Boolean)
+      : pendingImages.map((item) => item.previewUrl).filter(Boolean);
+    if (!text && !imagePaths.length) return;
+    if (!fromQueue && pendingImages.some((item) => item.uploading)) {
+      F.setConnectionStatus("截图仍在保存，请稍候…", false);
+      return;
+    }
 
     if (!F.activeSessionId) {
       if (!fromQueue) F.setConnectionStatus("正在准备对话...", false);
@@ -588,38 +791,38 @@
 
     if (!F.apiReady) {
       if (F.openOnboarding) F.openOnboarding(1);
-      else if (F.openSettings) F.openSettings("api");
+      else if (F.openSettings) F.openSettings("llm");
       return;
     }
 
     if (F.busy && !fromQueue) {
-      enqueueChat({ text, imagePath, previewUrl });
-      pendingImage = null;
-      hideComposerAttachment();
+      enqueueChat({ text, imagePaths, previewUrls });
+      clearPendingImages(true);
       F.clearComposerQuote?.();
       return;
     }
 
     if (!F.wsConnected) {
-      enqueueChat({ text, imagePath, previewUrl });
+      enqueueChat({ text, imagePaths, previewUrls });
       if (!fromQueue) F.setConnectionStatus("正在连接，消息已排队...");
       if (!fromQueue) F.clearComposerQuote?.();
       return;
     }
 
-    const displayText = text || "请分析我粘贴的这张截图";
+    const displayText = text || defaultImagePrompt(imagePaths.length);
     if (!fromQueue) {
-      appendMessage("user", displayText, true, { imagePreviewUrl: previewUrl || undefined });
-    } else {
-      const nextQueued = document.querySelector(".message.user.queued");
-      if (nextQueued) {
-        nextQueued.classList.remove("queued");
-        const badge = nextQueued.querySelector(".message-queue-badge");
-        if (badge) badge.textContent = F.t?.("composer.queue.running") || "执行中…";
-      }
+      appendMessage("user", displayText, true, {
+        imagePreviewUrls: previewUrls.length ? previewUrls : undefined,
+      });
+    } else if (options.showUserMessage) {
+      appendMessage("user", displayText, true, {
+        imagePreviewUrls: previewUrls.length ? previewUrls : undefined,
+      });
+      if (options.todoId) F.setExecutingTodoId?.(options.todoId);
+    } else if (options.todoId) {
+      F.setExecutingTodoId?.(options.todoId);
     }
-    pendingImage = null;
-    hideComposerAttachment();
+    clearPendingImages(true);
     F.clearComposerQuote?.();
     F.updateInputState();
     F.setBusy(true);
@@ -627,14 +830,24 @@
     F.showThinking();
 
     if (!F.ws || F.ws.readyState !== WebSocket.OPEN) {
-      enqueueChat({ text, imagePath, previewUrl });
-      const session = F.getActiveSession();
-      if (session && session.messages.length) session.messages.pop();
-      F.chatLog.lastElementChild?.remove();
+      if (!fromQueue) {
+        enqueueChat({ text, imagePaths, previewUrls });
+        const session = F.getActiveSession();
+        if (session && session.messages.length) session.messages.pop();
+        F.chatLog.lastElementChild?.remove();
+      } else {
+        F.clearTodoRunningState?.();
+      }
       F.removeThinking();
       F.setBusy(false);
       F.setConnectionStatus("连接未就绪，正在重连...");
       return;
+    }
+
+    try {
+      await F.saveSessionPlan?.();
+    } catch (_err) {
+      /* 保存失败不阻断对话 */
     }
 
     F.ws.send(
@@ -642,7 +855,7 @@
         type: "chat",
         message: text,
         session_id: F.activeSessionId,
-        image_path: imagePath,
+        image_paths: imagePaths,
         interaction_mode: F.getInteractionMode?.() || "agent",
       })
     );
@@ -832,6 +1045,7 @@
   F.resolveApproval = resolveApproval;
   F.stopChat = stopChat;
   F.hasComposerAttachment = hasComposerAttachment;
-  F.clearComposerAttachment = clearPendingImage;
+  F.hasComposerAttachmentPreview = hasComposerAttachmentPreview;
+  F.clearComposerAttachment = clearPendingImages;
   bindPasteHandlers();
 })();

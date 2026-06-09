@@ -168,7 +168,13 @@ def _run_agent(
 
     user_message = f"[来自微信 remote]\n{text.strip()}"
     result = agent.run(user_message)
-    save_agent_state(session_id, agent.messages, user_text=user_message)
+    saved = save_agent_state(session_id, agent.messages, user_text=user_message, activate=False)
+    try:
+        from friday.ws_broadcast import notify_session_updated
+
+        notify_session_updated(saved.id, source="weixin")
+    except Exception:
+        pass
     return _truncate_reply(result)
 
 

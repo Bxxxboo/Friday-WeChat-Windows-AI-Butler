@@ -1,0 +1,11 @@
+[project]
+name = "friday"
+version = "1.1.1"
+description = "Windows AI desktop agent (星期五)"
+readme = "README.md"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]

@@ -132,7 +132,7 @@
   historyLink?.addEventListener("click", (event) => {
     event.preventDefault();
     hideModal();
-    F.openSettings?.("security-updates");
+    F.openSettings?.("app");
     void showChangelogHistory();
   });
 

@@ -68,6 +68,7 @@
     const lang = data.ui_language || "zh";
     window.FridayI18n?.setLanguage?.(lang);
     cacheUiPrefs(data.theme || "dark", data.font_size || "medium", lang);
+    F.refreshProviderLabels?.();
   }
 
   /* ── 安全表单 ── */
@@ -188,52 +189,44 @@
     const res = await F.apiFetchWithTimeout("/api/settings", {}, 15000);
     if (!res.ok) throw new Error(`加载设置失败 (${res.status})`);
     const data = await res.json();
-    document.getElementById("baseUrl").value = data.base_url;
-    document.getElementById("model").value = data.model;
+    F.apiReady = data.api_ready;
+    try {
+      await F.initProviders?.(data);
+    } catch (err) {
+      console.warn("initProviders", err);
+    }
+    document.getElementById("baseUrl").value = data.base_url || "https://api.deepseek.com";
+    const apiProxy = document.getElementById("apiProxy");
+    if (apiProxy) apiProxy.value = data.api_proxy || "";
+    const apiTrustEnv = document.getElementById("apiTrustEnv");
+    if (apiTrustEnv) apiTrustEnv.checked = data.api_trust_env !== false;
     document.getElementById("workspace").value = data.workspace;
     document.getElementById("apiKeyHint").textContent = data.api_key_masked
       ? `当前已保存: ${data.api_key_masked}`
       : "尚未保存 API Key";
     const visionEnabled = document.getElementById("visionEnabled");
     if (visionEnabled) visionEnabled.checked = !!data.vision_enabled;
-    const visionBaseUrl = document.getElementById("visionBaseUrl");
-    if (visionBaseUrl) {
-      visionBaseUrl.value = data.vision_base_url || "https://ark.cn-beijing.volces.com/api/v3";
+    applyVisionKeyHint(data);
+    if (visionEnabled) {
+      updateVisionStatus(data.vision_ready, data.vision_enabled, data.vision_status_hint);
     }
-    const visionModel = document.getElementById("visionModel");
-    if (visionModel) visionModel.value = data.vision_model || "";
-    const visionHint = document.getElementById("visionApiKeyHint");
-    if (visionHint) {
-      visionHint.textContent = data.vision_api_key_masked
-        ? `当前已保存: ${data.vision_api_key_masked}`
-        : "尚未保存视觉 API Key";
-    }
-    if (visionEnabled) updateVisionStatus(data.vision_ready, data.vision_enabled);
     const imageGenEnabled = document.getElementById("imageGenEnabled");
     if (imageGenEnabled) imageGenEnabled.checked = !!data.image_gen_enabled;
-    const imageGenProvider = document.getElementById("imageGenProvider");
-    if (imageGenProvider) {
-      imageGenProvider.value = data.image_gen_provider || "openai_compat";
-    }
-    const imageGenBaseUrl = document.getElementById("imageGenBaseUrl");
-    if (imageGenBaseUrl) {
-      imageGenBaseUrl.value = data.image_gen_base_url || "https://next.zhima.world";
-    }
     const imageGenFallback = document.getElementById("imageGenFallbackUrls");
     if (imageGenFallback) imageGenFallback.value = data.image_gen_fallback_urls || "";
-    const imageGenModel = document.getElementById("imageGenModel");
-    if (imageGenModel) imageGenModel.value = data.image_gen_model || "";
-    const imageGenSize = document.getElementById("imageGenDefaultSize");
-    if (imageGenSize) {
-      imageGenSize.value = data.image_gen_default_size || "1024x1024";
-    }
     const imageGenHint = document.getElementById("imageGenApiKeyHint");
     if (imageGenHint) {
       imageGenHint.textContent = data.image_gen_api_key_masked
         ? `当前已保存: ${data.image_gen_api_key_masked}`
         : "尚未保存生图 API Key";
     }
-    if (imageGenEnabled) updateImageGenStatus(data.image_gen_ready, data.image_gen_enabled);
+    if (imageGenEnabled) {
+      updateImageGenStatus(
+        data.image_gen_ready,
+        data.image_gen_enabled,
+        data.image_gen_status_hint || "",
+      );
+    }
     document.getElementById("themeMode").value = data.theme || "dark";
     document.getElementById("fontSize").value = data.font_size || "medium";
     const langEl = document.getElementById("uiLanguage");
@@ -243,51 +236,64 @@
     fillSecurityForm(data);
     applyAutostartUi(data);
     applyUiSettings(data);
-    F.apiReady = data.api_ready;
     F.updateApiStatus(data.api_ready);
     F.applyStatusFromSettings?.(data);
     F.updateInputState();
-    void refreshPythonEnvStatus();
     void F.refreshStatusBar?.();
     if (Array.isArray(data.portability_notices) && data.portability_notices.length && F.settingsResult) {
       F.settingsResult.className = "settings-result error";
       F.settingsResult.textContent = data.portability_notices.join("\n");
     }
+    return data;
   }
 
   /* ── 保存 ── */
 
+  function collectNetworkSettings() {
+    return {
+      api_proxy: document.getElementById("apiProxy")?.value.trim() || "",
+      api_trust_env: document.getElementById("apiTrustEnv")?.checked !== false,
+    };
+  }
+
   function collectSettings() {
     return {
+      ...collectNetworkSettings(),
+      ...F.collectCustomPayload?.("llm"),
+      llm_provider: document.getElementById("llmProvider")?.value || "deepseek",
       api_key: document.getElementById("apiKey").value.trim(),
       base_url: document.getElementById("baseUrl").value.trim(),
-      model: document.getElementById("model").value,
+      model: F.collectLlmModel?.() || document.getElementById("model")?.value || "",
       workspace: document.getElementById("workspace").value.trim(),
     };
   }
 
   function collectVisionSettings() {
     return {
+      ...collectNetworkSettings(),
+      ...F.collectCustomPayload?.("vision"),
       vision_enabled: document.getElementById("visionEnabled").checked,
+      vision_provider: document.getElementById("visionProvider")?.value || "ark",
       vision_api_key: document.getElementById("visionApiKey").value.trim(),
       vision_base_url: document.getElementById("visionBaseUrl").value.trim(),
-      vision_model: document.getElementById("visionModel").value.trim(),
+      vision_model: F.collectVisionModel?.() || "",
     };
   }
 
   function collectImageGenSettings() {
     return {
+      ...collectNetworkSettings(),
+      ...F.collectCustomPayload?.("image_gen"),
       image_gen_enabled: document.getElementById("imageGenEnabled").checked,
       image_gen_provider: document.getElementById("imageGenProvider").value,
       image_gen_api_key: document.getElementById("imageGenApiKey").value.trim(),
       image_gen_base_url: document.getElementById("imageGenBaseUrl").value.trim(),
       image_gen_fallback_urls: document.getElementById("imageGenFallbackUrls").value.trim(),
-      image_gen_model: document.getElementById("imageGenModel").value.trim(),
-      image_gen_default_size: document.getElementById("imageGenDefaultSize").value,
+      image_gen_model: F.collectImageGenModel?.() || document.getElementById("imageGenModel")?.value.trim() || "",
     };
   }
 
-  function updateImageGenStatus(ready, enabled) {
+  function updateImageGenStatus(ready, enabled, statusHint = "", verified = false) {
     const pill = document.getElementById("imageGenStatus");
     if (!pill) return;
     if (!enabled) {
@@ -295,27 +301,25 @@
       pill.classList.remove("ready");
       return;
     }
+    if (verified) {
+      pill.textContent = "生图 API 已验证";
+      pill.classList.add("ready");
+      return;
+    }
     if (ready) {
-      pill.textContent = "生图 API 已就绪";
+      pill.textContent = "已配置 · 待测试";
       pill.classList.add("ready");
     } else {
-      pill.textContent = "生图 API 未配置";
+      pill.textContent = statusHint || "生图 API 未配置";
       pill.classList.remove("ready");
     }
   }
 
-  function onImageGenProviderChange() {
-    const provider = document.getElementById("imageGenProvider")?.value;
-    const baseInput = document.getElementById("imageGenBaseUrl");
-    if (!baseInput || baseInput.dataset.userEdited === "1") return;
-    if (provider === "ark") {
-      baseInput.value = "https://ark.cn-beijing.volces.com/api/v3";
-    } else {
-      baseInput.value = "https://next.zhima.world";
-    }
+  function onImageGenProviderChangeLegacy() {
+    /* providers.js 已接管生图服务商切换 */
   }
 
-  function updateVisionStatus(ready, enabled) {
+  function updateVisionStatus(ready, enabled, statusHint = "", verified = false) {
     const pill = document.getElementById("visionStatus");
     if (!pill) return;
     if (!enabled) {
@@ -324,14 +328,35 @@
       window.Friday?.refreshStatusBar?.();
       return;
     }
+    if (verified) {
+      pill.textContent = "视觉 API 已验证";
+      pill.classList.add("ready");
+      window.Friday?.refreshStatusBar?.();
+      return;
+    }
     if (ready) {
-      pill.textContent = "视觉 API 已就绪";
+      pill.textContent = "已配置 · 待测试";
       pill.classList.add("ready");
     } else {
-      pill.textContent = "视觉 API 未配置";
+      pill.textContent = statusHint || "视觉 API 未配置";
       pill.classList.remove("ready");
     }
     window.Friday?.refreshStatusBar?.();
+  }
+
+  function applyVisionKeyHint(data) {
+    const hint = document.getElementById("visionApiKeyHint");
+    if (!hint) return;
+    const masked = data?.vision_api_key_masked;
+    const base = masked ? `当前已保存: ${masked}` : "尚未保存视觉 API Key";
+    const statusHint = data?.vision_status_hint || "";
+    if (statusHint.includes("Key 格式不匹配")) {
+      hint.textContent = `${base} · 火山方舟请改用 ark- 开头的 Key`;
+      hint.classList.add("settings-hint-warn");
+      return;
+    }
+    hint.classList.remove("settings-hint-warn");
+    hint.textContent = base;
   }
 
   async function saveSettings(event) {
@@ -349,9 +374,12 @@
     document.getElementById("apiKeyHint").textContent = `当前已保存: ${data.api_key_masked}`;
     F.apiReady = data.api_ready;
     F.updateApiStatus(data.api_ready);
+    await F.initProviders?.(data);
     F.settingsResult.className = "settings-result ok";
     F.settingsResult.textContent = "设置已保存。";
     F.updateInputState();
+    F.applyStatusFromSettings?.(data);
+    void F.refreshStatusBar?.();
   }
 
   async function pickWorkspaceFolder() {
@@ -452,15 +480,62 @@
     F.settingsResult.className = "settings-result";
     F.settingsResult.textContent = "测试连接中...";
     const payload = collectSettings();
-    const res = await F.apiFetch("/api/settings/test", {
+    const res = await F.apiFetchWithTimeout("/api/settings/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    });
+    }, 60000);
     const data = await res.json();
     F.settingsResult.className = data.ok ? "settings-result ok" : "settings-result error";
     F.settingsResult.textContent = data.message;
     if (data.ok) F.updateApiStatus(true);
+    void F.refreshStatusBar?.();
+  }
+
+  function formatDiagnoseReport(report) {
+    const sections = [
+      ["对话大模型", report.llm],
+      ["视觉 API", report.vision],
+      ["生图 API", report.image_gen],
+    ];
+    const lines = [];
+    for (const [title, block] of sections) {
+      if (!block || !Array.isArray(block.steps) || !block.steps.length) continue;
+      lines.push(`【${title}】${block.ok ? " ✓" : " ✗"}`);
+      for (const step of block.steps) {
+        const mark = step.ok ? "✓" : "✗";
+        lines.push(`  ${mark} ${step.name}: ${step.detail}`);
+        if (!step.ok && step.hint) lines.push(`     → ${step.hint}`);
+      }
+      lines.push("");
+    }
+    return lines.join("\n").trim();
+  }
+
+  async function diagnoseNetworkSettings() {
+    F.settingsResult.className = "settings-result";
+    F.settingsResult.textContent = "正在诊断网络（DNS / TCP / SSL）…";
+    const payload = {
+      ...collectSettings(),
+      ...collectVisionSettings(),
+      ...collectImageGenSettings(),
+    };
+    try {
+      const res = await F.apiFetchWithTimeout("/api/settings/diagnose?full_api=false", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }, 90000);
+      const data = await res.json();
+      const text = formatDiagnoseReport(data);
+      const allOk = data.llm?.ok && (!payload.vision_enabled || data.vision?.ok) && (!payload.image_gen_enabled || data.image_gen?.ok);
+      F.settingsResult.className = allOk ? "settings-result ok" : "settings-result error";
+      F.settingsResult.textContent = text || "诊断完成，无可用结果";
+      void F.refreshStatusBar?.();
+    } catch (err) {
+      F.settingsResult.className = "settings-result error";
+      F.settingsResult.textContent = `诊断请求失败：${err?.message || err}`;
+    }
   }
 
   async function saveVisionSettings(event) {
@@ -476,10 +551,17 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = F.formatApiErrorResponse?.(res, data) || "保存失败，请重试。";
+      }
+      return;
+    }
     document.getElementById("visionApiKey").value = "";
-    document.getElementById("visionApiKeyHint").textContent = `当前已保存: ${data.vision_api_key_masked}`;
-    updateVisionStatus(data.vision_ready, data.vision_enabled);
+    applyVisionKeyHint(data);
+    updateVisionStatus(data.vision_ready, data.vision_enabled, data.vision_status_hint);
     if (resultEl) {
       resultEl.className = "settings-result ok";
       resultEl.textContent = "视觉设置已保存。";
@@ -506,13 +588,19 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
-    if (!data.ok) {
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      if (res.status === 401) {
+        await F.ensureApiToken?.();
+      }
       if (resultEl) {
         resultEl.className = "settings-result error";
-        resultEl.textContent = data.message;
+        resultEl.textContent = F.formatApiErrorResponse?.(res, data) || data.message || "视觉 API 测试失败";
       }
-      updateVisionStatus(false, payload.vision_enabled);
+      const hint = payload.vision_provider === "ark" && payload.vision_api_key?.startsWith("sk-")
+        ? "Key 格式不匹配：火山方舟需 ark- 开头"
+        : (data.message || "");
+      updateVisionStatus(false, payload.vision_enabled, hint);
       void F.refreshStatusBar?.();
       return;
     }
@@ -524,15 +612,22 @@
     });
     const saved = await saveRes.json();
     document.getElementById("visionApiKey").value = "";
-    document.getElementById("visionApiKeyHint").textContent = saved.vision_api_key_masked
-      ? `当前已保存: ${saved.vision_api_key_masked}`
-      : "尚未保存视觉 API Key";
-    updateVisionStatus(saved.vision_ready, saved.vision_enabled);
+    applyVisionKeyHint(saved);
+    updateVisionStatus(saved.vision_ready, saved.vision_enabled, saved.vision_status_hint, true);
     if (resultEl) {
       resultEl.className = "settings-result ok";
       resultEl.textContent = `${data.message}（已自动保存，对话中可识图）`;
     }
     void F.refreshStatusBar?.();
+  }
+
+  function markImageGenStatusBarOnline(detail = "") {
+    F.patchImageGenStatus?.({
+      image_gen_enabled: true,
+      image_gen_configured: true,
+      image_gen_online: true,
+      image_gen_reach_detail: detail || "生图 API 已就绪",
+    });
   }
 
   async function saveImageGenSettings(event) {
@@ -553,7 +648,14 @@
     document.getElementById("imageGenApiKeyHint").textContent = data.image_gen_api_key_masked
       ? `当前已保存: ${data.image_gen_api_key_masked}`
       : "尚未保存生图 API Key";
-    updateImageGenStatus(data.image_gen_ready, data.image_gen_enabled);
+    updateImageGenStatus(
+      data.image_gen_ready,
+      data.image_gen_enabled,
+      data.image_gen_status_hint || "",
+    );
+    if (data.image_gen_ready && data.image_gen_enabled) {
+      markImageGenStatusBarOnline("生图 API 已就绪");
+    }
     if (resultEl) {
       resultEl.className = "settings-result ok";
       resultEl.textContent = "生图设置已保存。";
@@ -563,9 +665,11 @@
 
   async function testImageGenSettings() {
     const resultEl = document.getElementById("imageGenResult");
+    const btn = document.getElementById("testImageGenBtn");
+    if (btn) btn.disabled = true;
     if (resultEl) {
       resultEl.className = "settings-result";
-      resultEl.textContent = "测试生图 API 中（可能需要 1～2 分钟）…";
+      resultEl.textContent = "正在验证生图端点与模型（约需数秒至半分钟）…";
     }
     const payload = collectImageGenSettings();
     if (!payload.image_gen_enabled) {
@@ -574,6 +678,7 @@
         resultEl.textContent = "请先勾选「启用生图」。";
       }
       updateImageGenStatus(false, false);
+      if (btn) btn.disabled = false;
       return;
     }
     if (!payload.image_gen_model) {
@@ -581,40 +686,57 @@
         resultEl.className = "settings-result error";
         resultEl.textContent = "请先填写生图模型名称。";
       }
-      updateImageGenStatus(false, payload.image_gen_enabled);
+      updateImageGenStatus(false, payload.image_gen_enabled, "请填写生图模型名称");
+      if (btn) btn.disabled = false;
       return;
     }
-    const res = await F.apiFetch("/api/settings/test-image-gen", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!data.ok) {
+    try {
+      const res = await F.apiFetchWithTimeout("/api/settings/test-image-gen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }, 60000);
+      const data = await res.json();
+      if (!data.ok) {
+        if (resultEl) {
+          resultEl.className = "settings-result error";
+          resultEl.textContent = data.message;
+        }
+        updateImageGenStatus(false, payload.image_gen_enabled, "测试未通过");
+        return;
+      }
+
+      const saveRes = await F.apiFetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const saved = await saveRes.json();
+      document.getElementById("imageGenApiKey").value = "";
+      document.getElementById("imageGenApiKeyHint").textContent = saved.image_gen_api_key_masked
+        ? `当前已保存: ${saved.image_gen_api_key_masked}`
+        : "尚未保存生图 API Key";
+      updateImageGenStatus(saved.image_gen_ready, saved.image_gen_enabled, "", true);
+      if (saved.image_gen_ready && saved.image_gen_enabled) {
+        markImageGenStatusBarOnline(data.message || "生图 API 已就绪");
+      }
+      if (resultEl) {
+        resultEl.className = "settings-result ok";
+        resultEl.textContent = `${data.message}（已自动保存）`;
+      }
+      void F.refreshStatusBar?.();
+    } catch (err) {
+      const timedOut = err?.name === "AbortError";
       if (resultEl) {
         resultEl.className = "settings-result error";
-        resultEl.textContent = data.message;
+        resultEl.textContent = timedOut
+          ? "生图测试超时（60 秒）。端点可能响应过慢或不可达，请检查 Base URL 与模型名。"
+          : "生图测试失败，请确认星期五后端已启动并重试。";
       }
-      updateImageGenStatus(false, payload.image_gen_enabled);
-      return;
+      updateImageGenStatus(false, payload.image_gen_enabled, timedOut ? "测试超时" : "测试失败");
+    } finally {
+      if (btn) btn.disabled = false;
     }
-
-    const saveRes = await F.apiFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const saved = await saveRes.json();
-    document.getElementById("imageGenApiKey").value = "";
-    document.getElementById("imageGenApiKeyHint").textContent = saved.image_gen_api_key_masked
-      ? `当前已保存: ${saved.image_gen_api_key_masked}`
-      : "尚未保存生图 API Key";
-    updateImageGenStatus(saved.image_gen_ready, saved.image_gen_enabled);
-    if (resultEl) {
-      resultEl.className = "settings-result ok";
-      resultEl.textContent = `${data.message}（已自动保存）`;
-    }
-    void F.refreshStatusBar?.();
   }
 
   /* ── 设置面板切换 ── */
@@ -640,9 +762,18 @@
     );
   }
 
-  function openSettings(panel = "api") {
+  function normalizeSettingsPanel(panel) {
+    const aliases = {
+      api: "llm",
+      logs: "app",
+      "security-updates": "app",
+    };
+    return aliases[panel] || panel || "llm";
+  }
+
+  function openSettings(panel = "llm") {
     initSettingsInputFocus();
-    switchSettingsPanel(panel);
+    switchSettingsPanel(normalizeSettingsPanel(panel));
     F.settingsModal.classList.remove("hidden");
   }
 
@@ -651,14 +782,18 @@
   }
 
   function switchSettingsPanel(panel) {
+    panel = normalizeSettingsPanel(panel);
     document.querySelectorAll(".settings-nav-item").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.panel === panel);
     });
     document.querySelectorAll(".settings-section").forEach((section) => {
       section.classList.toggle("active", section.id === `panel-${panel}`);
     });
-    if (panel === "logs") {
+    if (panel === "app") {
       void refreshLogPreview();
+    }
+    if (panel === "agent") {
+      void refreshPythonEnvStatus();
     }
     if (panel === "weixin") {
       void F.refreshWeixinSetup?.();
@@ -711,6 +846,29 @@
 
   /* ── 挂载 ── */
 
+  function initModelStatusPreview() {
+    const modelEl = document.getElementById("model");
+    const customEl = document.getElementById("llmModelCustom");
+    const bind = (el) => {
+      if (!el || el.dataset.statusBound === "1") return;
+      el.dataset.statusBound = "1";
+      el.addEventListener("change", () => {
+        const model = (F.collectLlmModel?.() || el.value || "").trim();
+        if (!model) return;
+        F.patchStatusBar?.({ model, api_checking: true });
+      });
+      el.addEventListener("input", () => {
+        const model = (F.collectLlmModel?.() || el.value || "").trim();
+        if (!model) return;
+        F.patchStatusBar?.({ model, api_checking: true });
+      });
+    };
+    bind(modelEl);
+    bind(customEl);
+  }
+
+  initModelStatusPreview();
+
   F.t = t;
   F.cacheUiPrefs = cacheUiPrefs;
   F.resolveTheme = resolveTheme;
@@ -729,11 +887,14 @@
   F.saveAppearanceSettings = saveAppearanceSettings;
   F.saveSecuritySettings = saveSecuritySettings;
   F.testSettings = testSettings;
+  F.diagnoseNetworkSettings = diagnoseNetworkSettings;
   F.saveVisionSettings = saveVisionSettings;
   F.testVisionSettings = testVisionSettings;
+  F.updateVisionStatus = updateVisionStatus;
+  F.applyVisionKeyHint = applyVisionKeyHint;
   F.saveImageGenSettings = saveImageGenSettings;
   F.testImageGenSettings = testImageGenSettings;
-  F.onImageGenProviderChange = onImageGenProviderChange;
+  F.onImageGenProviderChangeLegacy = onImageGenProviderChangeLegacy;
   F.openSettings = openSettings;
   F.closeSettings = closeSettings;
   F.switchSettingsPanel = switchSettingsPanel;
@@ -746,7 +907,7 @@
     if (!statusEl) return;
     statusEl.textContent = "加载中…";
     try {
-      const res = await F.apiFetchWithTimeout("/api/python-env", {}, 8000);
+      const res = await F.apiFetchWithTimeout("/api/python-env", {}, 20000);
       const data = await res.json();
       const lines = [
         data.ready ? "✓ 已就绪" : "○ 未就绪",
@@ -761,7 +922,7 @@
         resultEl.className = "settings-result";
       }
     } catch {
-      statusEl.textContent = "无法读取 Python 环境状态。";
+      statusEl.textContent = "无法读取 Python 环境状态。若正在初始化，请等待数分钟后再点「刷新状态」。";
     }
   }
 
@@ -774,7 +935,7 @@
       resultEl.textContent = "正在初始化（首次可能需几分钟下载依赖）…";
     }
     try {
-      const res = await F.apiFetch("/api/python-env/setup", { method: "POST" });
+      const res = await F.apiFetchWithTimeout("/api/python-env/setup", { method: "POST" }, 900000);
       const data = await res.json();
       if (resultEl) {
         resultEl.className = data.ok ? "settings-result ok" : "settings-result error";

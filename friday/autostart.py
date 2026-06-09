@@ -7,13 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from friday.edition import autostart_task_name, autostart_vbs_name
 from friday.logging_config import get_logger
 from friday.paths import bundle_dir, get_appdata_dir, is_frozen
 
 _log = get_logger("autostart")
 
-TASK_NAME = "Friday Desktop"
-STARTUP_VBS_NAME = "Friday-Desktop.vbs"
 _META_FILE = "autostart.json"
 
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
@@ -37,7 +36,7 @@ def _meta_path() -> Path:
 
 
 def _startup_vbs_path() -> Path:
-    return _startup_folder() / STARTUP_VBS_NAME
+    return _startup_folder() / autostart_vbs_name()
 
 
 def resolve_launch_spec() -> tuple[str, str, str, str]:
@@ -54,8 +53,8 @@ def resolve_launch_spec() -> tuple[str, str, str, str]:
     root = bundle_dir()
     run_py = (root / "run.py").resolve()
     candidates = [
-        root / ".venv" / "Scripts" / "pythonw.exe",
         root / ".python-env" / "Scripts" / "pythonw.exe",
+        root / ".venv" / "Scripts" / "pythonw.exe",
     ]
     pythonw = next((p.resolve() for p in candidates if p.is_file()), None)
     if pythonw is None:
@@ -165,7 +164,7 @@ def _install_scheduled_task(exe: str, args: str, mode: str) -> tuple[bool, str]:
             "schtasks",
             "/Create",
             "/TN",
-            TASK_NAME,
+            autostart_task_name(),
             "/TR",
             task_run,
             "/SC",
@@ -186,7 +185,7 @@ def _install_scheduled_task(exe: str, args: str, mode: str) -> tuple[bool, str]:
         err = (proc.stderr or proc.stdout or "").strip()
         return False, err or "schtasks failed"
     _save_meta(launch=task_run, mode=mode, method="task")
-    return True, TASK_NAME
+    return True, autostart_task_name()
 
 
 def _remove_autostart_files() -> None:
@@ -196,7 +195,7 @@ def _remove_autostart_files() -> None:
             vbs_path.unlink()
         except OSError:
             _log.exception("删除启动 VBS 失败")
-    _delete_task(TASK_NAME)
+    _delete_task(autostart_task_name())
     meta = _meta_path()
     if meta.is_file():
         try:
@@ -210,7 +209,7 @@ def autostart_status() -> dict[str, object]:
     launch = _task_command_line(exe, args) if exe else ""
     available = sys.platform == "win32" and not err
     vbs_path = _startup_vbs_path()
-    task_on = _task_exists(TASK_NAME)
+    task_on = _task_exists(autostart_task_name())
     enabled = vbs_path.is_file() or task_on
     method = "startup" if vbs_path.is_file() else ("task" if task_on else "")
 

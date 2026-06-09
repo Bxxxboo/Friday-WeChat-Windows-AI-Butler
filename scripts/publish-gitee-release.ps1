@@ -28,8 +28,11 @@ if (-not $SkipUpload -and -not $Zip) {
     throw "Release zip not found. Run scripts/make-release.ps1 first."
 }
 
-$Python = Join-Path $Root ".venv\Scripts\python.exe"
-if (-not (Test-Path $Python)) { $Python = "python" }
+$Python = Join-Path $Root ".python-env\Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $Python)) {
+    $Python = Join-Path $Root ".venv\Scripts\python.exe"
+}
+if (-not (Test-Path -LiteralPath $Python)) { $Python = "python" }
 
 $pyArgs = @(
     (Join-Path $Root "scripts\publish_gitee_release.py"),

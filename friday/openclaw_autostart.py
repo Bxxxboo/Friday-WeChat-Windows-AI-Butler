@@ -7,14 +7,17 @@ import subprocess
 import sys
 from pathlib import Path
 
+from friday.edition import (
+    openclaw_autostart_task_name,
+    openclaw_autostart_vbs_name,
+    openclaw_launcher_vbs_name,
+)
 from friday.logging_config import get_logger
 from friday.paths import get_appdata_dir
 from friday.weixin.config import openclaw_state_dir
 
 _log = get_logger("openclaw_autostart")
 
-TASK_NAME = "Friday OpenClaw Gateway"
-STARTUP_VBS_NAME = "Friday-OpenClaw-Gateway.vbs"
 _META_FILE = "openclaw_autostart.json"
 _BOOT_DELAY = "0000:30"
 
@@ -39,13 +42,13 @@ def _meta_path() -> Path:
 
 
 def _launcher_vbs_path() -> Path:
-    path = get_appdata_dir() / "runtime" / "Friday-OpenClaw-Gateway-Launcher.vbs"
+    path = get_appdata_dir() / "runtime" / openclaw_launcher_vbs_name()
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _startup_vbs_path() -> Path:
-    return _startup_folder() / STARTUP_VBS_NAME
+    return _startup_folder() / openclaw_autostart_vbs_name()
 
 
 def resolve_gateway_cmd() -> tuple[str, str]:
@@ -68,8 +71,45 @@ def _write_hidden_vbs(path: Path, run_command: str) -> None:
     path.write_text(content, encoding="utf-16")
 
 
-def _gateway_run_command(gateway_cmd: str) -> str:
-    return f'cmd /c ""{gateway_cmd}""'
+def _vbs_escape(value: str) -> str:
+    return value.replace('"', '""')
+
+
+def _build_vbs_run_line(args: list[str]) -> str:
+    parts: list[str] = []
+    for arg in args:
+        if " " in arg or "\t" in arg:
+            parts.append(f'"{arg}"')
+        else:
+            parts.append(arg)
+    return _vbs_escape(" ".join(parts))
+
+
+def _write_gateway_launcher_vbs(path: Path) -> None:
+    from friday.weixin.gateway import resolve_gateway_launch
+
+    args, env = resolve_gateway_launch()
+    if not args:
+        gateway_cmd, _ = resolve_gateway_cmd()
+        content = (
+            'Set sh = CreateObject("WScript.Shell")\r\n'
+            f'sh.Run "cmd /c ""{_vbs_escape(gateway_cmd)}"", 0, False\r\n'
+        )
+    else:
+        env_lines = "".join(
+            f'env("{k}") = "{_vbs_escape(v)}"\r\n'
+            for k, v in env.items()
+            if k.startswith("OPENCLAW_")
+        )
+        run_line = _build_vbs_run_line(args)
+        content = (
+            'Set sh = CreateObject("WScript.Shell")\r\n'
+            'Set env = sh.Environment("Process")\r\n'
+            f"{env_lines}"
+            f'sh.Run "{run_line}", 0, False\r\n'
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-16")
 
 
 def resolve_launch_spec() -> tuple[str, str, str, str]:
@@ -78,7 +118,7 @@ def resolve_launch_spec() -> tuple[str, str, str, str]:
     if err:
         return "", "", "", err
     launcher = _launcher_vbs_path()
-    _write_hidden_vbs(launcher, _gateway_run_command(gateway_cmd))
+    _write_gateway_launcher_vbs(launcher)
     task_run = f'wscript.exe "{launcher}"'
     return task_run, gateway_cmd, "gateway.cmd", ""
 
@@ -123,7 +163,7 @@ def _remove_autostart_files() -> None:
                 path.unlink()
             except OSError:
                 _log.exception("删除 Gateway 启动 VBS 失败")
-    _delete_task(TASK_NAME)
+    _delete_task(openclaw_autostart_task_name())
     meta = _meta_path()
     if meta.is_file():
         try:
@@ -136,7 +176,7 @@ def openclaw_autostart_status() -> dict[str, object]:
     task_run, gateway_cmd, mode, err = resolve_launch_spec()
     available = sys.platform == "win32" and not err
     vbs_path = _startup_vbs_path()
-    task_on = _task_exists(TASK_NAME)
+    task_on = _task_exists(openclaw_autostart_task_name())
     enabled = vbs_path.is_file() or task_on
     method = "startup" if vbs_path.is_file() else ("task" if task_on else "")
 
@@ -203,7 +243,7 @@ def set_openclaw_autostart_enabled(enabled: bool) -> dict[str, object]:
             "schtasks",
             "/Create",
             "/TN",
-            TASK_NAME,
+            openclaw_autostart_task_name(),
             "/TR",
             task_run,
             "/SC",
@@ -223,7 +263,7 @@ def set_openclaw_autostart_enabled(enabled: bool) -> dict[str, object]:
     method = "task"
     if proc.returncode != 0:
         _log.info("Gateway 计划任务失败，回退启动文件夹 | %s", (proc.stderr or proc.stdout or "").strip())
-        _write_hidden_vbs(_startup_vbs_path(), _gateway_run_command(gateway_cmd))
+        _write_gateway_launcher_vbs(_startup_vbs_path())
         method = "startup"
     _save_meta(gateway_cmd=gateway_cmd, task_run=task_run, method=method)
 

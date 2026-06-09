@@ -35,6 +35,36 @@
     F.onboardingModal?.classList.add("hidden");
   }
 
+  function markOnboardingDoneLocal() {
+    localStorage.setItem(ONBOARDING_KEY, "1");
+  }
+
+  async function markOnboardingDoneServer() {
+    try {
+      await F.apiFetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ onboarding_completed: true }),
+      });
+    } catch (err) {
+      console.warn("markOnboardingDoneServer", err);
+    }
+  }
+
+  function hasConfiguredApi(data) {
+    if (data?.api_ready) return true;
+    const masked = String(data?.api_key_masked || "").trim();
+    return Boolean(masked && masked !== "未设置" && masked !== "****");
+  }
+
+  function shouldSkipOnboarding(data) {
+    if (localStorage.getItem(ONBOARDING_KEY) === "1") return true;
+    if (data?.onboarding_completed) return true;
+    if (hasConfiguredApi(data)) return true;
+    if (data?.workspace && hasConfiguredApi(data)) return true;
+    return false;
+  }
+
   async function loadSuggestedFolder() {
     try {
       const res = await F.apiFetch("/api/folders");
@@ -172,19 +202,31 @@
   }
 
   async function finishOnboarding() {
-    localStorage.setItem(ONBOARDING_KEY, "1");
+    markOnboardingDoneLocal();
+    await markOnboardingDoneServer();
     closeOnboarding();
     F.updateInputState();
   }
 
   async function checkOnboarding() {
-    await F.loadSettings();
-    if (F.apiReady) {
-      if (!localStorage.getItem(ONBOARDING_KEY)) {
-        localStorage.setItem(ONBOARDING_KEY, "1");
+    let data;
+    try {
+      data = await F.loadSettings?.();
+    } catch (err) {
+      console.warn("checkOnboarding loadSettings", err);
+      if (localStorage.getItem(ONBOARDING_KEY) === "1") return;
+      return;
+    }
+    if (!data) return;
+
+    if (shouldSkipOnboarding(data)) {
+      markOnboardingDoneLocal();
+      if (!data.onboarding_completed) {
+        await markOnboardingDoneServer();
       }
       return;
     }
+
     openOnboarding(0);
   }
 

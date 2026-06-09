@@ -54,10 +54,47 @@
   const LEGACY_ACTIVE_KEY = "friday_active_session";
 
   function resolveApiToken() {
-    // 优先用服务端注入的 token（与校验端一致）；URL 参数仅作兜底
     if (window.__FRIDAY_TOKEN__) return window.__FRIDAY_TOKEN__;
     const params = new URLSearchParams(location.search);
     return params.get("token") || "";
+  }
+
+  function setApiToken(token) {
+    if (token) window.__FRIDAY_TOKEN__ = token;
+  }
+
+  async function refreshApiToken() {
+    try {
+      const res = await fetch("/api/auth/token", {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data?.token) {
+        setApiToken(data.token);
+        return true;
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+
+  async function ensureApiToken() {
+    const fromUrl = new URLSearchParams(location.search).get("token");
+    if (fromUrl) setApiToken(fromUrl);
+    return refreshApiToken();
+  }
+
+  function formatApiErrorResponse(res, data) {
+    const payload = data && typeof data === "object" ? data : {};
+    const code = payload.code || "";
+    const detail = payload.message || payload.detail || "";
+    if (res?.status === 401 || code === "auth_401") {
+      return "本地会话已失效，请关闭设置页后重试；仍失败请完全退出星期五再打开";
+    }
+    return detail || (res ? `HTTP ${res.status}` : "请求失败");
   }
 
   function apiHeaders(extra = {}) {
@@ -67,11 +104,15 @@
     return headers;
   }
 
-  function apiFetch(url, options = {}) {
-    return fetch(url, {
+  async function apiFetch(url, options = {}, retried = false) {
+    const res = await fetch(url, {
       ...options,
       headers: apiHeaders(options.headers),
     });
+    if (res.status === 401 && !retried && (await refreshApiToken())) {
+      return apiFetch(url, options, true);
+    }
+    return res;
   }
 
   function buildGeneratedImageUrl(path, { preview = true } = {}) {
@@ -312,31 +353,47 @@
     window.Friday?.refreshStatusBar?.();
   }
 
-  function updateQueueIndicator(count = pendingQueue.length) {
+  function updateQueueIndicator(count) {
     const bar = document.getElementById("composerQueue");
     const text = document.getElementById("composerQueueText");
     if (!bar || !text) return;
-    const n = Math.max(0, Number(count) || 0);
+    const fromTodos = window.Friday?.getPendingRunnableTodoCount?.();
+    const n = Math.max(0, Number(fromTodos != null ? fromTodos : count) || 0);
     if (n > 0) {
       bar.classList.remove("hidden");
       const t = window.Friday?.t;
       text.textContent =
         n === 1
-          ? t?.("composer.queue.one") || "1 条指令待执行"
-          : (t?.("composer.queue.many") || "{n} 条指令待执行").replace("{n}", String(n));
+          ? t?.("composer.queue.one") || "1 条待办待执行"
+          : (t?.("composer.queue.many") || "{n} 条待办待执行").replace("{n}", String(n));
     } else {
       bar.classList.add("hidden");
       text.textContent = "";
     }
   }
 
+  function syncComposerInputHeight() {
+    if (!chatInput) return;
+    const style = getComputedStyle(chatInput);
+    const min = parseFloat(style.minHeight) || 50;
+    const max = parseFloat(style.maxHeight) || 128;
+    chatInput.style.height = "0px";
+    const contentHeight = chatInput.scrollHeight;
+    const next = Math.min(max, Math.max(min, contentHeight));
+    chatInput.style.height = `${next}px`;
+    chatInput.style.overflowY = contentHeight > max ? "auto" : "hidden";
+  }
+
   function updateInputState() {
     const friday = window.Friday;
     const hasAttachment = Boolean(friday?.hasComposerAttachment?.());
+    const hasUploading = Boolean(friday?.hasComposerAttachmentPreview?.()) && !hasAttachment;
     const hasQuote = hasComposerQuote();
     const hasText = Boolean(chatInput?.value.trim());
-    const canSend = apiReady && activeSessionId && (hasText || hasAttachment || hasQuote);
+    const canSend = apiReady && activeSessionId && (hasText || hasAttachment || hasQuote) && !hasUploading;
     const canInteract = apiReady && activeSessionId;
+
+    syncComposerInputHeight();
 
     if (stopBtn) {
       stopBtn.classList.toggle("hidden", !busy);
@@ -523,6 +580,10 @@
 
     // 工具函数
     resolveApiToken,
+    setApiToken,
+    refreshApiToken,
+    ensureApiToken,
+    formatApiErrorResponse,
     apiFetch,
     apiFetchWithTimeout,
     apiHeaders,
@@ -539,6 +600,7 @@
     setConnectionStatus,
     updateApiStatus,
     updateInputState,
+    syncComposerInputHeight,
     updateQueueIndicator,
     scrollToBottom,
     resetScrollStick,

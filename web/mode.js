@@ -26,6 +26,20 @@
   const yoloModal = document.getElementById("yoloUnlockModal");
   const yoloConfirmBtn = document.getElementById("yoloUnlockConfirm");
   const yoloCancelBtn = document.getElementById("yoloUnlockCancel");
+  const modeSwitchGlider = document.getElementById("modeSwitchGlider");
+
+  let modeTooltip = document.getElementById("modeTooltip");
+  if (!modeTooltip) {
+    modeTooltip = document.createElement("div");
+    modeTooltip.id = "modeTooltip";
+    modeTooltip.className = "mode-tooltip hidden";
+    modeTooltip.setAttribute("role", "tooltip");
+    modeTooltip.setAttribute("aria-hidden", "true");
+    document.body.appendChild(modeTooltip);
+  }
+
+  let tooltipTimer = null;
+  let tooltipAnchor = null;
 
   function normalizeMode(value) {
     const mode = String(value || "agent").trim().toLowerCase();
@@ -33,11 +47,72 @@
     return "agent";
   }
 
-  function yoloHintText() {
-    if (interactionMode !== "yolo") {
-      return F.t?.(MODE_HINT_KEYS[interactionMode]) || "";
+  function hintForMode(mode) {
+    if (mode === "yolo") {
+      if (interactionMode === "yolo" && !yoloUnlocked) {
+        return F.t?.(MODE_HINT_KEYS.yolo_pending) || "";
+      }
+      return F.t?.(MODE_HINT_KEYS.yolo) || "";
     }
-    return F.t?.(yoloUnlocked ? MODE_HINT_KEYS.yolo : MODE_HINT_KEYS.yolo_pending) || "";
+    return F.t?.(MODE_HINT_KEYS[mode]) || "";
+  }
+
+  function hideModeTooltip() {
+    if (tooltipTimer) {
+      clearTimeout(tooltipTimer);
+      tooltipTimer = null;
+    }
+    tooltipAnchor = null;
+    if (!modeTooltip) return;
+    modeTooltip.classList.remove("is-visible");
+    modeTooltip.classList.add("hidden");
+    modeTooltip.setAttribute("aria-hidden", "true");
+  }
+
+  function positionModeTooltip(anchor) {
+    if (!modeTooltip || !anchor) return;
+    modeTooltip.classList.remove("hidden");
+    const rect = anchor.getBoundingClientRect();
+    const tipRect = modeTooltip.getBoundingClientRect();
+    const left = rect.left + rect.width / 2 - tipRect.width / 2;
+    const top = rect.top - tipRect.height - 10;
+    const maxLeft = window.innerWidth - tipRect.width - 8;
+    const clampedLeft = Math.max(8, Math.min(left, maxLeft));
+    modeTooltip.style.left = `${clampedLeft}px`;
+    modeTooltip.style.top = `${Math.max(8, top)}px`;
+    const arrowLeft = rect.left + rect.width / 2 - clampedLeft;
+    modeTooltip.style.setProperty("--tip-arrow-left", `${arrowLeft}px`);
+  }
+
+  function showModeTooltip(anchor, mode) {
+    if (!modeTooltip || !anchor) return;
+    const text = hintForMode(mode);
+    if (!text) return;
+    tooltipAnchor = anchor;
+    modeTooltip.textContent = text;
+    modeTooltip.setAttribute("aria-hidden", "false");
+    positionModeTooltip(anchor);
+    requestAnimationFrame(() => {
+      modeTooltip.classList.add("is-visible");
+    });
+  }
+
+  function scheduleModeTooltip(anchor, mode) {
+    hideModeTooltip();
+    tooltipTimer = setTimeout(() => {
+      tooltipTimer = null;
+      showModeTooltip(anchor, mode);
+    }, 1000);
+  }
+
+  function updateModeGlider() {
+    const root = document.getElementById("modeSwitch");
+    const active = root?.querySelector(".mode-btn.active");
+    if (!modeSwitchGlider || !root || !active) return;
+    const rootRect = root.getBoundingClientRect();
+    const btnRect = active.getBoundingClientRect();
+    modeSwitchGlider.style.width = `${btnRect.width}px`;
+    modeSwitchGlider.style.transform = `translateX(${btnRect.left - rootRect.left}px)`;
   }
 
   function applyModeUi() {
@@ -46,8 +121,10 @@
       btn.classList.toggle("active", active);
       btn.setAttribute("aria-pressed", active ? "true" : "false");
     });
-    const hint = document.getElementById("modeHint");
-    if (hint) hint.textContent = yoloHintText();
+    updateModeGlider();
+    if (tooltipAnchor && modeTooltip?.classList.contains("is-visible")) {
+      positionModeTooltip(tooltipAnchor);
+    }
     document.documentElement.dataset.interactionMode = interactionMode;
     document.documentElement.dataset.yoloUnlocked = interactionMode === "yolo" && yoloUnlocked ? "true" : "false";
   }
@@ -168,6 +245,24 @@
       setInteractionMode(btn.dataset.mode);
     });
 
+    root.querySelectorAll(".mode-btn").forEach((btn) => {
+      const mode = btn.dataset.mode;
+      if (!mode) return;
+      btn.addEventListener("mouseenter", () => scheduleModeTooltip(btn, mode));
+      btn.addEventListener("mouseleave", hideModeTooltip);
+      btn.addEventListener("focus", () => scheduleModeTooltip(btn, mode));
+      btn.addEventListener("blur", hideModeTooltip);
+    });
+    window.addEventListener("scroll", hideModeTooltip, true);
+    window.addEventListener("resize", () => {
+      updateModeGlider();
+      if (tooltipAnchor && modeTooltip?.classList.contains("is-visible")) {
+        positionModeTooltip(tooltipAnchor);
+      } else {
+        hideModeTooltip();
+      }
+    });
+
     yoloConfirmBtn?.addEventListener("click", () => {
       void confirmYoloUnlock();
     });
@@ -185,5 +280,10 @@
   F.refreshYoloUnlockState = refreshYoloUnlockState;
   F.bindModeSwitch = bindModeSwitch;
   applyModeUi();
-  window.addEventListener("friday:languagechange", () => applyModeUi());
+  requestAnimationFrame(updateModeGlider);
+  window.addEventListener("friday:languagechange", () => {
+    hideModeTooltip();
+    applyModeUi();
+    F.refreshComposerModelSwitch?.();
+  });
 })();

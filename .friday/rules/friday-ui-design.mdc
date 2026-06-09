@@ -17,7 +17,7 @@ alwaysApply: false
 2. 根目录 **PRODUCT.md** — 产品定位（工具型桌面应用，非营销页）
 3. **web/styles.css** — 实现单一事实来源；新样式优先用现有 CSS 变量
 
-## 已安装 Skills（`.friday/skills/`）
+## 已安装 Skills（`.cursor/skills/`）
 
 | Skill | 何时用 |
 |-------|--------|
@@ -40,7 +40,7 @@ alwaysApply: false
 ## Impeccable 工作流（可选）
 
 ```bash
-node .friday/skills/impeccable/scripts/context.mjs
+node .cursor/skills/impeccable/scripts/context.mjs
 ```
 
-有 PRODUCT.md + DESIGN.md 时会自动加载。子命令见 `.friday/skills/impeccable/reference/`。
+有 PRODUCT.md + DESIGN.md 时会自动加载。子命令见 `.cursor/skills/impeccable/reference/`。

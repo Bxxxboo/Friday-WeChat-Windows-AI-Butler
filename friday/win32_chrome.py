@@ -7,7 +7,9 @@ import sys
 import uuid
 from ctypes import wintypes
 
-WINDOW_TITLE = "星期五"
+from friday.edition import window_title
+
+WINDOW_TITLE = window_title()
 
 # Win32
 GWL_STYLE = -16
@@ -89,33 +91,54 @@ def _guid_from_str(value: str) -> _GUID:
     return _GUID(u.time_low, u.time_hi_version & 0xFFFF, u.time_mid, data4)
 
 
-def find_app_window() -> int | None:
-    """按标题 + 当前进程查找主窗口（含最小化/隐藏）。"""
-    if sys.platform != "win32":
+def find_window_for_pid(pid: int) -> int | None:
+    """按进程 ID 查找最大顶层窗口（含隐藏/无标题）。"""
+    if sys.platform != "win32" or pid <= 0:
         return None
 
     user32 = ctypes.windll.user32
-    kernel32 = ctypes.windll.kernel32
-    pid = kernel32.GetCurrentProcessId()
-    found: list[int] = []
+    titled: list[int] = []
+    fallback: list[tuple[int, int]] = []
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def _callback(hwnd: int, _lparam: int) -> bool:
+        if user32.GetParent(hwnd):
+            return True
         proc = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(proc))
         if proc.value != pid:
             return True
         length = user32.GetWindowTextLengthW(hwnd) + 1
-        if length <= 1:
+        title = ""
+        if length > 1:
+            buf = ctypes.create_unicode_buffer(length)
+            user32.GetWindowTextW(hwnd, buf, length)
+            title = buf.value
+        if title == WINDOW_TITLE:
+            titled.append(hwnd)
             return True
-        buf = ctypes.create_unicode_buffer(length)
-        user32.GetWindowTextW(hwnd, buf, length)
-        if buf.value == WINDOW_TITLE:
-            found.append(hwnd)
+        rect = wintypes.RECT()
+        if user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            area = max(0, rect.right - rect.left) * max(0, rect.bottom - rect.top)
+            if area >= 10_000:
+                fallback.append((area, hwnd))
         return True
 
     user32.EnumWindows(_callback, 0)
-    return found[0] if found else None
+    if titled:
+        return titled[0]
+    if fallback:
+        fallback.sort(reverse=True)
+        return fallback[0][1]
+    return None
+
+
+def find_app_window() -> int | None:
+    """按标题 + 当前进程查找主窗口（含最小化/隐藏）。"""
+    if sys.platform != "win32":
+        return None
+
+    return find_window_for_pid(ctypes.windll.kernel32.GetCurrentProcessId())
 
 
 _subclass_procs: dict[int, tuple[int, object]] = {}
@@ -127,6 +150,10 @@ if sys.platform == "win32":
     else:
         _GetWindowLongPtr = _user32.GetWindowLongW
         _SetWindowLongPtr = _user32.SetWindowLongW
+    _GetWindowLongPtr.argtypes = [wintypes.HWND, ctypes.c_int]
+    _GetWindowLongPtr.restype = ctypes.c_void_p
+    _SetWindowLongPtr.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+    _SetWindowLongPtr.restype = ctypes.c_void_p
     _CallWindowProcW = _user32.CallWindowProcW
     _LRESULT = ctypes.c_ssize_t
     _WNDPROC = ctypes.WINFUNCTYPE(
@@ -136,6 +163,14 @@ if sys.platform == "win32":
         wintypes.WPARAM,
         wintypes.LPARAM,
     )
+    _CallWindowProcW.argtypes = [
+        ctypes.c_void_p,
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+    ]
+    _CallWindowProcW.restype = _LRESULT
 else:
     _GetWindowLongPtr = _SetWindowLongPtr = _CallWindowProcW = None
     _WNDPROC = None
@@ -178,21 +213,24 @@ def _subclass_hwnd_for_click_activate(hwnd: int, root_hwnd: int) -> None:
         return _CallWindowProcW(old_proc, h, msg, wparam, lparam)
 
     _subclass_procs[hwnd] = (old_proc, proc)
-    _SetWindowLongPtr(hwnd, GWLP_WNDPROC, ctypes.cast(proc, ctypes.c_void_p).value)
+    _SetWindowLongPtr(hwnd, GWLP_WNDPROC, ctypes.cast(proc, ctypes.c_void_p))
 
 
 def install_click_to_focus(root_hwnd: int) -> None:
     """WebView2 子窗口常返回 MA_NOACTIVATE，点击被遮挡露出的区域无法置顶。"""
     if sys.platform != "win32" or not root_hwnd:
         return
-    _subclass_hwnd_for_click_activate(root_hwnd, root_hwnd)
+    try:
+        _subclass_hwnd_for_click_activate(root_hwnd, root_hwnd)
 
-    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    def _enum_child(child: int, _lparam: int) -> bool:
-        _subclass_hwnd_for_click_activate(child, root_hwnd)
-        return True
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _enum_child(child: int, _lparam: int) -> bool:
+            _subclass_hwnd_for_click_activate(child, root_hwnd)
+            return True
 
-    ctypes.windll.user32.EnumChildWindows(root_hwnd, _enum_child, 0)
+        ctypes.windll.user32.EnumChildWindows(root_hwnd, _enum_child, 0)
+    except (OSError, TypeError, ValueError, ctypes.ArgumentError):
+        pass
 
 
 def focus_window(hwnd: int) -> bool:
@@ -383,8 +421,49 @@ def set_taskbar_thumbnail_clip(hwnd: int) -> None:
         pass
 
 
-def tune_desktop_window(hwnd: int, bg_hex: str, *, dark: bool, clip_thumbnail: bool = True) -> None:
+def set_window_icons(hwnd: int, icon_path: str | None) -> None:
+    """任务栏/Alt+Tab 图标。pythonw 开发启动时 pywebview 的 icon 参数常无效。"""
+    if sys.platform != "win32" or not hwnd or not icon_path:
+        return
+    from pathlib import Path
+
+    path = Path(icon_path)
+    if not path.is_file():
+        return
+    try:
+        user32 = ctypes.windll.user32
+        LR_LOADFROMFILE = 0x0010
+        LR_DEFAULTSIZE = 0x0040
+        IMAGE_ICON = 1
+        WM_SETICON = 0x0080
+        ICON_SMALL = 0
+        ICON_BIG = 1
+        path_w = str(path.resolve())
+
+        hicon_sm = user32.LoadImageW(None, path_w, IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        hicon_big = user32.LoadImageW(None, path_w, IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        if not hicon_big:
+            hicon_big = user32.LoadImageW(
+                None, path_w, IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE
+            )
+        if hicon_sm:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon_sm)
+        if hicon_big:
+            user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon_big)
+    except (AttributeError, OSError):
+        pass
+
+
+def tune_desktop_window(
+    hwnd: int,
+    bg_hex: str,
+    *,
+    dark: bool,
+    clip_thumbnail: bool = True,
+    icon_path: str | None = None,
+) -> None:
     apply_desktop_window_chrome(hwnd, bg_hex, dark=dark)
+    set_window_icons(hwnd, icon_path)
     install_click_to_focus(hwnd)
     if clip_thumbnail:
         set_taskbar_thumbnail_clip(hwnd)

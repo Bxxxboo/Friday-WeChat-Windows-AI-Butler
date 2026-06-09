@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from friday.version import __version__, release_zip_name, resolve_release_zip_path
+from friday.version import __version__
 
 API = "https://gitee.com/api/v5"
 
@@ -114,7 +114,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default="Bxxxboo/friday")
     parser.add_argument("--version", default=__version__)
-    parser.add_argument("--zip", default="")
+    parser.add_argument("--zip", default=str(ROOT / "release" / "Friday-Windows.zip"))
     parser.add_argument("--skip-upload", action="store_true")
     args = parser.parse_args()
 
@@ -158,7 +158,7 @@ def main() -> int:
         release_id = int(created["id"])
 
     if not args.skip_upload:
-        zip_path = Path(args.zip) if args.zip else resolve_release_zip_path(ROOT, args.version)
+        zip_path = Path(args.zip)
         if not zip_path.is_file():
             print(f"Zip not found: {zip_path}", file=sys.stderr)
             return 1

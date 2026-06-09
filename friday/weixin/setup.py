@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import time
@@ -14,15 +15,15 @@ from friday.paths import extensions_dir
 from friday.storage import UserSettings, load_settings, save_settings
 from friday.weixin.client import list_account_ids, resolve_account
 from friday.weixin.config import openclaw_state_dir, read_bridge_config, write_bridge_config
-from friday.weixin.gateway import ensure_gateway_running, gateway_status
-from friday.weixin.node_runtime import ensure_node_npm, node_env, run_npm_global
+from friday.weixin.gateway import ensure_gateway_cmd, ensure_gateway_running, gateway_status
+from friday.weixin.node_runtime import ensure_node_npm, npm_command, run_npm_global
 from friday.weixin.openclaw_cli import openclaw_shell_invocation, resolve_openclaw_command, run_openclaw
 
 _log = get_logger("weixin.setup")
 
 WEIXIN_PLUGIN_ID = "openclaw-weixin"
 BRIDGE_PLUGIN_ID = "friday-weixin-bridge"
-WEIXIN_NPM_SPEC = "@tencent-weixin/openclaw-weixin"
+WEIXIN_NPM_SPEC = "@tencent-weixin/openclaw-weixin@2.4.3"
 
 
 @dataclass(frozen=True)
@@ -100,19 +101,50 @@ def _plugin_extension_dir(plugin_id: str) -> Path:
 
 
 def _weixin_channel_available() -> bool:
-    if _plugin_installed(WEIXIN_PLUGIN_ID):
-        return True
-    data = _read_openclaw_config()
-    channels = data.get("channels") or {}
-    wx = channels.get(WEIXIN_PLUGIN_ID)
-    return isinstance(wx, dict) and wx.get("enabled", False)
+    """微信通道是否可用：必须以插件文件已落盘为准（仅 openclaw.json 启用不够）。"""
+    return _plugin_installed(WEIXIN_PLUGIN_ID)
+
+
+def _plugin_tree_usable(root: Path) -> bool:
+    if not root.is_dir():
+        return False
+    has_entry = (
+        (root / "index.js").is_file()
+        or (root / "dist" / "index.js").is_file()
+        or any(root.glob("**/index.js"))
+    )
+    if not has_entry:
+        return False
+    return (root / "openclaw.plugin.json").is_file() or (root / "package.json").is_file()
 
 
 def _plugin_installed(plugin_id: str) -> bool:
     ext = _plugin_extension_dir(plugin_id)
-    if not ext.is_dir():
-        return False
-    return any(ext.glob("index.js")) or any(ext.glob("**/index.js")) or (ext / "openclaw.plugin.json").is_file()
+    if _plugin_tree_usable(ext):
+        return True
+
+    state = openclaw_state_dir()
+    npm_projects = state / "npm" / "projects"
+    if npm_projects.is_dir():
+        for manifest in npm_projects.glob("**/openclaw.plugin.json"):
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(data, dict) and data.get("id") == plugin_id:
+                if _plugin_tree_usable(manifest.parent):
+                    return True
+
+    cfg = _read_openclaw_config()
+    plugins = cfg.get("plugins") if isinstance(cfg, dict) else None
+    installs = plugins.get("installs") if isinstance(plugins, dict) else None
+    if isinstance(installs, dict):
+        record = installs.get(plugin_id)
+        if isinstance(record, dict):
+            raw_path = str(record.get("installPath") or record.get("path") or "").strip()
+            if raw_path and _plugin_tree_usable(Path(raw_path)):
+                return True
+    return False
 
 
 def _weixin_plugin_source() -> Path | None:
@@ -154,8 +186,133 @@ def _config_plugins_ready() -> tuple[bool, str]:
     return True, "OpenClaw 插件白名单与通道配置已就绪"
 
 
+def _copy_plugin_tree(source: Path, plugin_id: str) -> tuple[bool, str]:
+    if not source.is_dir():
+        return False, f"插件源目录不存在：{source}"
+    dest = _plugin_extension_dir(plugin_id)
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in source.iterdir():
+        target = dest / item.name
+        if item.is_dir():
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+            shutil.copytree(item, target)
+        elif item.is_file():
+            shutil.copy2(item, target)
+    if _plugin_installed(plugin_id):
+        return True, f"{plugin_id} 已复制到 {dest}"
+    return False, f"{plugin_id} 复制后仍不可用"
+
+
+def migrate_legacy_openclaw_state() -> tuple[bool, str]:
+    """将其他 OpenClaw 状态目录中的插件迁移到 ~/.openclaw（若目标不同）。"""
+    target = openclaw_state_dir()
+    legacy = Path.home() / ".openclaw"
+    if not legacy.is_dir() or legacy.resolve() == target.resolve():
+        return True, "无需迁移 OpenClaw 状态"
+    target.mkdir(parents=True, exist_ok=True)
+    copied: list[str] = []
+
+    for name in ("openclaw.json", "gateway.cmd"):
+        src = legacy / name
+        dst = target / name
+        if src.is_file() and not dst.is_file():
+            shutil.copy2(src, dst)
+            copied.append(name)
+
+    legacy_ext = legacy / "extensions"
+    target_ext = target / "extensions"
+    if legacy_ext.is_dir():
+        target_ext.mkdir(parents=True, exist_ok=True)
+        for plugin_dir in legacy_ext.iterdir():
+            if not plugin_dir.is_dir():
+                continue
+            dst = target_ext / plugin_dir.name
+            if dst.exists():
+                continue
+            shutil.copytree(plugin_dir, dst)
+            copied.append(f"extensions/{plugin_dir.name}")
+
+    legacy_wx = legacy / "openclaw-weixin"
+    target_wx = target / "openclaw-weixin"
+    if legacy_wx.is_dir() and not target_wx.exists():
+        shutil.copytree(legacy_wx, target_wx)
+        copied.append("openclaw-weixin")
+
+    if not copied:
+        return True, "未发现可迁移的 OpenClaw 数据"
+    _log.info("已迁移 OpenClaw 状态 | from=%s to=%s items=%s", legacy, target, copied)
+    return True, f"已从 ~/.openclaw 迁移：{', '.join(copied)}"
+
+
+def _install_weixin_via_npm() -> tuple[bool, str]:
+    import tempfile
+
+    from friday.weixin.config import openclaw_env
+
+    npm = npm_command()
+    if not npm:
+        return False, "npm 不可用，无法安装微信插件"
+    tmp = Path(tempfile.mkdtemp(prefix="friday-weixin-"))
+    try:
+        proc = subprocess.run(
+            [npm, "install", WEIXIN_NPM_SPEC, "--prefix", str(tmp)],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+            env=openclaw_env(),
+        )
+        detail = (proc.stderr or proc.stdout or "").strip()[-400:]
+        if proc.returncode != 0:
+            return False, f"npm 安装微信插件失败：{detail or proc.returncode}"
+        candidates = list(tmp.glob("node_modules/**/openclaw.plugin.json"))
+        if not candidates:
+            candidates = list(tmp.glob("node_modules/**/package.json"))
+        for marker in candidates:
+            pkg_root = marker.parent
+            if (pkg_root / "index.js").is_file() or any(pkg_root.glob("**/index.js")):
+                return _copy_plugin_tree(pkg_root, WEIXIN_PLUGIN_ID)
+        return False, "npm 已执行但未找到 openclaw-weixin 包内容"
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return False, f"npm 安装微信插件异常：{exc}"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _apply_gateway_config(data: dict[str, Any]) -> dict[str, Any]:
+    """写入 OpenClaw Gateway 本地模式与认证（新版 openclaw 必需 gateway.mode）。"""
+    gateway = data.get("gateway")
+    if not isinstance(gateway, dict):
+        gateway = {}
+    gateway["mode"] = "local"
+    auth = gateway.get("auth")
+    if not isinstance(auth, dict):
+        auth = {}
+    if not str(auth.get("mode", "")).strip():
+        auth["mode"] = "token"
+    if not str(auth.get("token", "")).strip():
+        auth["token"] = secrets.token_hex(24)
+    gateway["auth"] = auth
+    data["gateway"] = gateway
+    return data
+
+
+def ensure_openclaw_gateway_config() -> tuple[bool, str]:
+    data = _read_openclaw_config()
+    if not isinstance(data, dict):
+        data = {}
+    _apply_gateway_config(data)
+    _write_openclaw_config(data)
+    return True, "Gateway 配置已写入 openclaw.json"
+
+
 def configure_openclaw_plugins() -> tuple[bool, str]:
     data = _read_openclaw_config()
+    if not isinstance(data, dict):
+        data = {}
     plugins = data.setdefault("plugins", {})
     allow = list(plugins.get("allow") or [])
     for pid in (WEIXIN_PLUGIN_ID, BRIDGE_PLUGIN_ID):
@@ -174,56 +331,112 @@ def configure_openclaw_plugins() -> tuple[bool, str]:
     session = data.setdefault("session", {})
     if isinstance(session, dict) and session.get("dmScope") != "per-account-channel-peer":
         session["dmScope"] = "per-account-channel-peer"
+    _apply_gateway_config(data)
     _write_openclaw_config(data)
     _log.info("已写入 OpenClaw 微信相关配置")
-    return True, "配置已写入 ~/.openclaw/openclaw.json"
+    return True, f"配置已写入 {openclaw_state_dir() / 'openclaw.json'}"
+
+
+def _run_openclaw_doctor_repair() -> None:
+    """非交互修复 openclaw.json 与缺失插件（避免 Gateway 启动时再弹「安装插件？」）。"""
+    if not _openclaw_cli_available():
+        return
+    try:
+        run_openclaw(
+            ["doctor", "--repair", "--yes", "--non-interactive"],
+            timeout=180,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        _log.warning("openclaw doctor --repair 未完成 | %s", exc)
+
+
+def ensure_weixin_plugin_for_gateway() -> None:
+    """Gateway 启动前预装微信插件，避免 OpenClaw 在终端里交互式询问。"""
+    if _plugin_installed(WEIXIN_PLUGIN_ID):
+        return
+    install_weixin_plugin()
 
 
 def install_weixin_plugin() -> tuple[bool, str]:
-    if _weixin_channel_available():
-        return True, "微信通道已就绪"
+    if _plugin_installed(WEIXIN_PLUGIN_ID):
+        configure_openclaw_plugins()
+        _run_openclaw_doctor_repair()
+        return True, "微信通道插件已安装"
+
     source = _weixin_plugin_source()
-    spec = str(source) if source else WEIXIN_NPM_SPEC
+    if source and source.is_dir():
+        ok, msg = _copy_plugin_tree(source, WEIXIN_PLUGIN_ID)
+        if ok:
+            configure_openclaw_plugins()
+            _run_openclaw_doctor_repair()
+            return True, msg
+
+    ok, msg = _install_weixin_via_npm()
+    if ok:
+        configure_openclaw_plugins()
+        _run_openclaw_doctor_repair()
+        return True, msg
+
     try:
-        proc = run_openclaw(["plugins", "install", spec], timeout=300)
+        proc = run_openclaw(["plugins", "install", WEIXIN_NPM_SPEC, "--force"], timeout=300)
         detail = (proc.stderr or proc.stdout or "").strip()[-400:]
-        if proc.returncode != 0:
-            return False, f"安装失败：{detail or proc.returncode}"
-        return True, "微信通道插件安装完成"
+        if proc.returncode == 0 or _plugin_installed(WEIXIN_PLUGIN_ID):
+            configure_openclaw_plugins()
+            _run_openclaw_doctor_repair()
+            return True, "微信通道插件安装完成"
+        _log.warning("openclaw plugins install weixin 失败 | %s", detail)
     except subprocess.TimeoutExpired:
-        return False, "安装超时，请检查网络后重试"
+        _log.warning("openclaw plugins install weixin 超时")
     except OSError as exc:
-        return False, f"安装异常：{exc}"
+        _log.warning("openclaw plugins install weixin 异常 | %s", exc)
+
+    return False, msg or "微信通道插件安装失败，请检查网络后重试"
 
 
 def install_bridge_plugin() -> tuple[bool, str]:
+    if _plugin_installed(BRIDGE_PLUGIN_ID):
+        configure_openclaw_plugins()
+        return True, "星期五桥接插件已安装"
+
     src = _bridge_plugin_source()
     if not src.is_dir():
         return False, f"未找到内置桥接插件：{src}"
-    dest_root = _plugin_extension_dir(BRIDGE_PLUGIN_ID)
+
+    ok, msg = _copy_plugin_tree(src, BRIDGE_PLUGIN_ID)
+    if ok:
+        configure_openclaw_plugins()
+        _run_openclaw_doctor_repair()
+        return True, msg
+
     try:
-        proc = run_openclaw(["plugins", "install", str(src)], timeout=120)
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "").strip()[-300:]
+        proc = run_openclaw(["plugins", "install", str(src), "--force"], timeout=120)
+        if proc.returncode == 0 and _plugin_installed(BRIDGE_PLUGIN_ID):
+            configure_openclaw_plugins()
+            _run_openclaw_doctor_repair()
+            return True, "星期五桥接插件已安装"
+        detail = (proc.stderr or proc.stdout or "").strip()[-300:]
+        if detail:
             _log.warning("openclaw plugins install bridge 非零退出 | %s", detail)
     except (subprocess.TimeoutExpired, OSError) as exc:
         _log.warning("openclaw plugins install bridge 异常 | %s", exc)
 
-    dest_root.mkdir(parents=True, exist_ok=True)
-    for name in ("index.js", "openclaw.plugin.json", "package.json", "README.md"):
-        item = src / name
-        if item.is_file():
-            shutil.copy2(item, dest_root / name)
-    if not _plugin_installed(BRIDGE_PLUGIN_ID):
-        return False, "桥接插件复制失败"
-    return True, "星期五桥接插件已安装"
+    return False, "桥接插件安装失败"
 
 
 def start_gateway() -> tuple[bool, str]:
-    result = ensure_gateway_running()
+    from friday.weixin.gateway import probe_gateway
+
+    cfg_ok, cfg_msg = ensure_openclaw_gateway_config()
+    if not cfg_ok:
+        return False, cfg_msg
+    ok_cmd, cmd_msg = ensure_gateway_cmd(force=True)
+    if not ok_cmd:
+        return False, cmd_msg
+    if probe_gateway():
+        return True, f"Gateway 已在运行（{cfg_msg}）"
+    result = ensure_gateway_running(force_restart=False)
     if result.get("running"):
-        msg = "Gateway 已运行" if not result.get("started") else "Gateway 已启动"
-        return True, msg
+        return True, f"Gateway 已启动（{cfg_msg}；{cmd_msg}）"
     return False, str(result.get("error") or "Gateway 未能启动")
 
 
@@ -246,9 +459,11 @@ def launch_weixin_login_terminal() -> tuple[bool, str]:
     if os.name != "nt":
         return False, f"请在终端执行：{login_line}"
     try:
+        from friday.weixin.config import openclaw_env
+
         subprocess.Popen(
             ["cmd", "/c", "start", "cmd", "/k", login_line],
-            env=node_env(),
+            env=openclaw_env(),
         )
         return True, "已打开扫码登录窗口，请用微信扫描二维码完成绑定"
     except OSError as exc:
@@ -297,6 +512,9 @@ def collect_setup_steps(*, port: int = 8765, api_token: str = "") -> list[SetupS
     gw = gateway_status()
     bridge_cfg = read_bridge_config()
     settings = load_settings()
+    from friday.edition import openclaw_gateway_port
+
+    gateway_port = openclaw_gateway_port()
 
     steps = [
         SetupStep(
@@ -343,7 +561,7 @@ def collect_setup_steps(*, port: int = 8765, api_token: str = "") -> list[SetupS
         SetupStep(
             id="gateway",
             title="OpenClaw Gateway",
-            description="微信消息中转服务（本机 18789 端口）",
+            description=f"微信消息中转服务（本机 {gateway_port} 端口）",
             status="ok" if gw.get("running") else ("warn" if cli_ok else "pending"),
             message="运行中" if gw.get("running") else "未运行（微信会显示无法连接 OpenClaw）",
             action="" if gw.get("running") else "start_gateway",
@@ -389,6 +607,11 @@ def run_setup_action(action: str, *, port: int, api_token: str) -> dict[str, Any
     }
     if action == "full":
         messages: list[str] = []
+        critical_ok = True
+
+        migrate_ok, migrate_msg = migrate_legacy_openclaw_state()
+        messages.append(f"{'✓' if migrate_ok else '→'} {migrate_msg}")
+
         if not _openclaw_cli_available():
             ok, msg = install_openclaw_cli()
             messages.append(f"{'✓' if ok else '✗'} {msg}")
@@ -401,24 +624,34 @@ def run_setup_action(action: str, *, port: int, api_token: str) -> dict[str, Any
                     "steps": [_step_to_dict(s) for s in steps],
                     "ready": False,
                 }
-        automated_ok = True
-        for key in ("install_weixin", "install_bridge", "configure", "start_gateway", "sync_bridge"):
-            ok, msg = handlers[key]()
+
+        sequence = (
+            ("install_weixin", install_weixin_plugin),
+            ("install_bridge", install_bridge_plugin),
+            ("configure", configure_openclaw_plugins),
+            ("gateway_cmd", ensure_gateway_cmd),
+            ("sync_bridge", lambda: sync_friday_bridge(port, api_token)),
+            ("start_gateway", start_gateway),
+        )
+        for key, fn in sequence:
+            ok, msg = fn()
             messages.append(f"{'✓' if ok else '✗'} {msg}")
-            if not ok:
-                automated_ok = False
-                if key in {"install_weixin", "install_bridge", "configure"}:
-                    break
-        if automated_ok and not list_account_ids():
+            if not ok and key in {"install_weixin", "install_bridge", "configure", "sync_bridge"}:
+                critical_ok = False
+
+        if critical_ok and not list_account_ids():
             ok, msg = launch_weixin_login_terminal()
             messages.append(f"{'→' if ok else '✗'} {msg}")
             if ok:
-                messages.append("→ 扫码完成后点「刷新状态」")
+                messages.append("→ 请在弹出窗口中用微信扫码；完成后点「刷新状态」")
+        elif list_account_ids():
+            messages.append("✓ 微信已登录，可直接发消息测试")
+
         invalidate_cli_info_cache()
         steps = collect_setup_steps(port=port, api_token=api_token)
         ready = setup_ready(port=port, api_token=api_token)
         return {
-            "ok": automated_ok,
+            "ok": critical_ok,
             "message": "\n".join(messages),
             "steps": [_step_to_dict(s) for s in steps],
             "ready": ready,

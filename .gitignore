@@ -1,6 +1,3 @@
-# 本地 Cursor 开发联接（scripts/link-cursor-dev.ps1），仓库内追踪 .friday
-.cursor
-
 # 本地文档/素材（勿入库）
 星期五*.docx
 图*_*.jpg
@@ -55,6 +52,9 @@ report_template.html
 outputs/
 storage-report.html
 *.log
+
+# 本地 Cursor 配置由 junction 指向 .friday（见 scripts/link-cursor-dev.ps1）
+.cursor/
 
 .DS_Store
 Thumbs.db

@@ -34,9 +34,9 @@ if (-not $python) {
 }
 
 Write-Host "使用 Python: $python"
-& $python -m venv .venv
-& .\.venv\Scripts\python -m pip install --upgrade pip
-& .\.venv\Scripts\pip install -r requirements.txt
+& $python -m venv .python-env
+& .\.python-env\Scripts\python -m pip install --upgrade pip
+& .\.python-env\Scripts\pip install -r requirements.txt
 
 $workspace = [Environment]::GetFolderPath("MyDocuments")
 if (-not (Test-Path $workspace)) {
@@ -47,8 +47,11 @@ if (-not (Test-Path $workspace)) {
 }
 Write-Host "建议默认文件夹: $workspace"
 
-Write-Host "安装完成。启动命令：" -ForegroundColor Green
-Write-Host "  .\.venv\Scripts\python run.py"
+Write-Host "安装完成。启动星期五：" -ForegroundColor Green
+Write-Host "  双击桌面「星期五」，或运行 scripts\run-dev.cmd"
+Write-Host "  也可运行 release\create-shortcut.ps1 重新生成桌面快捷方式"
+Write-Host "  Cursor 规则：运行 scripts\link-cursor-dev.ps1 将 .cursor 联接至 .friday"
+Write-Host "  .\.python-env\Scripts\pythonw.exe run.py"
 Write-Host ""
 Write-Host "可选：初始化 Agent Python 环境（工作区 .python-env）：" -ForegroundColor Cyan
 Write-Host "  .\scripts\setup-python-env.ps1"

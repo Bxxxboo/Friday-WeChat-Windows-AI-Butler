@@ -1,6 +1,51 @@
 {
   "entries": [
     {
+      "version": "1.2.2",
+      "date": "2026-06-09",
+      "title": "微信桥接、设置持久化与生图测试修复",
+      "sections": [
+        {
+          "label": "改进",
+          "items": [
+            "状态栏常驻显示缓存命中百分比",
+            "微信「我的微信」会话启动预建与 WebSocket 实时刷新侧边栏",
+            "设置页 Python 环境 / 生图测试改为后台执行，不再卡死整个后端"
+          ]
+        },
+        {
+          "label": "修复",
+          "items": [
+            "更新后 API Key 丢失：自动迁移 Friday-Test 与 .fernet_key 配对",
+            "生图设置测试超时无反馈、中转站探测过久",
+            "Agent Python 环境误绑开发目录 venv 导致更新后需重装"
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.2.1",
+      "date": "2026-06-09",
+      "title": "Plan/Todo 完整版与 API 连接修复",
+      "sections": [
+        {
+          "label": "改进",
+          "items": [
+            "Plan / 待办面板完整 UI：拖拽排序、待办队列、从计划生成、进度徽章",
+            "长任务待办自动勾选、计划 Markdown 同步、对话中实时刷新",
+            "设置页空 base_url 自动回退默认 DeepSeek 地址"
+          ]
+        },
+        {
+          "label": "修复",
+          "items": [
+            "修复 API 测试 Connection error（空 base_url）",
+            "源码回退后待办面板与 1.2.1 安装包不一致"
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.2.0",
       "date": "2026-06-08",
       "title": "缓存优化、变更审查、Plan/MCP 与自启完善",
@@ -21,9 +66,7 @@
           "items": [
             "工具输出智能压缩、重复工具循环检测、前缀漂移日志",
             "配置包导出/导入包含 mcp_servers.json",
-            "内置技能「制定计划」快速生成长任务计划",
-            "Release 安装包文件名带版本号（Friday-Windows-v1.2.0.zip），更新源优先匹配带版本号文件",
-            "Agent 配置目录更名为 .friday（本地 Cursor 可用 scripts/link-cursor-dev.ps1 联接）"
+            "内置技能「制定计划」快速生成长任务计划"
           ]
         }
       ]

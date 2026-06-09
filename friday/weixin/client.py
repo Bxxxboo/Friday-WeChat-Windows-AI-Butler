@@ -21,7 +21,6 @@ ILINK_APP_ID = "bot"
 ILINK_APP_CLIENT_VERSION = 132100
 CHANNEL_VERSION = "2.4.4"
 from friday.version import __version__
-
 BOT_AGENT = f"Friday/{__version__}"
 MESSAGE_ITEM_TEXT = 1
 MESSAGE_TYPE_BOT = 2

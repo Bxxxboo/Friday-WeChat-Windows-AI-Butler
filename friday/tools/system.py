@@ -158,3 +158,59 @@ def get_network_info() -> str:
         pass
 
     return "\n".join(lines)
+
+
+@register_tool(
+    name="list_open_windows",
+    description="列出当前可见窗口（标题与进程），了解用户正在使用哪些程序",
+    parameters={
+        "type": "object",
+        "properties": {
+            "max_results": {"type": "integer", "description": "最多返回数量，默认 25"},
+        },
+    },
+)
+def list_open_windows(max_results: int = 25) -> str:
+    if platform.system() != "Windows":
+        return "仅支持 Windows"
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    entries: list[tuple[str, str, int]] = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _callback(hwnd: int, _lparam: int) -> bool:
+        if user32.GetParent(hwnd):
+            return True
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd) + 1
+        if length <= 1:
+            return True
+        buf = ctypes.create_unicode_buffer(length)
+        user32.GetWindowTextW(hwnd, buf, length)
+        title = buf.value.strip()
+        if not title:
+            return True
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        proc_name = "?"
+        try:
+            proc_name = psutil.Process(int(pid.value)).name()
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+            pass
+        entries.append((title, proc_name, int(pid.value)))
+        return True
+
+    user32.EnumWindows(_callback, 0)
+    if not entries:
+        return "未找到可见窗口"
+    entries.sort(key=lambda item: item[0].casefold())
+    limit = max(1, int(max_results))
+    lines = []
+    for title, proc_name, pid in entries[:limit]:
+        lines.append(f"{title} | {proc_name} (PID {pid})")
+    if len(entries) > limit:
+        lines.append(f"... 另有 {len(entries) - limit} 个窗口未列出")
+    return "\n".join(lines)

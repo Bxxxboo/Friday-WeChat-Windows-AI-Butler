@@ -7,13 +7,32 @@ import subprocess
 import sys
 import time
 
+from friday.edition import instance_port
+
 INSTANCE_HOST = "127.0.0.1"
-INSTANCE_PORT = 58765
-WINDOW_TITLE = "星期五"
+INSTANCE_PORT = instance_port()
+
+
+from friday.edition import instance_port, window_title
+
+INSTANCE_HOST = "127.0.0.1"
+INSTANCE_PORT = instance_port()
+WINDOW_TITLE = window_title()
+
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
+def _hidden_subprocess_kwargs() -> dict:
+    if sys.platform != "win32":
+        return {}
+    startup = subprocess.STARTUPINFO()
+    startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startup.wShowWindow = subprocess.SW_HIDE
+    return {"creationflags": _CREATE_NO_WINDOW, "startupinfo": startup}
 
 
 def find_main_window() -> int | None:
-    """查找标题为「星期五」的可见主窗口，找不到返回 None。"""
+    """查找主窗口（任意进程；含隐藏/无标题）。"""
     if sys.platform != "win32":
         return None
 
@@ -21,10 +40,11 @@ def find_main_window() -> int | None:
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32
-    found: list[int] = []
+    titled: list[int] = []
 
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def _callback(hwnd: int, _lparam: int) -> bool:
-        if not user32.IsWindowVisible(hwnd):
+        if user32.GetParent(hwnd):
             return True
         length = user32.GetWindowTextLengthW(hwnd) + 1
         if length <= 1:
@@ -32,12 +52,20 @@ def find_main_window() -> int | None:
         buf = ctypes.create_unicode_buffer(length)
         user32.GetWindowTextW(hwnd, buf, length)
         if buf.value == WINDOW_TITLE:
-            found.append(hwnd)
+            titled.append(hwnd)
         return True
 
-    enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)(_callback)
-    user32.EnumWindows(enum_proc, 0)
-    return found[0] if found else None
+    user32.EnumWindows(_callback, 0)
+    if titled:
+        return titled[0]
+
+    pid = _pid_listening_on(INSTANCE_PORT)
+    if pid is None:
+        return None
+
+    from friday.win32_chrome import find_window_for_pid
+
+    return find_window_for_pid(pid)
 
 
 def focus_existing_window() -> bool:
@@ -48,6 +76,12 @@ def focus_existing_window() -> bool:
 
     if sys.platform != "win32":
         return True
+
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    if not user32.IsWindowVisible(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
 
     from friday.win32_chrome import focus_window
 
@@ -65,6 +99,7 @@ def _pid_listening_on(port: int) -> int | None:
             encoding="utf-8",
             errors="replace",
             timeout=5,
+            **_hidden_subprocess_kwargs(),
         )
     except (subprocess.SubprocessError, OSError):
         return None

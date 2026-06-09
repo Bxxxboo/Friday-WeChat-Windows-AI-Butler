@@ -23,7 +23,10 @@ from friday.tools._decorators import register_tool
             },
             "size": {
                 "type": "string",
-                "description": "可选。如 1024x1024、1280x720、768x1024",
+                "description": (
+                    "可选。仅当用户明确要求 8K/4K/2K 或具体像素（如 7680x4320）时填写；"
+                    "未指定则默认 1K，prompt 中的 4K/8K 等描述也会自动识别"
+                ),
             },
             "filename": {
                 "type": "string",

@@ -87,6 +87,7 @@
     if (!skill || !F.chatInput) return;
     F.chatInput.value = skill.prompt;
     hideSlashMenu();
+    F.updateInputState();
     F.chatInput.focus();
   }
 

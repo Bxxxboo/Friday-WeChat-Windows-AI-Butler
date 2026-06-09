@@ -112,15 +112,22 @@ READ_ONLY_TOOLS = {
     "screenshot",
     "clipboard_read",
     "get_network_info",
+    "list_open_windows",
     "browse_webpage",
     "verify_download_source",
     "list_friday_plugins",
     "list_plugin_catalog",
+    "list_user_memory",
     "describe_image",
     "vision_status",
     "image_gen_status",
     "python_env_info",
 }
+
+MEMORY_TOOLS = frozenset({
+    "remember_user_fact",
+    "forget_user_fact",
+})
 
 # 所有接受路径参数的工具（读 + 写），用于工作区限制
 PATH_TOOLS = WRITE_TOOLS | {
@@ -312,6 +319,9 @@ def evaluate_tool(
         blocked = _powershell_download_block_reason(str(arguments.get("command", "")))
         if blocked:
             return ToolDecision(False, False, blocked)
+
+    if tool_name in MEMORY_TOOLS:
+        return ToolDecision(True, False)
 
     if risk == RiskLevel.READ:
         return ToolDecision(True, False)
@@ -730,9 +740,16 @@ def describe_approval_plain(tool_name: str, arguments: dict) -> str:
     if tool_name == "browse_webpage":
         return f"联网浏览网页以查找信息：{str(args.get('url', ''))[:60]}"
     if tool_name == "generate_image":
+        from friday.image_gen import resolve_image_gen_size
+        from friday.storage import load_settings
+
         prompt = str(args.get("prompt", "")).strip()
         preview = prompt[:48] + ("…" if len(prompt) > 48 else "")
-        size = str(args.get("size", "")).strip() or "默认尺寸"
+        size = resolve_image_gen_size(
+            str(args.get("size", "")).strip(),
+            load_settings(),
+            prompt=prompt,
+        )
         return f"调用生图 API 生成图片（{size}）并保存到「生成的图片」文件夹：{preview or '（无描述）'}"
     return "在这台电脑上执行一项需要你确认的操作"
 

@@ -1,5 +1,5 @@
 /* ================================================================= *
- *  weixin.js — 设置 · 微信端 AI 一条龙向导
+ *  weixin.js — 设置 · 微信桥接 一条龙向导
  * ================================================================= */
 
 (function () {
@@ -71,7 +71,7 @@
         btn.className = "ghost-btn weixin-setup-step-btn";
         if (step.action === "open_api_settings") {
           btn.textContent = "去配置 API";
-          btn.addEventListener("click", () => F.openSettings?.("api"));
+          btn.addEventListener("click", () => F.openSettings?.("llm"));
         } else if (step.action === "open_install_docs") {
           btn.textContent = "查看 OpenClaw 安装说明";
           btn.addEventListener("click", () => {
@@ -108,22 +108,37 @@
     if (data.ready) {
       badge.className = "weixin-setup-badge ok";
       badge.textContent = "已就绪";
-      text.textContent = "微信端 AI 已配置完成，可以直接用手机发指令测试。";
+      text.textContent = "微信桥接已配置完成，可以直接用手机发指令测试。";
       return;
     }
     const pending = (data.steps || []).filter((s) => s.status !== "ok");
     badge.className = "weixin-setup-badge warn";
     badge.textContent = "待完成";
     text.textContent = pending.length
-      ? `还有 ${pending.length} 项待处理。点「一键配置」可自动安装 Node.js、OpenClaw 与插件（需联网，约 3～5 分钟）；完成后会弹出扫码窗口。`
+      ? `还有 ${pending.length} 项待处理。点「一键配置」可自动完成安装与桥接（需联网，约 3～5 分钟），并弹出扫码窗口。`
       : "请刷新状态或检查 OpenClaw 是否已安装。";
   }
 
   function setResult(ok, message) {
     const el = $("weixinSetupResult");
     if (!el) return;
-    el.className = ok ? "settings-result ok" : "settings-result error";
+    if (ok === null) {
+      el.className = "settings-result";
+    } else {
+      el.className = ok ? "settings-result ok" : "settings-result error";
+    }
     el.textContent = message || "";
+  }
+
+  function setProgress(message) {
+    const badge = $("weixinSetupBadge");
+    const text = $("weixinSetupBannerText");
+    if (badge) {
+      badge.className = "weixin-setup-badge";
+      badge.textContent = "进行中";
+    }
+    if (text) text.textContent = message || "正在执行…";
+    setResult(null, message || "正在执行…");
   }
 
   function setBusy(busy) {
@@ -152,21 +167,32 @@
         badge.className = "weixin-setup-badge error";
         badge.textContent = "失败";
       }
+      const text = $("weixinSetupBannerText");
+      if (text) {
+        text.textContent = "无法连接后端。若正在「初始化 Python 环境」，请等待完成后再点刷新。";
+      }
       setResult(false, "无法读取微信配置状态，请确认星期五后端已启动。");
       return null;
     }
   }
 
+  const PROGRESS_HINTS = {
+    install_weixin: "正在安装微信通道插件（npm 下载约 1～2 分钟，请稍候）…",
+    install_openclaw: "正在安装 OpenClaw（需联网，约 1～3 分钟）…",
+    install_bridge: "正在安装星期五桥接插件…",
+    full: "正在一键配置（含 OpenClaw/插件，约 3～5 分钟）…",
+  };
+
   async function runSetup(action, triggerBtn) {
+    const prevLabel = triggerBtn?.textContent || "";
     setBusy(true);
-    if (triggerBtn) triggerBtn.disabled = true;
-    const resultEl = $("weixinSetupResult");
-    if (resultEl) {
-      resultEl.className = "settings-result";
-      resultEl.textContent = action === "full" ? "正在一键配置（含 OpenClaw/插件，可能需要 3～5 分钟）…" : "执行中…";
+    if (triggerBtn) {
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = "执行中…";
     }
+    setProgress(PROGRESS_HINTS[action] || "正在执行，请稍候…");
     try {
-      const timeoutMs = action === "full" ? 600_000 : 120_000;
+      const timeoutMs = action === "full" ? 600_000 : 180_000;
       const res = await F.apiFetchWithTimeout(
         "/api/weixin/setup/run",
         {
@@ -176,16 +202,43 @@
         },
         timeoutMs,
       );
-      const data = await res.json();
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        setResult(false, `服务器返回异常（HTTP ${res.status}）`);
+        return;
+      }
+      if (!res.ok) {
+        const detail = data.detail || data.message || `HTTP ${res.status}`;
+        setResult(false, typeof detail === "string" ? detail : "安装失败");
+        if (Array.isArray(data.steps)) {
+          renderSteps(data.steps);
+          updateBanner(data);
+        }
+        return;
+      }
       renderSteps(data.steps);
       updateBanner(data);
-      setResult(data.ok || data.ready, (data.message || "").replace(/\n/g, " · ") || (data.ok ? "完成" : "未完成"));
+      setResult(
+        data.ok || data.ready,
+        (data.message || "").replace(/\n/g, " · ") || (data.ok ? "完成" : "未完成"),
+      );
       void refreshOpenclawAutostart();
-    } catch {
-      setResult(false, "请求失败，请稍后重试。");
+    } catch (err) {
+      const aborted = err?.name === "AbortError";
+      setResult(
+        false,
+        aborted
+          ? "操作超时，请检查网络后重试，或改用「一键配置」。"
+          : "请求失败，请确认星期五后端已启动后重试。",
+      );
     } finally {
       setBusy(false);
-      if (triggerBtn) triggerBtn.disabled = false;
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        if (prevLabel) triggerBtn.textContent = prevLabel;
+      }
     }
   }
 
