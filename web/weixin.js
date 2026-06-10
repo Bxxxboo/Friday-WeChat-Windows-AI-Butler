@@ -70,7 +70,7 @@
         btn.type = "button";
         btn.className = "ghost-btn weixin-setup-step-btn";
         if (step.action === "open_api_settings") {
-          btn.textContent = "去配置 API";
+          btn.textContent = "去设置大模型";
           btn.addEventListener("click", () => F.openSettings?.("llm"));
         } else if (step.action === "open_install_docs") {
           btn.textContent = "查看 OpenClaw 安装说明";

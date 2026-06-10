@@ -6,6 +6,38 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
+GENERIC_APPROVAL_PLAIN = "在这台电脑上执行一项需要你确认的操作"
+
+_TOOL_NAME_LABELS: dict[str, str] = {
+    "run_powershell": "运行 PowerShell 命令",
+    "run_python": "运行 Python 脚本",
+    "run_python_script": "运行 Python 脚本文件",
+    "write_text_file": "写入或覆盖文件",
+    "delete_file": "删除文件",
+    "delete_directory": "删除文件夹",
+    "move_file": "移动文件或文件夹",
+    "copy_file": "复制文件或文件夹",
+    "organize_directory": "整理文件夹",
+    "batch_rename": "批量重命名",
+    "download_file": "从互联网下载文件",
+    "download_software": "下载软件",
+    "generate_image": "生成图片",
+    "browse_webpage": "浏览网页",
+    "open_url": "打开网页",
+    "open_app": "启动程序",
+    "clipboard_write": "写入剪贴板",
+    "create_docx": "创建 Word 文档",
+    "create_pptx": "创建 PPT",
+    "zip_files": "打包压缩文件",
+    "unzip_file": "解压文件",
+    "install_friday_plugin": "安装扩展插件",
+    "uninstall_friday_plugin": "卸载扩展插件",
+}
+
+
+def humanize_tool_name(tool_name: str) -> str:
+    return _TOOL_NAME_LABELS.get(tool_name, tool_name.replace("_", " "))
+
 
 def format_bytes(num: int) -> str:
     if num >= 1024 ** 3:
@@ -394,7 +426,7 @@ def describe_approval_plain(tool_name: str, arguments: dict) -> str:
             prompt=prompt,
         )
         return f"调用生图 API 生成图片（{size}）并保存到「生成的图片」文件夹：{preview or '（无描述）'}"
-    return "在这台电脑上执行一项需要你确认的操作"
+    return GENERIC_APPROVAL_PLAIN
 
 
 def describe_approval_detail(tool_name: str, arguments: dict) -> str:
@@ -462,52 +494,6 @@ def describe_approval_detail(tool_name: str, arguments: dict) -> str:
             return f"涉及位置：{loc}"
     return ""
 
-
-def summarize_preview(tool_name: str, arguments: dict) -> str:
-    """为审批界面生成用户可读的说明（优先自然语言，下载类保留详情）。"""
-    if tool_name in {"download_file", "download_software"}:
-        return _summarize_download(arguments) if tool_name == "download_file" else describe_approval_plain(
-            tool_name, arguments
-        )
-    detail = describe_approval_detail(tool_name, arguments)
-    if detail:
-        return detail
-    return describe_approval_plain(tool_name, arguments)
-
-
-def _summarize_download(arguments: dict) -> str:
-    from friday.config import DOWNLOAD_LARGE_MAX_BYTES, DOWNLOAD_LARGE_THRESHOLD_BYTES
-    from friday.tools.web import probe_download
-    from friday.tools.web_trust import assess_download_trust, format_trust_report
-
-    url = str(arguments.get("url", ""))
-    dest = arguments.get("destination", "")
-    expected = str(arguments.get("expected_software", "")).strip()
-    trust = assess_download_trust(url, expected_software=expected)
-    trust_block = format_trust_report(trust).split("\n")
-    trust_summary = "\n".join(trust_block[:6])
-
-    if trust.is_blocked:
-        return f"下载被拒绝\n来源: {trust.label}\n链接: {url}\n保存至: {dest}\n{trust_summary}"
-
-    probe = probe_download(url)
-    size = probe.content_length
-    header = f"来源: {trust.label}"
-    if size is not None:
-        size_text = format_bytes(size)
-        if size > DOWNLOAD_LARGE_THRESHOLD_BYTES or arguments.get("confirm_large_download"):
-            return (
-                f"大文件下载（约 {size_text}）\n"
-                f"{header}\n"
-                f"链接: {url}\n"
-                f"保存至: {dest}\n"
-                f"{trust_summary}\n"
-                f"确认后将允许下载，最高 {format_bytes(DOWNLOAD_LARGE_MAX_BYTES)}"
-            )
-        return f"下载文件（约 {size_text}）\n{header}\n链接: {url}\n保存至: {dest}\n{trust_summary}"
-    if arguments.get("confirm_large_download"):
-        return f"大文件下载（大小未知）\n{header}\n链接: {url}\n保存至: {dest}\n{trust_summary}"
-    return f"下载文件\n{header}\n链接: {url}\n保存至: {dest}\n{trust_summary}"
 
 def summarize_preview(tool_name: str, arguments: dict) -> str:
     """为审批界面生成用户可读的说明（优先自然语言，下载类保留详情）。"""

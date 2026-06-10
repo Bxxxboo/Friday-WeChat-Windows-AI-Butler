@@ -33,6 +33,8 @@ class PendingAction:
     download_size_bytes: int | None = None
     untrusted_download: bool = False
     trust_label: str = ""
+    user_goal: str = ""
+    assistant_note: str = ""
 
 
 @dataclass

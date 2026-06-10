@@ -7,10 +7,12 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parents[1]
 ICON_PATH = ROOT / "assets" / "friday.ico"
 
-# 与 web/styles.css 品牌色一致
-BG_TOP = (10, 13, 18)
-ACCENT = (212, 160, 86)
-ACCENT_HI = (240, 204, 140)
+# 与启动加载动画 .app-boot-mark / splash 一致：暖色底 + 金色「五」
+BG_TOP = (250, 247, 242)
+BG_BOTTOM = (240, 233, 224)
+ACCENT = (184, 134, 46)
+ACCENT_HI = (201, 153, 72)
+BORDER = (212, 196, 168)
 
 ICON_SIZES = (256, 128, 64, 48, 32, 24, 16)
 
@@ -24,40 +26,46 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+def _draw_vertical_gradient(
+    draw: ImageDraw.ImageDraw,
+    box: tuple[int, int, int, int],
+    radius: int,
+    top: tuple[int, int, int],
+    bottom: tuple[int, int, int],
+) -> None:
+    x0, y0, x1, y1 = box
+    height = max(1, y1 - y0 + 1)
+    for y in range(y0, y1 + 1):
+        t = (y - y0) / max(1, height - 1)
+        color = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3))
+        draw.rounded_rectangle((x0, y, x1, y), radius=radius, fill=color)
+
+
 def render_icon(size: int) -> Image.Image:
     """按目标尺寸单独渲染，保证 16px 任务栏也清晰。"""
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    pad = max(1, size // 14)
-    radius = max(3, size // 5)
-    border = max(1, size // 28)
+    pad = max(1, size // 16)
+    radius = max(4, int(size * 0.31))
     outer = (pad, pad, size - pad - 1, size - pad - 1)
 
-    draw.rounded_rectangle(outer, radius=radius, fill=ACCENT)
+    _draw_vertical_gradient(draw, outer, radius, BG_TOP, BG_BOTTOM)
 
-    # 内缩 1px 覆盖描边抗锯齿缝，消除金框与底色之间的白线
-    overlap = 1
-    inner = (
-        outer[0] + border - overlap,
-        outer[1] + border - overlap,
-        outer[2] - border + overlap,
-        outer[3] - border + overlap,
-    )
-    inner_r = max(1, radius - border + overlap)
-    draw.rounded_rectangle(inner, radius=inner_r, fill=BG_TOP + (255,))
+    border_w = max(1, size // 64)
+    draw.rounded_rectangle(outer, radius=radius, outline=BORDER + (255,), width=border_w)
 
-    font_scale = 0.56 if size >= 32 else 0.62
+    font_scale = 0.52 if size >= 32 else 0.58
     font = _load_font(int(size * font_scale))
     text = "五"
     bbox = draw.textbbox((0, 0), text, font=font)
     tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
     tx = (size - tw) // 2 - bbox[0]
-    ty = (size - th) // 2 - bbox[1] + max(0, size // 32)
+    ty = (size - th) // 2 - bbox[1] + max(0, size // 40)
 
     if size >= 48:
-        draw.text((tx + 1, ty + 2), text, fill=(0, 0, 0, 180), font=font)
-        draw.text((tx, ty - 1), text, fill=ACCENT_HI, font=font)
+        draw.text((tx, ty + 1), text, fill=(160, 120, 40, 90), font=font)
+        draw.text((tx, ty - 1), text, fill=ACCENT_HI + (220,), font=font)
     draw.text((tx, ty), text, fill=ACCENT, font=font)
 
     return _flatten_icon(img, outer, radius)
@@ -82,12 +90,12 @@ def _flatten_icon(
 
 def main() -> None:
     ICON_PATH.parent.mkdir(parents=True, exist_ok=True)
-    frames = [render_icon(s) for s in ICON_SIZES]
-    frames[0].save(
+    # 256 主图 + sizes 让 Pillow 写入多分辨率（append_images 在部分版本只存一帧）
+    master = render_icon(256).convert("RGBA")
+    master.save(
         ICON_PATH,
         format="ICO",
         sizes=[(s, s) for s in ICON_SIZES],
-        append_images=frames[1:],
     )
     print(f"created: {ICON_PATH}")
 

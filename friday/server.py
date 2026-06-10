@@ -17,7 +17,8 @@ from starlette.responses import JSONResponse
 
 from friday.auth import ensure_api_token, get_api_token, verify_api_token
 
-from friday.safety import PendingAction, TurnApprovalState, describe_approval_detail, describe_approval_plain, mark_turn_approved, should_request_approval, summarize_preview
+from friday.approval_narration import build_approval_user_copy, enrich_approval_summary_async
+from friday.safety import PendingAction, TurnApprovalState, mark_turn_approved, should_request_approval
 from friday.sessions import (
     ChatSession,
     create_session,
@@ -104,6 +105,9 @@ from friday.api.schemas import (
     SkillResponse,
     SkillUpdatePayload,
     TestResponse,
+    UpdateApplyProgressResponse,
+    UpdateApplyPayload,
+    UpdateApplyResponse,
     UpdateCheckResponse,
     YoloUnlockPayload,
 )
@@ -517,30 +521,35 @@ async def python_env_setup_progress() -> dict[str, object]:
 @app.post("/api/settings/test", response_model=TestResponse)
 async def test_settings(payload: SettingsPayload) -> TestResponse:
     from friday.api_connect import test_llm_service
-    from friday.error_hints import classify_error
+    from friday.error_hints import build_test_response
     from friday.logging_config import get_logger
+    from friday.model_providers import llm_service_label
 
     log = get_logger("api")
     try:
         cfg = _merge_payload(payload)
         from friday.llm_profiles import llm_config_hint
 
+        service = llm_service_label(cfg)
         config_hint = llm_config_hint(cfg)
         if config_hint:
-            return TestResponse(ok=False, message=config_hint, code="api_key_missing")
+            return TestResponse(**build_test_response(False, config_hint, service=service))
         ok, message = await asyncio.to_thread(test_llm_service, cfg)
-        code = "ok" if ok else classify_error(message, context="api_test").code
-        return TestResponse(ok=ok, message=message, code=code)
+        return TestResponse(**build_test_response(ok, message, service=service))
     except Exception as exc:
         log.exception("settings/test 未捕获异常")
-        hint = classify_error(exc, context="api_test")
-        return TestResponse(ok=False, message=f"{hint.detail}\n{hint.hint}", code=hint.code)
+        cfg = _merge_payload(payload)
+        from friday.model_providers import llm_service_label
+
+        return TestResponse(
+            **build_test_response(False, str(exc), service=llm_service_label(cfg)),
+        )
 
 
 @app.post("/api/settings/test-vision", response_model=TestResponse)
 async def test_vision_settings(payload: SettingsPayload) -> TestResponse:
     from friday.api_connect import test_vision_service
-    from friday.error_hints import classify_error
+    from friday.error_hints import build_test_response
 
     cfg = _merge_payload(payload)
     result = await asyncio.to_thread(test_vision_service, cfg)
@@ -552,16 +561,15 @@ async def test_vision_settings(payload: SettingsPayload) -> TestResponse:
             hint = "未启用视觉辅助"
         elif not vision_ready(cfg):
             hint = vision_config_hint(cfg) or "未配置视觉 API Key"
-        return TestResponse(ok=False, message=hint, code=classify_error(hint, context="api_test").code)
+        return TestResponse(**build_test_response(False, hint, service="视觉 API", context="vision"))
     ok, message = result
-    code = "ok" if ok else classify_error(message, context="api_test").code
-    return TestResponse(ok=ok, message=message, code=code)
+    return TestResponse(**build_test_response(ok, message, service="视觉 API", context="vision"))
 
 
 @app.post("/api/settings/test-image-gen", response_model=TestResponse)
 async def test_image_gen_settings(payload: SettingsPayload) -> TestResponse:
     from friday.api_connect import test_image_gen_service
-    from friday.error_hints import classify_error
+    from friday.error_hints import build_test_response
 
     cfg = _merge_payload(payload)
     result = await asyncio.to_thread(test_image_gen_service, cfg)
@@ -569,10 +577,9 @@ async def test_image_gen_settings(payload: SettingsPayload) -> TestResponse:
         hint = "请先勾选「启用生图」并填写 API Key 与模型"
         if not cfg.image_gen_enabled:
             hint = "请先勾选「启用生图」"
-        return TestResponse(ok=False, message=hint, code=classify_error(hint, context="api_test").code)
+        return TestResponse(**build_test_response(False, hint, service="生图 API", context="image_gen"))
     ok, message = result
-    code = "ok" if ok else classify_error(message, context="api_test").code
-    return TestResponse(ok=ok, message=message, code=code)
+    return TestResponse(**build_test_response(ok, message, service="生图 API", context="image_gen"))
 
 
 @app.post("/api/settings/startup-tests")
@@ -973,14 +980,7 @@ def _make_approval_bridge(
         future: Future[bool] = Future()
         _approval_waiters[approval_id] = future
         _approval_sessions[approval_id] = session_id
-        plain_summary = describe_approval_plain(action.tool_name, action.arguments)
-        detail = describe_approval_detail(action.tool_name, action.arguments)
-        if action.tool_name == "download_file":
-            preview = summarize_preview(action.tool_name, action.arguments)
-        elif detail:
-            preview = detail
-        else:
-            preview = ""
+        plain_summary, preview = build_approval_user_copy(action, settings=settings)
         asyncio.run_coroutine_threadsafe(
             emit(
                 "approval_request",
@@ -999,6 +999,23 @@ def _make_approval_bridge(
             ),
             loop,
         ).result(timeout=10.0)
+
+        def _on_narrated(summary: str) -> None:
+            if approval_id not in _approval_waiters:
+                return
+            asyncio.run_coroutine_threadsafe(
+                emit(
+                    "approval_summary_update",
+                    {"approval_id": approval_id, "summary": summary},
+                ),
+                loop,
+            )
+
+        enrich_approval_summary_async(
+            action,
+            settings=settings,
+            on_narrated=_on_narrated,
+        )
         approved = False
         try:
             while True:
@@ -1159,8 +1176,12 @@ async def _run_chat(
 
         get_logger("chat").exception("Agent 初始化失败")
         from friday.api_connect import format_api_error
+        from friday.model_providers import llm_service_label
 
-        await emit("error", {"message": format_api_error(exc, context="api_test")})
+        await emit(
+            "error",
+            {"message": format_api_error(exc, context="api_test", service=llm_service_label(settings))},
+        )
         return
     yolo_unlocked = (
         normalize_mode(settings.interaction_mode) == "yolo"
@@ -1223,8 +1244,11 @@ async def _run_chat(
         )
     except Exception as exc:  # noqa: BLE001
         from friday.api_connect import format_api_error, is_transient_api_error, record_service_status
+        from friday.model_providers import llm_service_label
 
-        err_msg = format_api_error(exc, context="api_test", service="DeepSeek API")
+        err_msg = format_api_error(
+            exc, context="api_test", service=llm_service_label(settings)
+        )
         record_service_status(
             "llm",
             settings,
@@ -1650,7 +1674,10 @@ async def api_uninstall_plugin(plugin_id: str) -> dict[str, bool]:
 
 @app.get("/api/updates/check", response_model=UpdateCheckResponse)
 async def api_check_updates() -> UpdateCheckResponse:
+    from friday.update_installer import can_auto_update
+
     info = await asyncio.to_thread(check_for_updates)
+    auto_ok, auto_hint = can_auto_update()
     return UpdateCheckResponse(
         current=info.current,
         latest=info.latest,
@@ -1661,6 +1688,44 @@ async def api_check_updates() -> UpdateCheckResponse:
         source_repo=info.source_repo,
         source_url=info.source_url,
         source_kind=info.source_kind,
+        can_auto_update=auto_ok,
+        auto_update_hint=auto_hint,
+    )
+
+
+@app.post("/api/updates/apply", response_model=UpdateApplyResponse)
+async def api_apply_update(payload: UpdateApplyPayload) -> UpdateApplyResponse:
+    from friday.update_installer import start_apply_update
+
+    result = await asyncio.to_thread(
+        start_apply_update,
+        download_url=payload.download_url,
+        version=payload.version,
+    )
+    return UpdateApplyResponse(
+        started=bool(result.get("started")),
+        already_running=bool(result.get("already_running")),
+        message=str(result.get("message") or ""),
+        hint=str(result.get("hint") or ""),
+    )
+
+
+@app.get("/api/updates/apply/progress", response_model=UpdateApplyProgressResponse)
+async def api_apply_update_progress() -> UpdateApplyProgressResponse:
+    from friday.update_installer import get_apply_progress_dict
+
+    data = await asyncio.to_thread(get_apply_progress_dict)
+    return UpdateApplyProgressResponse(
+        running=bool(data.get("running")),
+        phase=str(data.get("phase") or "idle"),
+        percent=int(data.get("percent") or 0),
+        message=str(data.get("message") or ""),
+        detail=str(data.get("detail") or ""),
+        ok=data.get("ok") if data.get("ok") is not None else None,
+        version=str(data.get("version") or ""),
+        result_message=str(data.get("result_message") or ""),
+        hint=str(data.get("hint") or ""),
+        log=[str(x) for x in (data.get("log") or [])],
     )
 
 

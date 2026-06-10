@@ -41,6 +41,8 @@ DWMWA_SYSTEMBACKDROP_TYPE = 38
 
 DWMNCRP_DISABLED = 1
 DWMWCP_DONOTROUND = 1
+DWMWCP_ROUND = 2
+DWMWCP_ROUNDSMALL = 3
 DWMWA_COLOR_NONE = 0xFFFFFFFE
 DWMSBT_NONE = 1
 
@@ -364,9 +366,9 @@ def apply_desktop_window_chrome(hwnd: int, bg_hex: str, *, dark: bool) -> None:
     try:
         clear_dwm_extended_frame(hwnd)
         enforce_frameless_window(hwnd)
-        _set_dwm_int(hwnd, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE)
+        _set_dwm_int(hwnd, DWMWA_BORDER_COLOR, _hex_to_colorref(bg_hex))
         _set_dwm_int(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_NONE)
-        _set_dwm_int(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND)
+        _set_dwm_int(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND)
         _set_dwm_int(hwnd, DWMWA_NCRENDERING_POLICY, DWMNCRP_DISABLED)
         _set_dwm_int(hwnd, DWMWA_CAPTION_COLOR, _hex_to_colorref(bg_hex))
         _set_dwm_int(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, 1 if dark else 0)

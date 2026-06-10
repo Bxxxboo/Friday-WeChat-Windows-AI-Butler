@@ -344,6 +344,9 @@
         F.removeThinking();
         showApprovalInChat(data);
         break;
+      case "approval_summary_update":
+        updateApprovalSummary(data);
+        break;
       case "approval_wait":
         break;
       case "approval_auto":
@@ -976,6 +979,18 @@
     F.chatLog.appendChild(node);
     pendingApprovalNode = node;
     F.scrollToBottom(true);
+  }
+
+  function updateApprovalSummary(data) {
+    if (!data?.approval_id || F.pendingApprovalId !== data.approval_id) return;
+    const summary = (data.summary || "").trim();
+    if (!summary) return;
+    const node = pendingApprovalNode;
+    if (!node || node.dataset.approvalId !== data.approval_id) return;
+    const text = node.querySelector(".approval-text");
+    if (text) {
+      text.textContent = summary;
+    }
   }
 
   async function resolveApproval(approved) {

@@ -21,6 +21,7 @@ def _reset_weixin_bridge_caches():
     import friday.weixin.bridge as bridge
 
     bridge._recent_inbound.clear()
+    bridge._recent_approval_inbound.clear()
     bridge._recent_busy_notice.clear()
     bridge._processing_keys.clear()
     bridge._peer_processing_text.clear()
@@ -307,3 +308,97 @@ def test_handle_inbound_bridge_disabled_replies(tmp_appdata, monkeypatch):
 
     assert result.handled is True
     assert "桥接已关闭" in result.reply
+
+
+def test_handle_inbound_ignores_duplicate_approval_after_resolve(tmp_appdata, monkeypatch):
+    from concurrent.futures import Future
+
+    import friday.weixin.bridge as bridge
+
+    monkeypatch.setattr(
+        "friday.weixin.bridge.load_settings",
+        lambda: UserSettings(
+            api_key="sk-test-key-12345678",
+            weixin_bridge_enabled=True,
+        ),
+    )
+    monkeypatch.setattr("friday.weixin.bridge.resolve_account", lambda _aid: _account())
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "friday.weixin.bridge.send_peer_text",
+        lambda *_a, text, **_k: sent.append(text),
+    )
+
+    future: Future[bool] = Future()
+    bridge._approval_waiters["peer-approve"] = future
+
+    first = handle_inbound(
+        InboundRequest(text="同意", sender_id="peer-approve", account_id="bot-1"),
+    )
+    assert first.handled is True
+    assert first.reply == ""
+    assert future.result(timeout=1) is True
+    assert sent == ["好的，已同意，继续执行。"]
+
+    second = handle_inbound(
+        InboundRequest(text="同意", sender_id="peer-approve", account_id="bot-1"),
+    )
+    assert second.handled is True
+    assert second.reply == ""
+    assert sent == ["好的，已同意，继续执行。"]
+
+
+def test_handle_inbound_reports_orphan_approval(tmp_appdata, monkeypatch):
+    monkeypatch.setattr(
+        "friday.weixin.bridge.load_settings",
+        lambda: UserSettings(
+            api_key="sk-test-key-12345678",
+            weixin_bridge_enabled=True,
+        ),
+    )
+    monkeypatch.setattr("friday.weixin.bridge.resolve_account", lambda _aid: _account())
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "friday.weixin.bridge.send_peer_text",
+        lambda *_a, text, **_k: sent.append(text),
+    )
+
+    result = handle_inbound(
+        InboundRequest(text="同意", sender_id="peer-none", account_id="bot-1"),
+    )
+
+    assert result.handled is True
+    assert result.reply == ""
+    assert sent == ["当前没有待审批的操作。"]
+
+
+def test_handle_inbound_orphan_approval_hint_after_silent_window(tmp_appdata, monkeypatch):
+    import time
+
+    import friday.weixin.bridge as bridge
+
+    monkeypatch.setattr(
+        "friday.weixin.bridge.load_settings",
+        lambda: UserSettings(
+            api_key="sk-test-key-12345678",
+            weixin_bridge_enabled=True,
+        ),
+    )
+    monkeypatch.setattr("friday.weixin.bridge.resolve_account", lambda _aid: _account())
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "friday.weixin.bridge.send_peer_text",
+        lambda *_a, text, **_k: sent.append(text),
+    )
+
+    bridge._recent_approval_inbound[("peer-hint", "同意")] = (
+        time.monotonic() - bridge.APPROVAL_SILENT_DEDUPE_SEC - 5.0
+    )
+
+    result = handle_inbound(
+        InboundRequest(text="同意", sender_id="peer-hint", account_id="bot-1"),
+    )
+
+    assert result.handled is True
+    assert result.reply == ""
+    assert sent == ["已收到，当前没有待审批的操作。"]

@@ -54,7 +54,8 @@ def boot_splash_html(settings: UserSettings | None = None, *, status: str = "正
     accent = "#b8862e" if light else "#d4a056"
     primary = "#4070b8" if light else "#5b8fd9"
     border = "rgba(180, 150, 100, 0.22)" if light else "rgba(212, 160, 86, 0.14)"
-    mark_bg = "rgba(180, 150, 100, 0.12)" if light else "rgba(212, 160, 86, 0.16)"
+    mark_bg = "rgba(184, 134, 46, 0.12)" if light else "rgba(212, 160, 86, 0.16)"
+    mark_fill = "linear-gradient(145deg, rgba(184,134,46,0.13), rgba(250,247,242,0.95))" if light else f"linear-gradient(145deg,{mark_bg},transparent)"
     title = window_title()
     safe_status = (
         status.replace("&", "&amp;")
@@ -80,8 +81,8 @@ def boot_splash_html(settings: UserSettings | None = None, *, status: str = "正
         f".card{{text-align:center;animation:rise .55s cubic-bezier(.22,1,.36,1) both;}}"
         f".mark{{width:52px;height:52px;margin:0 auto 18px;border-radius:16px;display:grid;"
         f"place-items:center;font-size:22px;font-weight:600;color:{accent};"
-        f"background:linear-gradient(145deg,{mark_bg},transparent);border:1px solid {border};"
-        f"animation:pulse 2.4s ease-in-out infinite;}}"
+        f"background:{mark_fill};border:1px solid {border};"
+        f"box-shadow:0 0 28px rgba(180,134,46,0.08);}}"
         f".spin{{width:28px;height:28px;margin:0 auto 12px;border:2.5px solid rgba(128,128,128,.14);"
         f"border-top-color:{accent};border-right-color:{primary};border-radius:50%;"
         f"animation:spin .95s cubic-bezier(.45,.15,.55,.85) infinite;}}"

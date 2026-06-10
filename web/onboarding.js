@@ -155,7 +155,10 @@
         return false;
       }
       result.className = data.ok ? "settings-result ok" : "settings-result error";
-      result.textContent = data.message || (data.ok ? "连接成功" : "连接失败");
+      F.applyApiTestResult?.(result, data);
+      if (data.ok && result) {
+        result.textContent = data.message || "连接成功";
+      }
       return !!data.ok;
     } catch (err) {
       result.className = "settings-result error";

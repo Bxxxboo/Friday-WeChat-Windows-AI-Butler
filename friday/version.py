@@ -1,7 +1,7 @@
 ﻿"""应用版本号 —— 与 PyInstaller version_info 保持一致。"""
 
-__version__ = "1.2.3"
-__version_tuple__ = (1, 2, 3, 0)
+__version__ = "1.2.4"
+__version_tuple__ = (1, 2, 4, 0)
 
 # GitHub Releases（备用，国内常需 VPN）
 GITHUB_REPO = "Bxxxboo/Friday-WeChat-Windows-AI-Butler"

@@ -34,6 +34,9 @@ WEIXIN_PLUGIN_ID = "openclaw-weixin"
 BRIDGE_PLUGIN_ID = "friday-weixin-bridge"
 WEIXIN_NPM_SPEC = "@tencent-weixin/openclaw-weixin@2.4.3"
 DEFAULT_WEIXIN_BOT_AGENT = f"Friday/{__version__}"
+# OpenClaw Gateway 校验 plugins.entries.*.hooks.timeoutMs 上限为 600000
+OPENCLAW_HOOK_TIMEOUT_MS_MAX = 600_000
+FRIDAY_BRIDGE_HOOK_TIMEOUT_MS = OPENCLAW_HOOK_TIMEOUT_MS_MAX
 _LEGACY_WEIXIN_DISPLAY_NAMES = frozenset(
     {
         "",
@@ -398,6 +401,38 @@ def ensure_weixin_branding() -> tuple[bool, str]:
     return False, msg
 
 
+def _clamp_hook_timeout_ms(value: object) -> int:
+    try:
+        ms = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        ms = FRIDAY_BRIDGE_HOOK_TIMEOUT_MS
+    return max(1, min(ms, OPENCLAW_HOOK_TIMEOUT_MS_MAX))
+
+
+def _apply_bridge_hook_timeout(data: dict[str, Any]) -> None:
+    """写入/校正 friday-weixin-bridge hook 超时（不得超过 OpenClaw 上限）。"""
+    plugins = data.get("plugins")
+    if not isinstance(plugins, dict):
+        return
+    entries = plugins.get("entries")
+    if not isinstance(entries, dict):
+        return
+    bridge_entry = entries.get(BRIDGE_PLUGIN_ID)
+    if not isinstance(bridge_entry, dict):
+        return
+    hooks = bridge_entry.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        return
+    current = hooks.get("timeoutMs")
+    if current is None:
+        hooks["timeoutMs"] = FRIDAY_BRIDGE_HOOK_TIMEOUT_MS
+        return
+    clamped = _clamp_hook_timeout_ms(current)
+    if clamped != current:
+        _log.info("桥接 hook timeoutMs 已校正 | was=%s now=%d", current, clamped)
+    hooks["timeoutMs"] = clamped
+
+
 def _apply_gateway_config(data: dict[str, Any]) -> dict[str, Any]:
     """写入 OpenClaw Gateway 本地模式与认证（新版 openclaw 必需 gateway.mode）。"""
     gateway = data.get("gateway")
@@ -421,6 +456,7 @@ def ensure_openclaw_gateway_config() -> tuple[bool, str]:
     if not isinstance(data, dict):
         data = {}
     _apply_gateway_config(data)
+    _apply_bridge_hook_timeout(data)
     _write_openclaw_config(data)
     return True, "Gateway 配置已写入 openclaw.json"
 
@@ -440,11 +476,7 @@ def configure_openclaw_plugins() -> tuple[bool, str]:
         entry = entries.setdefault(pid, {})
         if isinstance(entry, dict):
             entry["enabled"] = True
-    bridge_entry = entries.get(BRIDGE_PLUGIN_ID)
-    if isinstance(bridge_entry, dict):
-        hooks = bridge_entry.setdefault("hooks", {})
-        if isinstance(hooks, dict):
-            hooks.setdefault("timeoutMs", 620_000)
+    _apply_bridge_hook_timeout(data)
     channels = data.setdefault("channels", {})
     wx = channels.setdefault(WEIXIN_PLUGIN_ID, {})
     if isinstance(wx, dict):
@@ -679,6 +711,24 @@ def install_openclaw_cli() -> tuple[bool, str]:
     return True, f"OpenClaw 安装完成{suffix}（{node_msg}）"
 
 
+def _llm_api_step_copy(settings: UserSettings) -> tuple[str, str, str]:
+    """大模型 API 引导步骤：标题、说明、状态文案。"""
+    from friday.llm_profiles import llm_config_hint
+    from friday.model_providers import llm_service_label
+
+    title = "大模型 API"
+    description = "与桌面聊天共用「设置 → 大模型」中的 API，无需单独配置"
+    if settings.api_ready:
+        label = llm_service_label(settings)
+        model = (settings.model or "").strip() or "未指定模型"
+        url = (settings.base_url or "").strip() or "未填写 Base URL"
+        return title, description, f"已就绪 · {label} · {model} · {url}"
+    config_hint = llm_config_hint(settings)
+    if config_hint:
+        return title, description, config_hint
+    return title, description, "请先在「设置 → 大模型」中保存 API Key 与 Base URL"
+
+
 def collect_setup_steps(*, port: int = 8765, api_token: str = "") -> list[SetupStep]:
     cli_ok, cli_ver, cli_msg = _openclaw_cli_info()
     weixin_installed = _weixin_channel_available()
@@ -692,6 +742,7 @@ def collect_setup_steps(*, port: int = 8765, api_token: str = "") -> list[SetupS
 
     gateway_port = openclaw_gateway_port()
 
+    api_title, api_desc, api_message = _llm_api_step_copy(settings)
     steps = [
         SetupStep(
             id="openclaw_cli",
@@ -752,10 +803,10 @@ def collect_setup_steps(*, port: int = 8765, api_token: str = "") -> list[SetupS
         ),
         SetupStep(
             id="friday_api",
-            title="DeepSeek API",
-            description="星期五执行指令需要大模型 Key",
+            title=api_title,
+            description=api_desc,
             status="ok" if settings.api_ready else "warn",
-            message="API 已配置" if settings.api_ready else "请先在「API 连接」中保存 DeepSeek Key",
+            message=api_message,
             action="" if settings.api_ready else "open_api_settings",
         ),
     ]
@@ -860,6 +911,9 @@ def _step_to_dict(step: SetupStep) -> dict[str, str]:
 def setup_status_payload(*, port: int, api_token: str) -> dict[str, Any]:
     steps = collect_setup_steps(port=port, api_token=api_token)
     settings = load_settings()
+    from friday.llm_profiles import llm_config_hint
+    from friday.model_providers import llm_service_label
+
     return {
         "ready": setup_ready(port=port, api_token=api_token),
         "bridge_enabled": getattr(settings, "weixin_bridge_enabled", True),
@@ -867,6 +921,15 @@ def setup_status_payload(*, port: int, api_token: str) -> dict[str, Any]:
         "account_ready": resolve_account() is not None,
         "openclaw_gateway": gateway_status(),
         "steps": [_step_to_dict(s) for s in steps],
+        "llm_api": {
+            "ready": settings.api_ready,
+            "provider": getattr(settings, "llm_provider", "") or "",
+            "provider_label": llm_service_label(settings),
+            "base_url": settings.base_url or "",
+            "model": settings.model or "",
+            "api_key_masked": settings.masked_key(),
+            "config_hint": llm_config_hint(settings),
+        },
     }
 
 

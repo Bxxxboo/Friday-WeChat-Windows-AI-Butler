@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_TIMEOUT_MS = 600_000;
-const HOOK_TIMEOUT_MS = 620_000;
+/** OpenClaw openclaw.json hooks.timeoutMs 上限为 600000 */
+const HOOK_TIMEOUT_MS = 600_000;
 const WEIXIN_CHANNEL = "openclaw-weixin";
 
 /** 同一条微信消息可能被多个 hook 并发触发，合并为一次 inbound 请求。 */

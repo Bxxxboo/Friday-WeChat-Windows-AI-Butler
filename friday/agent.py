@@ -49,8 +49,6 @@ class FridayAgent:
         self.yolo_unlocked = False
         self.session_prompt_tokens = 0
         self.session_completion_tokens = 0
-        self.session_cache_hit_tokens = 0
-        self.session_cache_miss_tokens = 0
         self._frozen_prefix: Any = None
         self._loop_hint_injected = False
         self._pin_prefix(force=True)
@@ -132,8 +130,6 @@ class FridayAgent:
         self._round_count = 0
         self.session_prompt_tokens = 0
         self.session_completion_tokens = 0
-        self.session_cache_hit_tokens = 0
-        self.session_cache_miss_tokens = 0
         self._pin_prefix(force=True)
 
     def _finalize_usage(self) -> None:
@@ -142,8 +138,6 @@ class FridayAgent:
         self.session_completion_tokens += (
             self.brain.usage_stats.completion_tokens or self.brain.total_completion_tokens
         )
-        self.session_cache_hit_tokens += self.brain.usage_stats.cache_hit_tokens
-        self.session_cache_miss_tokens += self.brain.usage_stats.cache_miss_tokens
         self.brain.usage_stats = UsageStats()
         self.brain.total_prompt_tokens = 0
         self.brain.total_completion_tokens = 0
@@ -154,20 +148,15 @@ class FridayAgent:
         completion = (
             self.session_completion_tokens + stats.completion_tokens + self.brain.total_completion_tokens
         )
-        cache_hit = self.session_cache_hit_tokens + stats.cache_hit_tokens
-        cache_miss = self.session_cache_miss_tokens + stats.cache_miss_tokens
-        cache_total = cache_hit + cache_miss
-        rate = (cache_hit / cache_total) if cache_total > 0 else 0.0
         return {
             "tokens_prompt": int(prompt),
             "tokens_completion": int(completion),
             "tokens_total": int(prompt + completion),
-            "cache_hit_tokens": int(cache_hit),
-            "cache_miss_tokens": int(cache_miss),
-            "cache_hit_rate": round(rate, 4),
         }
 
     def _finish_run(self, content: str) -> str:
+        if self.brain._turn_api_calls > 0:
+            _log.info("本次对话共调用 %d 次 API | %s", self.brain._turn_api_calls, self.brain.usage_summary())
         self._finalize_usage()
         return content
 
@@ -310,6 +299,27 @@ class FridayAgent:
                 return str(msg.get("content", ""))
         return ""
 
+    def _approval_user_goal(self) -> str:
+        for msg in reversed(self.messages):
+            if msg.get("role") != "user":
+                continue
+            text = str(msg.get("content", "")).strip()
+            if not text or text.startswith("【系统提示】"):
+                continue
+            if "\n\n【当前任务：" in text:
+                text = text.split("\n\n【当前任务：", 1)[0].strip()
+            return text
+        return ""
+
+    def _latest_assistant_text(self) -> str:
+        for msg in reversed(self.messages):
+            if msg.get("role") != "assistant":
+                continue
+            content = msg.get("content")
+            if isinstance(content, str) and content.strip():
+                return content.strip()
+        return ""
+
     def _execute_single_tool(
         self,
         name: str,
@@ -381,6 +391,8 @@ class FridayAgent:
                 download_size_bytes=decision.download_size_bytes,
                 untrusted_download=decision.untrusted_download,
                 trust_label=decision.trust_label,
+                user_goal=self._approval_user_goal(),
+                assistant_note=self._latest_assistant_text(),
             )
             if self._cancel_event.is_set():
                 return CANCELLED_MESSAGE
@@ -631,6 +643,7 @@ class FridayAgent:
     def run(self, user_text: str, on_event: EventCallback | None = None) -> str:
         self._cancel_event.clear()
         self._loop_hint_injected = False
+        self.brain.reset_turn_api_calls()
         from friday.agent_context import current_session_id
 
         session_id = str((self.operation_meta or {}).get("session_id", ""))
@@ -683,7 +696,6 @@ class FridayAgent:
 
             # 无工具调用 → 对话结束
             if not finish.tool_calls:
-                _log.info("对话完成 | %s", self.brain.usage_summary())
                 reply = (finish.content or "").strip()
                 if not reply:
                     return self._wrap_up_reply(on_event, reason="empty_reply")
@@ -701,5 +713,5 @@ class FridayAgent:
                 _log.info("对话已取消 @ round %d (工具执行)", self._round_count)
                 return self._finish_run(CANCELLED_MESSAGE)
 
-        _log.warning("达到最大轮次限制 rounds=%d | %s", max_rounds, self.brain.usage_summary())
+        _log.warning("达到最大轮次限制 rounds=%d", max_rounds)
         return self._wrap_up_reply(on_event, reason="round_limit")

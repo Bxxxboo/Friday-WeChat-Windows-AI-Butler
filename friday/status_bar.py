@@ -29,9 +29,6 @@ async def build_status_bar_snapshot(
     usage = (session_usage or (lambda _sid: {}))(session_id.strip())
     prompt_tokens = int(usage.get("tokens_prompt", 0) or 0)
     completion_tokens = int(usage.get("tokens_completion", 0) or 0)
-    cache_hit_tokens = int(usage.get("cache_hit_tokens", 0) or 0)
-    cache_miss_tokens = int(usage.get("cache_miss_tokens", 0) or 0)
-    cache_hit_rate = float(usage.get("cache_hit_rate", 0) or 0)
 
     vision_on = bool(cfg.vision_enabled)
     image_gen_on = bool(cfg.image_gen_enabled)
@@ -129,9 +126,6 @@ async def build_status_bar_snapshot(
         "tokens_prompt": prompt_tokens,
         "tokens_completion": completion_tokens,
         "tokens_total": prompt_tokens + completion_tokens,
-        "cache_hit_tokens": cache_hit_tokens,
-        "cache_miss_tokens": cache_miss_tokens,
-        "cache_hit_rate": cache_hit_rate,
         "tasks": len(list_schedules()),
         "interaction_mode": getattr(cfg, "interaction_mode", "agent"),
         "python_ready": python_ready_light(workspace),

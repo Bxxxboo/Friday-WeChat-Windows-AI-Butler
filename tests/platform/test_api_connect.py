@@ -29,6 +29,17 @@ def test_format_api_error_connection():
     assert classify_error("Connection error", context="api_test").code == "api_network"
 
 
+def test_format_api_error_uses_service_label_not_hardcoded_deepseek():
+    msg = format_api_error(
+        "Error code: 429 - Too many requests",
+        context="api_test",
+        service="小米 MiMo",
+    )
+    assert "DeepSeek" not in msg
+    assert "429" in msg
+    assert "重试" in msg
+
+
 def test_diagnose_llm_missing_key():
     settings = UserSettings(api_key="", base_url="https://api.deepseek.com")
     steps = diagnose_llm(settings, include_api=False)

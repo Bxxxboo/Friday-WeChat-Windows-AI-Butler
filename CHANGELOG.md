@@ -2,6 +2,46 @@
 
 版本说明与 `assets/changelog.json` 同步；应用内「更新公告」亦读取该文件。
 
+## 1.2.4（2026-06-10）
+
+**一键更新、报错提示优化、微信审批与界面焕新**
+
+### 新功能
+
+- **Windows 打包版一键更新**：设置页「一键更新并重启」— 自动下载 Release、解压覆盖安装目录并重启（无需手动解压 zip）
+- 更新失败展示**具体原因与修复建议**（网络/zip 损坏/权限/磁盘等）
+- **审批说明 LLM 化**（`approval_narration`）：先弹模板文案，后台用大模型生成更自然的操作说明并刷新桌面/微信
+- 前端加载 `errorHints.js`，设置页 API 测试统一展示 `message + hint`
+- 界面动效（GSAP `motion.js`）：启动/退出、窗口最大化过渡
+- 新应用图标（奶油色 squircle + 金色「五」），启动页与主界面 mark 一致
+- Windows 11 风格**圆角窗口**与 DWM 边框色同步（`win32_chrome`）
+
+### 改进
+
+- **报错分类全面优化**：生图/视觉/大模型 401 不再误报「本地认证已过期」；按服务给出正确 Key 指引
+- 设置页测试接口（LLM/视觉/生图）返回结构化 `hint`；后端 `build_test_response` 统一格式化
+- 微信 Gateway：`hooks.timeoutMs` 上限对齐 OpenClaw（600000），修复一键配置启动超时
+- 微信审批：600s 内重复「同意」去重；误触时轻量提示而非重复完整回复
+- 微信 setup/bridge 审批文案走统一 facade；聊天支持 `approval_summary_update` 事件刷新
+- Python 虚拟环境面板：修复 `refreshPythonEnvStatus` 未绑定导致一直「加载中」
+- Python 环境状态查询不再触发 winget/下载，响应更快
+- 快捷方式脚本：生成新图标并复制到 `%APPDATA%\\Friday\\friday.ico`，避免 Windows 图标缓存指向旧路径
+- 项目更名为 **Friday-WeChat-Windows-AI-Butler**，双端 README/更新源说明同步
+
+### 修复
+
+- 生图测试误显示「本地认证已过期」（实为 API Key 问题）
+- 设置 → Agent → Python 环境永久「加载中…」
+- 微信桥接 Gateway 启动超时（其他设备一键配置失败）
+- 用户回复「同意」后重复发送「当前没有待审批的操作」
+- 审批弹窗说明过于笼统，无法看出具体要执行什么
+
+### 测试
+
+- 新增/扩充：`error_hints`、`update_installer`、微信 bridge/setup  inbound、审批 narration 等测试
+
+---
+
 ## 1.2.3（2026-06-10）
 
 **微信桥接加固、文件安全、状态栏检测与 API 稳定性**

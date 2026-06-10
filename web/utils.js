@@ -87,14 +87,19 @@
     return refreshApiToken();
   }
 
-  function formatApiErrorResponse(res, data) {
+  function formatApiErrorResponse(res, data, options = {}) {
+    if (F.formatClientApiError) {
+      return F.formatClientApiError(res, data, options);
+    }
     const payload = data && typeof data === "object" ? data : {};
     const code = payload.code || "";
     const detail = payload.message || payload.detail || "";
+    const hint = payload.hint || "";
     if (res?.status === 401 || code === "auth_401") {
       return "本地会话已失效，请关闭设置页后重试；仍失败请完全退出星期五再打开";
     }
-    return detail || (res ? `HTTP ${res.status}` : "请求失败");
+    if (detail && hint && !detail.includes(hint)) return `${detail}\n${hint}`;
+    return detail || hint || (res ? `HTTP ${res.status}` : "请求失败");
   }
 
   function apiHeaders(extra = {}) {

@@ -132,6 +132,7 @@ class TestResponse(BaseModel):
     ok: bool
     message: str
     code: str = ""
+    hint: str = ""
 
 
 class DiagnoseResponse(BaseModel):
@@ -400,6 +401,11 @@ class PluginResponse(BaseModel):
 # --- 更新 / 公告 ---
 
 
+class UpdateApplyPayload(BaseModel):
+    download_url: str = ""
+    version: str = ""
+
+
 class UpdateCheckResponse(BaseModel):
     current: str
     latest: str
@@ -410,6 +416,28 @@ class UpdateCheckResponse(BaseModel):
     source_repo: str = ""
     source_url: str = ""
     source_kind: str = ""
+    can_auto_update: bool = False
+    auto_update_hint: str = ""
+
+
+class UpdateApplyResponse(BaseModel):
+    started: bool
+    already_running: bool = False
+    message: str = ""
+    hint: str = ""
+
+
+class UpdateApplyProgressResponse(BaseModel):
+    running: bool
+    phase: str = "idle"
+    percent: int = 0
+    message: str = ""
+    detail: str = ""
+    ok: bool | None = None
+    version: str = ""
+    result_message: str = ""
+    hint: str = ""
+    log: list[str] = []
 
 
 class ChangelogSectionResponse(BaseModel):

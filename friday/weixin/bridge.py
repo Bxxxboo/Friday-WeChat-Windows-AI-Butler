@@ -8,11 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from friday.logging_config import get_logger
+from friday.approval_narration import build_approval_user_copy, enrich_approval_summary_async
 from friday.safety import (
     PendingAction,
     TurnApprovalState,
-    describe_approval_detail,
-    describe_approval_plain,
     mark_turn_approved,
     should_request_approval,
 )
@@ -37,6 +36,7 @@ _peer_locks: dict[str, threading.Lock] = {}
 _approval_waiters: dict[str, Future[bool]] = {}
 _approval_meta: dict[str, dict[str, str]] = {}
 _recent_inbound: dict[tuple[str, str], float] = {}
+_recent_approval_inbound: dict[tuple[str, str], float] = {}
 _recent_busy_notice: dict[str, float] = {}
 _inbound_meta_lock = threading.Lock()
 _processing_keys: set[tuple[str, str]] = set()
@@ -44,6 +44,12 @@ _peer_processing_text: dict[str, str] = {}
 
 INBOUND_DEDUPE_SEC = 6.0
 BUSY_NOTICE_COOLDOWN_SEC = 20.0
+# 审批回复可能先于 Agent 长任务完成被 OpenClaw 再次投递，需更长去重窗口
+APPROVAL_INBOUND_DEDUPE_SEC = 600.0
+# 刚处理完审批后的短窗口内完全静默，抑制 OpenClaw 连发重投
+APPROVAL_SILENT_DEDUPE_SEC = 30.0
+ORPHAN_APPROVAL_REPLY = "当前没有待审批的操作。"
+ORPHAN_APPROVAL_HINT = "已收到，当前没有待审批的操作。"
 
 _GREETING_RE = re.compile(
     r"^(你好|您好|嗨|hi|hello|hey|在吗|在不在|早上好|下午好|晚上好)[\s!?。，,~！？]*$",
@@ -92,6 +98,39 @@ def _prune_recent_inbound(now: float) -> None:
     stale = [k for k, ts in _recent_inbound.items() if now - ts > INBOUND_DEDUPE_SEC * 4]
     for k in stale:
         _recent_inbound.pop(k, None)
+    stale_approval = [
+        k for k, ts in _recent_approval_inbound.items() if now - ts > APPROVAL_INBOUND_DEDUPE_SEC
+    ]
+    for k in stale_approval:
+        _recent_approval_inbound.pop(k, None)
+
+
+def _mark_approval_inbound_handled(peer_id: str, text: str) -> None:
+    """审批入站已处理（避免 OpenClaw 延迟重投同一条「同意」）。"""
+    key = (peer_id, text.strip())
+    now = time.monotonic()
+    with _inbound_meta_lock:
+        _recent_inbound[key] = now
+        _recent_approval_inbound[key] = now
+
+
+def _orphan_approval_replay(peer_id: str, text: str, *, now: float | None = None) -> str | None:
+    """已处理过的审批文案重投：短窗口静默，长窗口轻量提示。"""
+    key = (peer_id, text.strip())
+    ts = time.monotonic() if now is None else now
+    with _inbound_meta_lock:
+        _prune_recent_inbound(ts)
+        approval_ts = _recent_approval_inbound.get(key)
+        if approval_ts is not None:
+            age = ts - approval_ts
+            if age < APPROVAL_INBOUND_DEDUPE_SEC:
+                if age < APPROVAL_SILENT_DEDUPE_SEC:
+                    return "silent"
+                return "hint"
+        last = _recent_inbound.get(key)
+        if last is not None and ts - last < INBOUND_DEDUPE_SEC:
+            return "silent"
+    return None
 
 
 def _is_recent_duplicate(peer_id: str, text: str, *, now: float | None = None) -> bool:
@@ -242,10 +281,8 @@ def _make_weixin_approval_bridge(
         if not should_request_approval(settings, pseudo, state):
             return True
 
-        prompt = format_approval_prompt(
-            describe_approval_plain(action.tool_name, action.arguments),
-            preview=describe_approval_detail(action.tool_name, action.arguments),
-        )
+        plain, preview = build_approval_user_copy(action, settings=settings)
+        prompt = format_approval_prompt(plain, preview=preview)
         try:
             send_peer_text(account, peer_id=peer_id, text=prompt)
         except RuntimeError as exc:
@@ -257,10 +294,28 @@ def _make_weixin_approval_bridge(
         _approval_meta[peer_id] = {
             "account_id": account.account_id,
         }
+
+        def _on_narrated(summary: str) -> None:
+            if future.done():
+                return
+            try:
+                send_peer_text(
+                    account,
+                    peer_id=peer_id,
+                    text=f"▸ 准备做什么\n{summary}\n\n（说明已更新，仍请回复「同意」或「拒绝」）",
+                )
+            except RuntimeError as exc:
+                _log.warning("审批说明更新 iLink 发送失败 | peer=%s err=%s", peer_id, exc)
+
+        enrich_approval_summary_async(
+            action,
+            settings=settings,
+            on_narrated=_on_narrated,
+        )
         _log.info(
             "等待微信审批 | peer=%s summary=%s",
             peer_id,
-            describe_approval_plain(action.tool_name, action.arguments)[:80],
+            plain[:80],
         )
         approved = False
         try:
@@ -368,6 +423,7 @@ def _resolve_pending_approval(peer_id: str, text: str, account: WeixinAccount) -
         )
 
     future.set_result(decision)
+    _mark_approval_inbound_handled(peer_id, text)
     ack = "好的，已同意，继续执行。" if decision else "好的，已拒绝该操作。"
     _log.info("微信审批已回复 | peer=%s approved=%s", peer_id, decision)
     try:
@@ -410,10 +466,21 @@ def handle_inbound(req: InboundRequest) -> InboundResponse:
         return approval_hit
 
     if parse_approval_text(text) is not None:
+        replay = _orphan_approval_replay(peer_id, text)
+        if replay == "silent":
+            _log.debug("微信审批重复投递已忽略 | peer=%s text=%s", peer_id, text[:20])
+            return InboundResponse(handled=True, reply="")
+        if replay == "hint":
+            return _deliver_weixin_reply(
+                account,
+                peer_id=peer_id,
+                reply=ORPHAN_APPROVAL_HINT,
+                context_token=context_token,
+            )
         return _deliver_weixin_reply(
             account,
             peer_id=peer_id,
-            reply="当前没有待审批的操作。",
+            reply=ORPHAN_APPROVAL_REPLY,
             context_token=context_token,
         )
 

@@ -39,13 +39,17 @@
     };
     const hideOverlay = () => {
       if (!overlay || overlay.classList.contains("hidden")) return;
-      overlay.classList.add("is-leaving");
       const finish = () => {
         overlay.classList.add("hidden");
         overlay.classList.remove("is-leaving");
         document.documentElement.classList.remove("boot-active");
         document.documentElement.classList.add("app-ready");
       };
+      if (window.FridayMotion?.ready) {
+        window.FridayMotion.animateBootExit(overlay, finish);
+        return;
+      }
+      overlay.classList.add("is-leaving");
       overlay.addEventListener("transitionend", finish, { once: true });
       setTimeout(finish, 560);
     };
@@ -218,6 +222,7 @@
     window.pywebview.api.is_maximized().then((maximized) => {
       windowMaximized = Boolean(maximized);
       btn.classList.toggle("is-maximized", windowMaximized);
+      document.documentElement.classList.toggle("window-maximized", windowMaximized);
     });
   }
 
@@ -318,6 +323,7 @@
         windowMaximized = true;
       }
       document.getElementById("winMaximize")?.classList.toggle("is-maximized", windowMaximized);
+      document.documentElement.classList.toggle("window-maximized", windowMaximized);
     });
 
     bindTitlebarBtn("winClose", () => {

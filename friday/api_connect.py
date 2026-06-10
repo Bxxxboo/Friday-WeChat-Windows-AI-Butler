@@ -268,7 +268,7 @@ def _probe_chat_api(
         text = (response.choices[0].message.content or "ok").strip()
         return ConnectivityStep("API 认证", True, f"模型响应: {text[:80]}")
     except Exception as exc:  # noqa: BLE001
-        msg = format_api_error(exc, context="api_test")
+        msg = format_api_error(exc, context="api_test", service="大模型 API")
         return ConnectivityStep("API 认证", False, msg.split("\n")[0][:200], _extract_hint(msg))
 
 
@@ -909,16 +909,9 @@ def format_api_error(
     context: str = "api_test",
     service: str = "API",
 ) -> str:
-    from friday.error_hints import classify_error, format_user_message
+    from friday.error_hints import format_error_hint, format_user_message
 
-    text = str(exc or "").strip()
-    if not text and exc is not None:
-        text = type(exc).__name__
-
-    hint = classify_error(text, context=context)
-    if hint.code == "unknown" and service:
-        hint = classify_error(f"{service}: {text}", context=context)
-
+    hint = format_error_hint(exc, context=context, service=service)
     return format_user_message(hint)
 
 

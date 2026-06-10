@@ -227,6 +227,7 @@ class DeepSeekBrain:
         self._encoder_initialized = False
         self._max_context = resolve_max_context(settings)
         self.usage_stats = UsageStats()
+        self._turn_api_calls = 0
         # 兼容旧字段（逐步迁移到 usage_stats）
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
@@ -318,6 +319,7 @@ class DeepSeekBrain:
 
         source = format_messages_for_summary(batch)
         try:
+            self.record_api_call()
             response = self.client.chat.completions.create(
                 model=self.settings.model,
                 messages=[
@@ -407,6 +409,12 @@ class DeepSeekBrain:
 
         return working
 
+    def reset_turn_api_calls(self) -> None:
+        self._turn_api_calls = 0
+
+    def record_api_call(self) -> None:
+        self._turn_api_calls += 1
+
     def trim_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """兼容旧接口，委托 prepare_messages（无工具 token 估算）。"""
         return self.prepare_messages(messages)
@@ -418,6 +426,7 @@ class DeepSeekBrain:
         last_exc: Exception | None = None
         for attempt in range(2):
             try:
+                self.record_api_call()
                 return fn()
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
@@ -537,18 +546,11 @@ class DeepSeekBrain:
         yield "finish", result
 
     def usage_summary(self) -> str:
-        """返回本次会话的 token 用量摘要。"""
+        """返回本次对话的 API 调用次数与 token 用量摘要。"""
         total = self.usage_stats.prompt_tokens + self.usage_stats.completion_tokens
-        hit = self.usage_stats.cache_hit_tokens
-        if hit > 0:
-            rate = self.usage_stats.cache_hit_rate * 100
-            return (
-                f"📊 Token：输入 {self.usage_stats.prompt_tokens:,} | "
-                f"输出 {self.usage_stats.completion_tokens:,} | "
-                f"合计 {total:,} | 缓存命中 {hit:,} ({rate:.1f}%)"
-            )
+        api_part = f"本次共调用 {self._turn_api_calls} 次 API"
         return (
-            f"📊 Token 用量：输入 {self.usage_stats.prompt_tokens:,} | "
+            f"{api_part} | 📊 Token 用量：输入 {self.usage_stats.prompt_tokens:,} | "
             f"输出 {self.usage_stats.completion_tokens:,} | "
             f"合计 {total:,}"
         )

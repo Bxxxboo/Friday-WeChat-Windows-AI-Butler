@@ -487,8 +487,7 @@
       body: JSON.stringify(payload),
     }, 60000);
     const data = await res.json();
-    F.settingsResult.className = data.ok ? "settings-result ok" : "settings-result error";
-    F.settingsResult.textContent = data.message;
+    F.applyApiTestResult?.(F.settingsResult, data);
     if (data.ok) F.updateApiStatus(true);
     void F.refreshStatusBar?.();
   }
@@ -596,7 +595,10 @@
       }
       if (resultEl) {
         resultEl.className = "settings-result error";
-        resultEl.textContent = F.formatApiErrorResponse?.(res, data) || data.message || "视觉 API 测试失败";
+        resultEl.textContent = F.formatApiErrorResponse?.(res, data, { service: "视觉 API", context: "vision" })
+          || F.formatErrorResult?.(data)
+          || data.message
+          || "视觉 API 测试失败";
       }
       const hint = payload.vision_provider === "ark" && payload.vision_api_key?.startsWith("sk-")
         ? "Key 格式不匹配：火山方舟需 ark- 开头"
@@ -699,10 +701,7 @@
       }, 60000);
       const data = await res.json();
       if (!data.ok) {
-        if (resultEl) {
-          resultEl.className = "settings-result error";
-          resultEl.textContent = data.message;
-        }
+        F.applyApiTestResult?.(resultEl, data);
         updateImageGenStatus(false, payload.image_gen_enabled, "测试未通过");
         return;
       }
@@ -797,7 +796,7 @@
       void refreshLogPreview();
     }
     if (panel === "agent") {
-      void refreshPythonEnvStatus();
+      void F.refreshPythonEnvStatus?.();
     }
     if (panel === "weixin") {
       void F.refreshWeixinSetup?.();
@@ -996,8 +995,8 @@
     void importPortableBundle(file);
   });
 
-  document.getElementById("refreshPythonEnvBtn")?.addEventListener("click", () => void refreshPythonEnvStatus());
-  document.getElementById("setupPythonEnvBtn")?.addEventListener("click", () => void setupPythonEnv());
+  document.getElementById("refreshPythonEnvBtn")?.addEventListener("click", () => void F.refreshPythonEnvStatus?.());
+  document.getElementById("setupPythonEnvBtn")?.addEventListener("click", () => void F.setupPythonEnv?.());
 
   async function loadAppVersion() {
     const label = document.getElementById("appVersionLabel");
@@ -1016,17 +1015,203 @@
     }
   }
 
+  let lastUpdateInfo = null;
+  let updatePollTimer = null;
+
+  function formatUpdateFailure(data) {
+    if (!data) return "更新失败，请稍后重试或使用「手动下载」。";
+    if (F.formatErrorResult) {
+      const merged = {
+        message: data.result_message || data.message || data.detail || "",
+        hint: data.hint || "",
+        detail: data.detail || "",
+      };
+      const text = F.formatErrorResult(merged);
+      if (text && text !== "未知错误") return text;
+    }
+    const parts = [];
+    const main = data.result_message || data.message || "";
+    const detail = data.detail || "";
+    const hint = data.hint || "";
+    if (main) parts.push(main);
+    if (detail && detail !== main) parts.push(detail);
+    if (hint && !parts.join("\n").includes(hint)) parts.push(hint);
+    const log = Array.isArray(data.log) ? data.log.filter(Boolean) : [];
+    if (log.length) {
+      const tail = log[log.length - 1];
+      if (tail && !parts.join("\n").includes(tail)) parts.push(`最近步骤：${tail}`);
+    }
+    return parts.filter(Boolean).join("\n") || "更新失败，请稍后重试或使用「手动下载」。";
+  }
+
+  function renderUpdateProgress(data) {
+    const wrap = document.getElementById("updateProgress");
+    const fill = document.getElementById("updateProgressFill");
+    const pctEl = document.getElementById("updateProgressPct");
+    const msgEl = document.getElementById("updateProgressMsg");
+    const detailEl = document.getElementById("updateProgressDetail");
+    if (!wrap || !fill || !pctEl || !msgEl) return;
+    const running = !!data?.running;
+    if (!running && data?.ok === true) {
+      wrap.classList.add("hidden");
+      return;
+    }
+    const pct = Math.max(0, Math.min(100, Number(data?.percent) || 0));
+    wrap.classList.remove("hidden");
+    fill.style.width = `${pct}%`;
+    fill.style.setProperty("--progress", `${pct}%`);
+    pctEl.textContent = `${pct}%`;
+    msgEl.textContent = data?.message || (running ? "正在更新…" : "");
+    if (detailEl) {
+      detailEl.textContent = data?.detail || "";
+      detailEl.style.display = data?.detail ? "block" : "none";
+    }
+  }
+
+  function stopUpdatePoll() {
+    if (updatePollTimer) {
+      clearInterval(updatePollTimer);
+      updatePollTimer = null;
+    }
+  }
+
+  async function pollUpdateApplyProgress() {
+    try {
+      const res = await F.apiFetchWithTimeout("/api/updates/apply/progress", {}, 15000);
+      const data = await res.json();
+      renderUpdateProgress(data);
+      const resultEl = document.getElementById("updateResult");
+      if (data.running && resultEl) {
+        resultEl.className = "settings-result";
+        resultEl.textContent = [data.message, data.detail].filter(Boolean).join(" · ");
+      }
+      if (!data.running) {
+        stopUpdatePoll();
+        const applyBtn = document.getElementById("applyUpdateBtn");
+        const checkBtn = document.getElementById("checkUpdateBtn");
+        if (applyBtn) applyBtn.disabled = false;
+        if (checkBtn) checkBtn.disabled = false;
+        if (data.ok === true) {
+          if (resultEl) {
+            resultEl.className = "settings-result ok";
+            resultEl.textContent = data.result_message || data.message || "更新完成，正在重启…";
+          }
+          return false;
+        }
+        if (data.ok === false && resultEl) {
+          resultEl.className = "settings-result error";
+          resultEl.textContent = formatUpdateFailure(data);
+        }
+        document.getElementById("updateProgress")?.classList.add("hidden");
+        return false;
+      }
+      return true;
+    } catch (err) {
+      const resultEl = document.getElementById("updateResult");
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = err?.name === "AbortError"
+          ? "读取更新进度超时，请查看是否已在后台下载；若长时间无响应请重试。"
+          : `无法获取更新进度：${err?.message || "网络异常"}`;
+      }
+      return false;
+    }
+  }
+
+  function startUpdatePoll() {
+    stopUpdatePoll();
+    void pollUpdateApplyProgress();
+    updatePollTimer = setInterval(() => {
+      void pollUpdateApplyProgress();
+    }, 800);
+  }
+
+  async function applyUpdate() {
+    const info = lastUpdateInfo;
+    if (!info?.update_available || !info.download_url) {
+      await checkForUpdates();
+      return;
+    }
+    if (!info.can_auto_update) {
+      const resultEl = document.getElementById("updateResult");
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = info.auto_update_hint || "当前环境不支持一键更新，请使用手动下载。";
+      }
+      return;
+    }
+    const confirmed = window.confirm(
+      `即将下载并安装版本 ${info.latest}，完成后会自动重启星期五。\n\n更新过程中请勿关闭电脑，是否继续？`,
+    );
+    if (!confirmed) return;
+
+    const applyBtn = document.getElementById("applyUpdateBtn");
+    const checkBtn = document.getElementById("checkUpdateBtn");
+    const resultEl = document.getElementById("updateResult");
+    if (applyBtn) applyBtn.disabled = true;
+    if (checkBtn) checkBtn.disabled = true;
+    if (resultEl) {
+      resultEl.className = "settings-result";
+      resultEl.textContent = "正在准备更新…";
+    }
+    renderUpdateProgress({
+      running: true,
+      phase: "starting",
+      percent: 0,
+      message: "正在启动更新…",
+      detail: "下载完成后将自动替换程序并重启",
+    });
+    try {
+      const res = await F.apiFetchWithTimeout("/api/updates/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          download_url: info.download_url,
+          version: info.latest,
+        }),
+      }, 30000);
+      const data = await res.json().catch(() => ({}));
+      if (!data.started) {
+        if (resultEl) {
+          resultEl.className = "settings-result error";
+          resultEl.textContent = formatUpdateFailure(data);
+        }
+        document.getElementById("updateProgress")?.classList.add("hidden");
+        if (applyBtn) applyBtn.disabled = false;
+        if (checkBtn) checkBtn.disabled = false;
+        return;
+      }
+      if (data.already_running) {
+        if (resultEl) resultEl.textContent = "更新已在进行中…";
+      }
+      startUpdatePoll();
+    } catch (err) {
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = err?.name === "AbortError"
+          ? "启动更新超时，请检查网络后重试。"
+          : `无法启动更新：${err?.message || "请确认星期五后端正在运行"}`;
+      }
+      document.getElementById("updateProgress")?.classList.add("hidden");
+      if (applyBtn) applyBtn.disabled = false;
+      if (checkBtn) checkBtn.disabled = false;
+    }
+  }
+
   async function checkForUpdates() {
     const resultEl = document.getElementById("updateResult");
     const downloadLink = document.getElementById("downloadUpdateLink");
+    const applyBtn = document.getElementById("applyUpdateBtn");
     const sourceLink = document.getElementById("updateSourceLink");
     if (resultEl) {
       resultEl.className = "settings-result";
       resultEl.textContent = t("updates.checking");
     }
+    applyBtn?.classList.add("hidden");
     try {
       const res = await F.apiFetch("/api/updates/check");
       const data = await res.json();
+      lastUpdateInfo = data;
       if (!data.checked) {
         if (resultEl) resultEl.textContent = "无法读取更新源配置";
         downloadLink?.classList.add("hidden");
@@ -1035,7 +1220,13 @@
       if (data.update_available) {
         if (resultEl) {
           resultEl.className = "settings-result ok";
-          resultEl.textContent = t("updates.found", { latest: data.latest, current: data.current });
+          const hint = data.can_auto_update
+            ? "可点「一键更新并重启」自动完成，无需手动解压。"
+            : (data.auto_update_hint || "请下载 zip 后覆盖解压。");
+          resultEl.textContent = `${t("updates.found", { latest: data.latest, current: data.current })}\n${hint}`;
+        }
+        if (applyBtn && data.can_auto_update && data.download_url) {
+          applyBtn.classList.remove("hidden");
         }
         if (downloadLink && data.download_url) {
           downloadLink.href = data.download_url;
@@ -1062,15 +1253,18 @@
           : `${data.source_url}/releases`;
         sourceLink.textContent = kind;
       }
-    } catch {
+    } catch (err) {
       if (resultEl) {
         resultEl.className = "settings-result error";
-        resultEl.textContent = t("updates.fail");
+        resultEl.textContent = err?.name === "AbortError"
+          ? "检查更新超时，请检查网络后重试。"
+          : t("updates.fail");
       }
     }
   }
 
   document.getElementById("checkUpdateBtn")?.addEventListener("click", checkForUpdates);
+  document.getElementById("applyUpdateBtn")?.addEventListener("click", () => void applyUpdate());
   document.getElementById("launchAtLogon")?.addEventListener("change", (event) => {
     void toggleAutostart(event.target.checked);
   });

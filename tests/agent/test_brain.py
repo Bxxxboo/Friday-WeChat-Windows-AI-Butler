@@ -32,6 +32,37 @@ def test_build_system_prompt_cache_marker():
     assert "本机常用文件夹路径" in prompt[marker_idx:]
 
 
+def test_usage_summary_includes_api_call_count():
+    brain = DeepSeekBrain(UserSettings(api_key="sk-test", model="deepseek-chat"))
+    brain.reset_turn_api_calls()
+    brain.record_api_call()
+    brain.record_api_call()
+    brain.usage_stats.prompt_tokens = 100
+    brain.usage_stats.completion_tokens = 50
+    summary = brain.usage_summary()
+    assert "本次共调用 2 次 API" in summary
+    assert "100" in summary
+
+
+def test_call_with_transient_retry_counts_each_attempt():
+    brain = DeepSeekBrain(UserSettings(api_key="sk-test", model="deepseek-chat"))
+    brain.reset_turn_api_calls()
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("429 Too many requests")
+        return "ok"
+
+    with patch("friday.api_connect.is_transient_api_error", return_value=True):
+        with patch("time.sleep"):
+            result = brain._call_with_transient_retry(flaky)
+
+    assert result == "ok"
+    assert brain._turn_api_calls == 2
+
+
 def test_resolve_max_context_from_api():
     settings = UserSettings(model="deepseek-chat", api_key="sk-test")
 

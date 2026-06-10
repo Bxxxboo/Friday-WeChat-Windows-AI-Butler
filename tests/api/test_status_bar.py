@@ -101,8 +101,6 @@ def test_status_bar_session_tokens(tmp_appdata):
     agent = FridayAgent(settings, lambda _action: True)
     agent.brain.total_prompt_tokens = 120
     agent.brain.total_completion_tokens = 30
-    agent.brain.usage_stats.cache_hit_tokens = 6656
-    agent.brain.usage_stats.cache_miss_tokens = 174
     agent._finalize_usage()
 
     session_id = "test-session-tokens"
@@ -112,8 +110,5 @@ def test_status_bar_session_tokens(tmp_appdata):
         assert data["tokens_prompt"] == 120
         assert data["tokens_completion"] == 30
         assert data["tokens_total"] == 150
-        assert data["cache_hit_tokens"] == 6656
-        assert data["cache_miss_tokens"] == 174
-        assert data["cache_hit_rate"] > 0.97
     finally:
         _agent_cache.pop(session_id, None)

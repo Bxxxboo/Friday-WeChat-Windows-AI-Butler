@@ -7,6 +7,7 @@ from friday.weixin.setup import (
     _weixin_channel_available,
     collect_setup_steps,
     configure_openclaw_plugins,
+    ensure_openclaw_gateway_config,
     ensure_weixin_branding,
     install_openclaw_cli,
     install_weixin_plugin,
@@ -87,6 +88,61 @@ def test_collect_setup_steps_shape():
     assert steps[0].id == "openclaw_cli"
 
 
+def test_collect_setup_steps_llm_api_generic_title():
+    steps = collect_setup_steps(port=8765, api_token="test")
+    api_step = next(s for s in steps if s.id == "friday_api")
+    assert api_step.title == "大模型 API"
+    assert "DeepSeek API" not in api_step.title
+    assert "共用" in api_step.description
+    if api_step.status != "ok":
+        assert api_step.action == "open_api_settings"
+
+
+def test_collect_setup_steps_llm_api_shows_mimo_when_configured(monkeypatch):
+    from friday.storage import UserSettings
+
+    settings = UserSettings(
+        api_key="sk-abcdefgh12345678",
+        llm_provider="mimo",
+        base_url="https://api.xiaomimimo.com/v1",
+        model="mimo-v2-flash",
+    )
+    monkeypatch.setattr("friday.weixin.setup.load_settings", lambda: settings)
+    steps = collect_setup_steps(port=8765, api_token="test")
+    api_step = next(s for s in steps if s.id == "friday_api")
+    assert api_step.status == "ok"
+    assert api_step.action == ""
+    assert "MiMo" in api_step.message
+    assert "mimo-v2-flash" in api_step.message
+    assert "xiaomimimo.com" in api_step.message
+
+
+def test_setup_status_payload_includes_llm_api(monkeypatch):
+    from friday.storage import UserSettings
+
+    settings = UserSettings(
+        api_key="sk-abcdefgh12345678",
+        llm_provider="mimo",
+        base_url="https://api.xiaomimimo.com/v1",
+        model="mimo-v2-flash",
+    )
+    monkeypatch.setattr("friday.weixin.setup.load_settings", lambda: settings)
+    monkeypatch.setattr("friday.weixin.setup.list_account_ids", lambda: [])
+    monkeypatch.setattr("friday.weixin.setup.resolve_account", lambda: None)
+    monkeypatch.setattr("friday.weixin.setup.gateway_status", lambda: {"running": False})
+    monkeypatch.setattr("friday.weixin.setup.read_bridge_config", lambda: {})
+    monkeypatch.setattr("friday.weixin.setup._openclaw_cli_info", lambda: (False, "", "未安装"))
+    from friday.weixin.setup import setup_status_payload
+
+    payload = setup_status_payload(port=8765, api_token="t")
+    llm = payload["llm_api"]
+    assert llm["ready"] is True
+    assert llm["provider"] == "mimo"
+    assert llm["provider_label"] == "小米 MiMo"
+    assert llm["base_url"] == "https://api.xiaomimimo.com/v1"
+    assert llm["model"] == "mimo-v2-flash"
+
+
 def test_plugin_installed_detects_dist_index_js(tmp_path, monkeypatch):
     ext = tmp_path / "extensions" / "openclaw-weixin"
     (ext / "dist").mkdir(parents=True)
@@ -145,6 +201,23 @@ def test_configure_openclaw_plugins_idempotent(tmp_path, monkeypatch):
     assert data["channels"]["openclaw-weixin"]["botAgent"].startswith("Friday/")
     assert "星期五" in data["channels"]["openclaw-weixin"]["description"]
     assert data["agents"]["list"][0]["identity"]["name"] == "星期五"
+    bridge_hooks = data["plugins"]["entries"]["friday-weixin-bridge"]["hooks"]
+    assert bridge_hooks["timeoutMs"] == 600_000
+
+
+def test_apply_bridge_hook_timeout_clamps_legacy_value(tmp_path, monkeypatch):
+    cfg = tmp_path / "openclaw.json"
+    cfg.write_text(
+        '{"plugins":{"entries":{"friday-weixin-bridge":{"enabled":true,'
+        '"hooks":{"timeoutMs":620000}}}}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("friday.weixin.setup._openclaw_config_path", lambda: cfg)
+    ok, _ = ensure_openclaw_gateway_config()
+    assert ok
+    data = __import__("json").loads(cfg.read_text(encoding="utf-8"))
+    assert data["plugins"]["entries"]["friday-weixin-bridge"]["hooks"]["timeoutMs"] == 600_000
+    assert data["gateway"]["mode"] == "local"
 
 
 def test_should_replace_weixin_display_name():

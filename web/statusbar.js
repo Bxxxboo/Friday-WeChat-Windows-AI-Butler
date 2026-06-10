@@ -66,8 +66,6 @@
     imageGenDot: document.getElementById("statusImageGenDot"),
     imageGenText: document.getElementById("statusImageGenText"),
     tokens: document.getElementById("statusTokens"),
-    cacheWrap: document.getElementById("statusCacheWrap"),
-    cacheHit: document.getElementById("statusCacheHit"),
     tasks: document.getElementById("statusTasks"),
     workspace: document.getElementById("statusWorkspace"),
     model: document.getElementById("statusModel"),
@@ -91,41 +89,11 @@
     el.dataset.state = state;
   }
 
-  function formatCacheRate(hit, miss, rate) {
-    const hitN = Number(hit) || 0;
-    const missN = Number(miss) || 0;
-    const total = hitN + missN;
-    if (total <= 0) {
-      return { text: "—", title: F.t?.("status.cacheHint") || "当前会话前缀缓存命中率" };
-    }
-    const pct = rate != null && !Number.isNaN(Number(rate))
-      ? Number(rate) * 100
-      : (hitN / total) * 100;
-    const text = `${pct.toFixed(1)}%`;
-    return {
-      text,
-      title: `缓存命中 ${formatTokens(hitN)} / ${formatTokens(total)} tokens（${text}）`,
-    };
-  }
-
-  function applyCacheStats(hit, miss, rate) {
-    if (!els.cacheWrap || !els.cacheHit) return;
-    const { text, title } = formatCacheRate(hit, miss, rate);
-    els.cacheHit.textContent = text;
-    els.cacheWrap.title = title;
-    els.cacheWrap.hidden = false;
-  }
-
   function applyUsage(usage) {
     if (!usage || els.tokens == null) return;
     if (usage.tokens_total != null) {
       els.tokens.textContent = formatTokens(usage.tokens_total);
     }
-    applyCacheStats(
-      usage.cache_hit_tokens,
-      usage.cache_miss_tokens,
-      usage.cache_hit_rate,
-    );
   }
 
   function applyServiceState({
@@ -312,17 +280,6 @@
     if (partial.tokens_total != null && els.tokens) {
       els.tokens.textContent = formatTokens(partial.tokens_total);
     }
-    if (
-      partial.cache_hit_tokens != null
-      || partial.cache_miss_tokens != null
-      || partial.cache_hit_rate != null
-    ) {
-      applyCacheStats(
-        partial.cache_hit_tokens,
-        partial.cache_miss_tokens,
-        partial.cache_hit_rate,
-      );
-    }
   }
 
   function statusBarQuery(sessionId, extra = {}) {
@@ -390,7 +347,6 @@
     if (els.tokens && data.tokens_total != null) {
       els.tokens.textContent = formatTokens(data.tokens_total);
     }
-    applyCacheStats(data.cache_hit_tokens, data.cache_miss_tokens, data.cache_hit_rate);
     if (els.tasks && data.tasks != null) {
       els.tasks.textContent = String(data.tasks);
     }
@@ -464,7 +420,7 @@
         timeoutMs,
       );
       const data = await res.json().catch(() => ({}));
-      const detail = String(data.message || "").split("\n")[0] || "";
+      const detail = F.formatErrorResult?.(data) || String(data.message || "").split("\n")[0] || "";
       applyServiceState({
         enabled: true,
         configured: true,

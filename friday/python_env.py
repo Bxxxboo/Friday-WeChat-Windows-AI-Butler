@@ -732,7 +732,8 @@ def get_env_status(workspace: str) -> PythonEnvStatus:
     venv_py = _venv_python(env_dir)
 
     if not venv_py.is_file():
-        base = find_system_python()
+        # 状态查询只做快速探测，不在 GET /api/python-env 里触发 winget/下载
+        base = find_system_python(skip_winget=True)
         hint = (
             "点击「初始化 Python 环境」或在对话中让星期五执行复杂 Python 任务时会自动创建。"
         )
@@ -769,7 +770,7 @@ def env_dict(workspace: str) -> dict[str, object]:
         "version": status.version,
         "message": status.message,
         "packages_installed": status.packages_installed,
-        "system_python_available": find_system_python() is not None,
+        "system_python_available": find_system_python(skip_winget=True) is not None,
         "setup_running": bool(progress.get("running")),
         "setup_progress": progress,
     }

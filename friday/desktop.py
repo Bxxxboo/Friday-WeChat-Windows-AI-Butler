@@ -518,6 +518,9 @@ def main() -> None:
 
     window = webview.create_window(**create_kwargs)
     window_api.bind(window)
+    from friday.update_installer import register_quit_handler
+
+    register_quit_handler(window_api.close_window)
     window.events.loaded += _on_page_loaded
     window.events.restored += _on_restored
     window.events.minimized += _on_minimized
