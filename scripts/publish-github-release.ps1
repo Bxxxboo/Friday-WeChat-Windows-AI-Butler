@@ -1,6 +1,6 @@
 param(
     [string]$RepoOwner = "Bxxxboo",
-    [string]$RepoName = "Friday-Zero-barrier-DeepSeek-Agent-for-Windows",
+    [string]$RepoName = "Friday-WeChat-Windows-AI-Butler",
     [string]$GitHubToken = $env:GITHUB_TOKEN,
     [switch]$SkipBuild,
     [switch]$SkipUpload

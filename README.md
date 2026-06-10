@@ -1,10 +1,20 @@
-# 星期五
+# Friday-WeChat-Windows-AI-Butler
 
-Windows AI 电脑管家：大模型理解意图 + 本地工具真正动手。
+**微信能遥控的 Windows AI 电脑管家——大模型听懂人话，本地工具真正动手。**
+
+中文产品名：**星期五**。它不只会聊天，还能在你授权的范围内直接操作本机：整理文件、生成文档、运行脚本、查看系统、生图识图，并把执行结果清清楚楚反馈给你。
+
+和普通网页对话最大的区别是：**意图由大模型理解，动作在本地完成**。你说「帮我把下载文件夹里上周的截图挪到归档目录」，它会先扫描、给出计划，再在需要你点头时通过专用工具执行——而不是只输出一段「你可以手动这样做」的文字。
+
+### 为什么叫 WeChat · Windows · AI Butler
+
+- **Windows**：原生桌面应用（WebView2 小窗），数据落在 `%APPDATA%/Friday/`，无需把文件上传到云端再处理。
+- **AI Butler**：多模型支持（DeepSeek、火山方舟等可配置），Agent / Ask / Yolo 等交互模式，28+ 本地工具覆盖文件、系统、文档、剪贴板、定时任务等。
+- **WeChat**：通过 OpenClaw 桥接，**手机微信即可远程指挥这台电脑**——发指令、收回复、在聊天里点「同意/拒绝」完成危险操作审批。
 
 帮你整理文件、查看系统、生成文档、执行日常电脑事务——说人话就行，不用懂技术。
 
-**当前版本：1.1.1**
+**当前版本：1.2.3**
 
 ## 功能
 
@@ -98,7 +108,7 @@ winget install Python.Python.3.12
 | 平台 | 地址 |
 |------|------|
 | **Gitee Releases（默认，国内免 VPN）** | https://gitee.com/Bxxxboo/friday/releases |
-| **GitHub Releases（备用）** | https://github.com/Bxxxboo/Friday-Zero-barrier-DeepSeek-Agent-for-Windows/releases |
+| **GitHub Releases（备用）** | https://github.com/Bxxxboo/Friday-WeChat-Windows-AI-Butler/releases |
 
 应用内：**设置 → 安全与更新 → 检查更新**，优先从 Gitee 拉取 `Friday-Windows.zip`。
 
@@ -111,7 +121,7 @@ winget install Python.Python.3.12
 ```powershell
 $env:GITEE_TOKEN = '令牌'
 powershell -ExecutionPolicy Bypass -File scripts/publish-release.ps1 `
-  -GitHubRepoName Friday-Zero-barrier-DeepSeek-Agent-for-Windows
+  -GitHubRepoName Friday-WeChat-Windows-AI-Butler
 ```
 
 同步 GitHub + Gitee 代码，并上传 Release 安装包与更新说明。

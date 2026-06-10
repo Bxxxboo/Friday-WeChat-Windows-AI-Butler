@@ -1001,11 +1001,16 @@
 
   async function loadAppVersion() {
     const label = document.getElementById("appVersionLabel");
+    const sourceLink = document.getElementById("updateSourceLink");
     if (!label) return;
     try {
       const res = await F.apiFetch("/api/version");
       const data = await res.json();
       label.textContent = data.version || "—";
+      if (sourceLink && data.gitee_home) {
+        sourceLink.href = `${data.gitee_home}/releases`;
+        sourceLink.textContent = "Gitee Releases";
+      }
     } catch {
       label.textContent = "—";
     }

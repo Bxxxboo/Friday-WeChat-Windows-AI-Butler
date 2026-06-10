@@ -34,6 +34,7 @@
 | `publish-release.ps1` | bump + 双端 push + 双端 Release |
 | `publish-*-release.ps1` / `publish_*_release.py` | 单平台 Release |
 | `release-notes.ps1` / `render_release_notes.py` | 从 changelog 生成说明 |
+| `update-repo-profile.ps1` / `update_repo_profile.py` | 更新 GitHub/Gitee 仓库简介与主页 |
 | `version_info.py` | PyInstaller 版本元数据 |
 
 ### 安装与自启
@@ -67,7 +68,7 @@ scripts\run-dev.cmd
 powershell -File scripts\build.ps1
 
 # 发布（需 GITEE_TOKEN）
-powershell -File scripts\publish-release.ps1 -GitHubRepoName Friday-Zero-barrier-DeepSeek-Agent-for-Windows
+powershell -File scripts\publish-release.ps1 -GitHubRepoName Friday-WeChat-Windows-AI-Butler
 ```
 
 用户侧快捷方式脚本在 `release/`，不在此目录。

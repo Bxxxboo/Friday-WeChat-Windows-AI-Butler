@@ -4,7 +4,7 @@ __version__ = "1.2.3"
 __version_tuple__ = (1, 2, 3, 0)
 
 # GitHub Releases（备用，国内常需 VPN）
-GITHUB_REPO = "Bxxxboo/Friday-Zero-barrier-DeepSeek-Agent-for-Windows"
+GITHUB_REPO = "Bxxxboo/Friday-WeChat-Windows-AI-Butler"
 GITHUB_HOME = f"https://github.com/{GITHUB_REPO}"
 
 # Gitee Releases（默认更新源，国内可直连）。环境变量 FRIDAY_GITEE_REPO 可覆盖。

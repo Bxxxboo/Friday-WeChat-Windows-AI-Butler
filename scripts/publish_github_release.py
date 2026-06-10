@@ -71,7 +71,7 @@ def render_notes() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo", default="Bxxxboo/Friday-Zero-barrier-DeepSeek-Agent-for-Windows")
+    parser.add_argument("--repo", default="Bxxxboo/Friday-WeChat-Windows-AI-Butler")
     parser.add_argument("--version", default=__version__)
     parser.add_argument("--zip", default=str(ROOT / "release" / "Friday-Windows.zip"))
     parser.add_argument("--skip-upload", action="store_true")

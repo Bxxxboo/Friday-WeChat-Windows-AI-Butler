@@ -75,6 +75,6 @@ $body += @"
 
 ---
 Gitee: https://gitee.com/Bxxxboo/friday/releases
-GitHub: https://github.com/Bxxxboo/Friday-Zero-barrier-DeepSeek-Agent-for-Windows/releases
+GitHub: https://github.com/Bxxxboo/Friday-WeChat-Windows-AI-Butler/releases
 "@
 Write-Output $body

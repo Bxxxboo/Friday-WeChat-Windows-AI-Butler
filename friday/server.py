@@ -1720,8 +1720,15 @@ async def get_status_bar(session_id: str = "", cached_only: bool = False) -> dic
 @app.get("/api/version")
 async def api_version() -> dict[str, str]:
     from friday.edition import display_version
+    from friday.version import GITEE_HOME, GITEE_REPO, GITHUB_HOME, GITHUB_REPO
 
-    return {"version": display_version(__version__)}
+    return {
+        "version": display_version(__version__),
+        "gitee_home": GITEE_HOME,
+        "github_home": GITHUB_HOME,
+        "gitee_repo": GITEE_REPO,
+        "github_repo": GITHUB_REPO,
+    }
 
 
 @app.websocket("/ws/chat")

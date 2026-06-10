@@ -10,7 +10,7 @@
 $env:GITEE_TOKEN = '你的Gitee令牌'
 # 可选：$env:GITHUB_TOKEN = 'ghp_...'
 powershell -ExecutionPolicy Bypass -File scripts/publish-release.ps1 `
-  -GitHubRepoName Friday-Zero-barrier-DeepSeek-Agent-for-Windows
+  -GitHubRepoName Friday-WeChat-Windows-AI-Butler
 ```
 
 步骤：
@@ -25,7 +25,7 @@ powershell -ExecutionPolicy Bypass -File scripts/publish-release.ps1 `
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/sync-remotes.ps1 `
   -CommitMessage "chore: release v1.1.0" `
-  -GitHubRepoName Friday-Zero-barrier-DeepSeek-Agent-for-Windows
+  -GitHubRepoName Friday-WeChat-Windows-AI-Butler
 ```
 
 ## 更新公告
@@ -43,7 +43,7 @@ powershell -File scripts/release-notes.ps1 -All     # 完整日志
 
 | 远端 | 仓库 |
 |------|------|
-| `origin` | https://github.com/Bxxxboo/Friday-Zero-barrier-DeepSeek-Agent-for-Windows |
+| `origin` | https://github.com/Bxxxboo/Friday-WeChat-Windows-AI-Butler |
 | `gitee` | https://gitee.com/Bxxxboo/friday |
 
 ## 打 tag（可选）

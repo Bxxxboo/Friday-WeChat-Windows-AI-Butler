@@ -23,7 +23,7 @@ alwaysApply: true
 
 ```powershell
 $env:GITEE_TOKEN='令牌'
-scripts\publish-release.cmd -Bump patch -GitHubRepoName Friday-Zero-barrier-DeepSeek-Agent-for-Windows
+scripts\publish-release.cmd -Bump patch -GitHubRepoName Friday-WeChat-Windows-AI-Butler
 ```
 
 步骤：sync GitHub+Gitee → Gitee Release → GitHub Release（有 gh 时）
@@ -31,14 +31,14 @@ scripts\publish-release.cmd -Bump patch -GitHubRepoName Friday-Zero-barrier-Deep
 ## 仅同步代码（不发安装包）
 
 ```powershell
-scripts\sync-remotes.cmd -Bump patch -GitHubRepoName Friday-Zero-barrier-DeepSeek-Agent-for-Windows
+scripts\sync-remotes.cmd -Bump patch -GitHubRepoName Friday-WeChat-Windows-AI-Butler
 ```
 
 ## 远端约定
 
 | 远端 | 地址 |
 |------|------|
-| **origin** | `github.com/Bxxxboo/Friday-Zero-barrier-DeepSeek-Agent-for-Windows` |
+| **origin** | `github.com/Bxxxboo/Friday-WeChat-Windows-AI-Butler` |
 | **gitee** | `gitee.com/Bxxxboo/friday` |
 
 ## 禁止

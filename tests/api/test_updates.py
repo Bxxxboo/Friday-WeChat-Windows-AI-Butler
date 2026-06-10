@@ -9,6 +9,8 @@ from friday.version import GITEE_REPO, GITHUB_REPO
 def test_github_repo_default():
     assert github_repo() == GITHUB_REPO
     assert "/" in github_repo()
+    assert "Friday-WeChat-Windows-AI-Butler" in GITHUB_REPO
+    assert "Zero-barrier" not in GITHUB_REPO
 
 
 def test_gitee_repo_default():
