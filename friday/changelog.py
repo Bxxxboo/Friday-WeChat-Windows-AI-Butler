@@ -47,18 +47,16 @@ def clear_cache() -> None:
 
 
 def unseen_entries(acknowledged: str, current: str | None = None) -> list[dict[str, Any]]:
-    """返回 acknowledged 之后、current 及以下的未读公告（新版在前）。"""
+    """返回当前版本的未读公告（弹窗只展示这一条；完整历史见 load_entries）。"""
     cur = current or __version__
     ack_v = parse_version(acknowledged)
     cur_v = parse_version(cur)
     if ack_v >= cur_v:
         return []
-    result: list[dict[str, Any]] = []
     for entry in load_entries():
-        ev = parse_version(str(entry.get("version", "")))
-        if ack_v < ev <= cur_v:
-            result.append(entry)
-    return result
+        if parse_version(str(entry.get("version", ""))) == cur_v:
+            return [entry]
+    return []
 
 
 def has_unseen(acknowledged: str, current: str | None = None) -> bool:

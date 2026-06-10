@@ -264,3 +264,18 @@ def test_plugin_manifest_substitutes_at_runtime(tmp_appdata):
     prompt = active_rules_prompt()
     assert "{plugin_dir}" not in prompt
     assert "scripts" in prompt
+
+
+def test_builtin_file_safety_rule_seeded(tmp_appdata):
+    from friday.rules import BUILTIN_FILE_SAFETY_RULE_ID, ensure_builtin_rules
+
+    ensure_builtin_rules()
+    rule = get_rule(BUILTIN_FILE_SAFETY_RULE_ID)
+    assert rule is not None
+    assert rule.get("enabled") is True
+    assert rule.get("always_apply") is True
+
+    prompt = active_rules_prompt()
+    assert "文件删改安全" in prompt
+    assert "run_python" in prompt
+    assert "同意" in prompt

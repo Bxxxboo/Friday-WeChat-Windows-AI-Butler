@@ -53,6 +53,50 @@ def test_switch_image_gen_clears_foreign_key_when_unconfigured(tmp_appdata):
     assert switched.image_gen_model == ""
 
 
+def test_switch_image_gen_preserves_ark_key_when_ark_profile_has_sk(tmp_appdata):
+    settings = UserSettings(
+        image_gen_provider="openai_compat",
+        image_gen_api_key="ark-secret-key-123456",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_fallback_urls="https://crs.happycode.online",
+        image_gen_profiles={
+            "ark": {
+                "api_key": "sk-stale-key-12345678",
+                "base_url": "",
+                "model": "",
+            }
+        },
+    )
+    switched = switch_category_profile(settings, "image_gen", "ark")
+    assert switched.image_gen_provider == "ark"
+    assert switched.image_gen_api_key == "ark-secret-key-123456"
+    assert switched.image_gen_model == "ep-20260609235327-pf4mr"
+    assert switched.image_gen_fallback_urls == "https://crs.happycode.online"
+
+
+def test_repair_image_gen_key_mismatch_restores_ark_profile_key(tmp_appdata):
+    from friday.category_profiles import repair_category_settings
+    from friday.image_gen import image_gen_config_hint
+
+    settings = UserSettings(
+        image_gen_provider="ark",
+        image_gen_api_key="sk-stale-key-12345678",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_profiles={
+            "ark": {
+                "api_key": "ark-secret-key-123456",
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "model": "ep-20260609235327-pf4mr",
+            }
+        },
+    )
+    repaired = repair_category_settings(settings, "image_gen")
+    assert repaired.image_gen_api_key == "ark-secret-key-123456"
+    assert image_gen_config_hint(repaired) == ""
+
+
 def test_merge_settings_switch_image_gen_profile(tmp_appdata):
     settings = UserSettings(
         image_gen_provider="ark",

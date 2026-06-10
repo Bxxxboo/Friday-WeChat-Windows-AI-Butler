@@ -15,6 +15,48 @@
   const REFRESH_TIMEOUT_MS = 12000;
   let pollTimer = null;
   let refreshInFlight = null;
+  let bootPhase = true;
+  let startupTestsStarted = false;
+  const startupTestPending = {
+    api: false,
+    vision: false,
+    imageGen: false,
+  };
+
+  const SERVICE_LABELS = {
+    api: {
+      unconfigured: () => F.t?.("status.api.unconfigured") || "API 未配置",
+      online: () => F.t?.("status.api.online") || "API 在线",
+      offline: () => F.t?.("status.api.offline") || "API 离线",
+      checking: () => F.t?.("status.api.checking") || "API 检测中",
+      checkingHint: () => F.t?.("status.api.checkingHint") || "正在检测连接…",
+      disabled: () => F.t?.("status.api.offline") || "API 离线",
+    },
+    vision: {
+      disabled: () => F.t?.("status.vision.disabled") || "视觉 关",
+      unconfigured: () => F.t?.("status.vision.unconfigured") || "视觉 未配置",
+      online: () => F.t?.("status.vision.on") || "视觉 在线",
+      offline: () => F.t?.("status.vision.off") || "视觉 离线",
+      checking: () => F.t?.("status.vision.checking") || "视觉 检测中",
+      checkingHint: () => F.t?.("status.vision.checkingHint") || "正在检测视觉 API…",
+    },
+    imageGen: {
+      disabled: () => F.t?.("status.imageGen.disabled") || "生图 关",
+      unconfigured: () => F.t?.("status.imageGen.unconfigured") || "生图 未配置",
+      online: () => F.t?.("status.imageGen.on") || "生图 在线",
+      offline: () => F.t?.("status.imageGen.off") || "生图 离线",
+      checking: () => F.t?.("status.imageGen.checking") || "生图 检测中",
+      checkingHint: () => F.t?.("status.imageGen.checkingHint") || "正在检测生图 API…",
+    },
+  };
+
+  function resolveLabels(labels) {
+    const out = {};
+    Object.entries(labels).forEach(([key, value]) => {
+      out[key] = typeof value === "function" ? value() : value;
+    });
+    return out;
+  }
 
   const els = {
     apiDot: document.getElementById("statusApiDot"),
@@ -90,6 +132,7 @@
     enabled,
     configured,
     online,
+    checking,
     detail,
     dotEl,
     textEl,
@@ -108,73 +151,102 @@
       textEl.textContent = labels.unconfigured;
       return;
     }
+    if (checking) {
+      setDot(dotEl, "checking");
+      textEl.textContent = labels.checking || labels.offline;
+      return;
+    }
     setDot(dotEl, online ? "online" : "offline");
     textEl.textContent = online ? labels.online : labels.offline;
+  }
+
+  function shouldSkipServiceRefresh() {
+    return bootPhase
+      || startupTestPending.api
+      || startupTestPending.vision
+      || startupTestPending.imageGen;
+  }
+
+  function finishBootIfIdle() {
+    if (!startupTestPending.api && !startupTestPending.vision && !startupTestPending.imageGen) {
+      bootPhase = false;
+      void refreshStatusBar({ force: true });
+    }
+  }
+
+  function setBootCheckingState() {
+    const checkingLabels = resolveLabels(SERVICE_LABELS.api);
+    applyServiceState({
+      enabled: true,
+      configured: true,
+      online: false,
+      checking: true,
+      detail: checkingLabels.checkingHint,
+      dotEl: els.apiDot,
+      textEl: els.apiText,
+      labels: checkingLabels,
+    });
+    applyServiceState({
+      enabled: true,
+      configured: true,
+      online: false,
+      checking: true,
+      detail: resolveLabels(SERVICE_LABELS.vision).checkingHint,
+      dotEl: els.visionDot,
+      textEl: els.visionText,
+      labels: resolveLabels(SERVICE_LABELS.vision),
+    });
+    applyServiceState({
+      enabled: true,
+      configured: true,
+      online: false,
+      checking: true,
+      detail: resolveLabels(SERVICE_LABELS.imageGen).checkingHint,
+      dotEl: els.imageGenDot,
+      textEl: els.imageGenText,
+      labels: resolveLabels(SERVICE_LABELS.imageGen),
+    });
   }
 
   function applyPayload(data) {
     if (!data) return;
 
-    applyServiceState({
-      enabled: true,
-      configured: Boolean(data.api_configured),
-      online: Boolean(data.api_online),
-      detail: data.api_reach_detail || "",
-      dotEl: els.apiDot,
-      textEl: els.apiText,
-      labels: {
-        unconfigured: F.t?.("status.api.unconfigured") || "API 未配置",
-        online: F.t?.("status.api.online") || "API 在线",
-        offline: F.t?.("status.api.offline") || "API 离线",
-        disabled: F.t?.("status.api.offline") || "API 离线",
-      },
-    });
+    if (!shouldSkipServiceRefresh()) {
+      applyServiceState({
+        enabled: true,
+        configured: Boolean(data.api_configured),
+        online: Boolean(data.api_online),
+        checking: Boolean(data.api_checking),
+        detail: data.api_reach_detail || "",
+        dotEl: els.apiDot,
+        textEl: els.apiText,
+        labels: resolveLabels(SERVICE_LABELS.api),
+      });
 
-    applyServiceState({
-      enabled: Boolean(data.vision_enabled),
-      configured: Boolean(data.vision_configured),
-      online: Boolean(data.vision_online),
-      detail: data.vision_reach_detail || "",
-      dotEl: els.visionDot,
-      textEl: els.visionText,
-      labels: {
-        disabled: F.t?.("status.vision.disabled") || "视觉 关",
-        unconfigured: F.t?.("status.vision.unconfigured") || "视觉 未配置",
-        online: F.t?.("status.vision.on") || "视觉 在线",
-        offline: F.t?.("status.vision.off") || "视觉 离线",
-      },
-    });
+      applyServiceState({
+        enabled: Boolean(data.vision_enabled),
+        configured: Boolean(data.vision_configured),
+        online: Boolean(data.vision_online),
+        checking: Boolean(data.vision_checking),
+        detail: data.vision_reach_detail || "",
+        dotEl: els.visionDot,
+        textEl: els.visionText,
+        labels: resolveLabels(SERVICE_LABELS.vision),
+      });
 
-    applyServiceState({
-      enabled: Boolean(data.image_gen_enabled),
-      configured: Boolean(data.image_gen_configured),
-      online: Boolean(data.image_gen_online),
-      detail: data.image_gen_reach_detail || "",
-      dotEl: els.imageGenDot,
-      textEl: els.imageGenText,
-      labels: {
-        disabled: F.t?.("status.imageGen.disabled") || "生图 关",
-        unconfigured: F.t?.("status.imageGen.unconfigured") || "生图 未配置",
-        online: F.t?.("status.imageGen.on") || "生图 在线",
-        offline: F.t?.("status.imageGen.off") || "生图 离线",
-      },
-    });
+      applyServiceState({
+        enabled: Boolean(data.image_gen_enabled),
+        configured: Boolean(data.image_gen_configured),
+        online: Boolean(data.image_gen_online),
+        checking: Boolean(data.image_gen_checking),
+        detail: data.image_gen_reach_detail || "",
+        dotEl: els.imageGenDot,
+        textEl: els.imageGenText,
+        labels: resolveLabels(SERVICE_LABELS.imageGen),
+      });
+    }
 
-    if (els.tokens && data.tokens_total != null) {
-      els.tokens.textContent = formatTokens(data.tokens_total);
-    }
-    applyCacheStats(data.cache_hit_tokens, data.cache_miss_tokens, data.cache_hit_rate);
-    if (els.tasks && data.tasks != null) {
-      els.tasks.textContent = String(data.tasks);
-    }
-    if (els.workspace) {
-      const label = data.workspace || workspaceLabel(data.workspace_path);
-      els.workspace.textContent = label;
-      if (data.workspace_path) els.workspace.title = data.workspace_path;
-    }
-    if (els.model && data.model) {
-      els.model.textContent = data.model;
-    }
+    refreshStatusBarMeta(data);
   }
 
   function patchImageGenStatus(partial = {}) {
@@ -190,6 +262,7 @@
         enabled,
         configured: configured || enabled,
         online: false,
+        checking: true,
         detail: partial.image_gen_reach_detail || F.t?.("status.imageGen.checkingHint") || "正在检测生图 API…",
         dotEl: els.imageGenDot,
         textEl: els.imageGenText,
@@ -232,7 +305,7 @@
       els.apiDot.title = partial.api_reach_detail;
     }
     if (partial.api_checking && els.apiDot && els.apiText) {
-      setDot(els.apiDot, "offline");
+      setDot(els.apiDot, "checking");
       els.apiText.textContent = F.t?.("status.api.checking") || "API 检测中";
       els.apiDot.title = F.t?.("status.api.checkingHint") || "正在检测新模型连接…";
     }
@@ -252,49 +325,272 @@
     }
   }
 
+  function statusBarQuery(sessionId, extra = {}) {
+    const params = new URLSearchParams();
+    if (sessionId) params.set("session_id", sessionId);
+    Object.entries(extra).forEach(([key, value]) => {
+      if (value != null && value !== false) params.set(key, "1");
+    });
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  }
+
   function applyFromSettings(data) {
     if (!data) return;
     const imageGenEnabled = Boolean(data.image_gen_enabled);
     const imageGenReady = Boolean(data.image_gen_enabled && data.image_gen_ready);
-    applyPayload({
-      api_online: false,
-      api_configured: Boolean(data.api_ready),
-      api_reach_detail: data.api_ready ? "正在检测连接…" : "未配置 API Key",
-      vision_enabled: Boolean(data.vision_enabled),
-      vision_configured: Boolean(data.vision_enabled && data.vision_ready),
-      vision_online: false,
-      vision_reach_detail: "",
-      image_gen_enabled: imageGenEnabled,
-      image_gen_configured: imageGenReady,
-      image_gen_online: false,
-      image_gen_reach_detail: imageGenReady ? "正在检测生图 API…" : "",
-      workspace: workspaceLabel(data.workspace),
-      workspace_path: data.workspace,
-      model: data.model || "—",
-      tokens_total: undefined,
-      tasks: undefined,
+    const apiReady = Boolean(data.api_ready);
+    const visionOn = Boolean(data.vision_enabled);
+    const visionReady = Boolean(data.vision_enabled && data.vision_ready);
+
+    applyServiceState({
+      enabled: true,
+      configured: apiReady,
+      online: false,
+      checking: apiReady,
+      detail: apiReady ? "正在检测连接…" : "",
+      dotEl: els.apiDot,
+      textEl: els.apiText,
+      labels: resolveLabels(SERVICE_LABELS.api),
     });
-    if (imageGenReady) {
-      patchImageGenStatus({
-        image_gen_enabled: true,
-        image_gen_configured: true,
-        image_gen_checking: true,
-      });
+
+    applyServiceState({
+      enabled: visionOn,
+      configured: visionReady,
+      online: false,
+      checking: visionOn && visionReady,
+      detail: visionOn && visionReady ? "正在检测视觉 API…" : "",
+      dotEl: els.visionDot,
+      textEl: els.visionText,
+      labels: resolveLabels(SERVICE_LABELS.vision),
+    });
+
+    applyServiceState({
+      enabled: imageGenEnabled,
+      configured: imageGenReady,
+      online: false,
+      checking: imageGenReady,
+      detail: imageGenReady ? "正在检测生图 API…" : "",
+      dotEl: els.imageGenDot,
+      textEl: els.imageGenText,
+      labels: resolveLabels(SERVICE_LABELS.imageGen),
+    });
+
+    if (els.workspace) {
+      els.workspace.textContent = workspaceLabel(data.workspace);
+      if (data.workspace) els.workspace.title = data.workspace;
     }
-    void refreshStatusBar({ force: true });
+    if (els.model) {
+      els.model.textContent = data.model || "—";
+    }
+  }
+
+  function refreshStatusBarMeta(data) {
+    if (!data) return;
+    if (els.tokens && data.tokens_total != null) {
+      els.tokens.textContent = formatTokens(data.tokens_total);
+    }
+    applyCacheStats(data.cache_hit_tokens, data.cache_miss_tokens, data.cache_hit_rate);
+    if (els.tasks && data.tasks != null) {
+      els.tasks.textContent = String(data.tasks);
+    }
+    if (els.workspace) {
+      const label = data.workspace || workspaceLabel(data.workspace_path);
+      els.workspace.textContent = label;
+      if (data.workspace_path) els.workspace.title = data.workspace_path;
+    }
+    if (els.model && data.model) {
+      els.model.textContent = data.model;
+    }
+  }
+
+  async function runServiceStartupTest({
+    pendingKey,
+    enabled,
+    configured,
+    url,
+    timeoutMs,
+    dotEl,
+    textEl,
+    labels,
+  }) {
+    if (!enabled) {
+      applyServiceState({
+        enabled: false,
+        configured: false,
+        online: false,
+        checking: false,
+        detail: "",
+        dotEl,
+        textEl,
+        labels,
+      });
+      return;
+    }
+    if (!configured) {
+      applyServiceState({
+        enabled: true,
+        configured: false,
+        online: false,
+        checking: false,
+        detail: "",
+        dotEl,
+        textEl,
+        labels,
+      });
+      return;
+    }
+
+    startupTestPending[pendingKey] = true;
+    applyServiceState({
+      enabled: true,
+      configured: true,
+      online: false,
+      checking: true,
+      detail: labels.checkingHint || "",
+      dotEl,
+      textEl,
+      labels,
+    });
+
+    try {
+      const res = await F.apiFetchWithTimeout(
+        url,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        },
+        timeoutMs,
+      );
+      const data = await res.json().catch(() => ({}));
+      const detail = String(data.message || "").split("\n")[0] || "";
+      applyServiceState({
+        enabled: true,
+        configured: true,
+        online: Boolean(data.ok),
+        checking: false,
+        detail,
+        dotEl,
+        textEl,
+        labels,
+      });
+    } catch (err) {
+      applyServiceState({
+        enabled: true,
+        configured: true,
+        online: false,
+        checking: false,
+        detail: err?.message || "检测失败",
+        dotEl,
+        textEl,
+        labels,
+      });
+    } finally {
+      startupTestPending[pendingKey] = false;
+      finishBootIfIdle();
+    }
+  }
+
+  async function refreshStatusBarMetaOnly() {
+    const sessionId = F.activeSessionId || "";
+    try {
+      const res = await F.apiFetchWithTimeout(
+        `/api/status-bar${statusBarQuery(sessionId, { cached_only: true })}`,
+        {},
+        3000,
+      );
+      if (res.ok) refreshStatusBarMeta(await res.json());
+    } catch {
+      // 保留已有状态
+    }
+  }
+
+  async function runStartupApiTests() {
+    if (!F.resolveApiToken?.()) return;
+    if (startupTestsStarted) return;
+    startupTestsStarted = true;
+
+    const snap = F.bootSettingsSnapshot || {};
+    const apiReady = Boolean(snap.api_ready);
+    const visionOn = Boolean(snap.vision_enabled);
+    const visionReady = Boolean(snap.vision_enabled && snap.vision_ready);
+    const imageGenOn = Boolean(snap.image_gen_enabled);
+    const imageGenReady = Boolean(snap.image_gen_enabled && snap.image_gen_ready);
+
+    if (apiReady) startupTestPending.api = true;
+    if (visionOn && visionReady) startupTestPending.vision = true;
+    if (imageGenOn && imageGenReady) startupTestPending.imageGen = true;
+
+    void refreshStatusBarMetaOnly();
+
+    void runServiceStartupTest({
+      pendingKey: "api",
+      enabled: true,
+      configured: apiReady,
+      url: "/api/settings/test",
+      timeoutMs: 60000,
+      dotEl: els.apiDot,
+      textEl: els.apiText,
+      labels: resolveLabels(SERVICE_LABELS.api),
+    });
+
+    void runServiceStartupTest({
+      pendingKey: "vision",
+      enabled: visionOn,
+      configured: visionReady,
+      url: "/api/settings/test-vision",
+      timeoutMs: 60000,
+      dotEl: els.visionDot,
+      textEl: els.visionText,
+      labels: resolveLabels(SERVICE_LABELS.vision),
+    });
+
+    void runServiceStartupTest({
+      pendingKey: "imageGen",
+      enabled: imageGenOn,
+      configured: imageGenReady,
+      url: "/api/settings/test-image-gen",
+      timeoutMs: 120000,
+      dotEl: els.imageGenDot,
+      textEl: els.imageGenText,
+      labels: resolveLabels(SERVICE_LABELS.imageGen),
+    });
+
+    if (!startupTestPending.api && !startupTestPending.vision && !startupTestPending.imageGen) {
+      bootPhase = false;
+    }
   }
 
   async function refreshStatusBar(options = {}) {
     if (!F.resolveApiToken?.()) return;
     if (refreshInFlight && !options.force) return refreshInFlight;
     refreshInFlight = (async () => {
+      const sessionId = F.activeSessionId || "";
+      const baseQs = statusBarQuery(sessionId);
+      const skipServices = shouldSkipServiceRefresh();
+
+      if (!options.skipQuick) {
+        try {
+          const quickRes = await F.apiFetchWithTimeout(
+            `/api/status-bar${statusBarQuery(sessionId, { cached_only: true })}`,
+            {},
+            3000,
+          );
+          if (quickRes.ok) {
+            const data = await quickRes.json();
+            if (skipServices) refreshStatusBarMeta(data);
+            else applyPayload(data);
+          }
+        } catch {
+          // 保留已有状态
+        }
+      }
+      if (skipServices) return;
       try {
-        const sessionId = F.activeSessionId || "";
-        const qs = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : "";
-        const res = await F.apiFetchWithTimeout(`/api/status-bar${qs}`, {}, REFRESH_TIMEOUT_MS);
+        const res = await F.apiFetchWithTimeout(`/api/status-bar${baseQs}`, {}, REFRESH_TIMEOUT_MS);
         if (!res.ok) return;
-        const data = await res.json();
-        applyPayload(data);
+        applyPayload(await res.json());
       } catch {
         // 保留已有状态
       }
@@ -316,7 +612,10 @@
   F.patchStatusBar = patchStatusBar;
   F.patchImageGenStatus = patchImageGenStatus;
   F.refreshStatusBar = refreshStatusBar;
+  F.runStartupApiTests = runStartupApiTests;
+  F.isStatusBarBooting = shouldSkipServiceRefresh;
 
+  setBootCheckingState();
   startPolling();
   window.addEventListener("friday:languagechange", () => void refreshStatusBar());
 })();

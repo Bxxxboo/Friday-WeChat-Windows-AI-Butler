@@ -19,6 +19,7 @@ _pn_runtime_files = [
 
 _clr_loader_binaries = collect_dynamic_libs("clr_loader")
 _pythonnet_datas = collect_data_files("pythonnet")
+_tiktoken_datas = collect_data_files("tiktoken") + collect_data_files("tiktoken_ext")
 
 a = Analysis(
     ["run.py"],
@@ -32,6 +33,7 @@ a = Analysis(
         (str(Path(certifi.where())), "certifi"),
     ]
     + _pythonnet_datas
+    + _tiktoken_datas
     + _pn_runtime_files,
     hiddenimports=[
         "friday",
@@ -80,6 +82,16 @@ a = Analysis(
         "friday.tools.web_security",
         "friday.tools.web_trust",
         "friday.tools.vision",
+        "friday.tools.image_gen",
+        "friday.tools.plan_tools",
+        "friday.tools.memory_tools",
+        "friday.tools.mcp_bridge",
+        "friday.image_gen",
+        "friday.plan",
+        "friday.user_memory",
+        "friday.agent_context",
+        "friday.prefix_cache",
+        "friday.agent",
         "uvicorn",
         "uvicorn.logging",
         "uvicorn.loops",
@@ -107,6 +119,11 @@ a = Analysis(
         "pythonnet",
         "clr",
         "tiktoken",
+        "tiktoken.load",
+        "tiktoken.core",
+        "tiktoken.registry",
+        "tiktoken_ext",
+        "tiktoken_ext.openai_public",
         "multipart",
         "anyio",
         "anyio._backends._asyncio",

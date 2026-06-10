@@ -77,10 +77,15 @@ def classify_error(raw: Any = "", *, context: str = "") -> ErrorHint:
         )
 
     if any(k in lower for k in ("invalid api key", "incorrect api key", "authentication", "unauthorized")):
+        hint = "请在 设置 → 大模型 检查当前服务商与 Key 是否匹配（MiMo / DeepSeek 等需分别配置）"
+        if "xiaomimimo.com/v1" in lower and "token-plan" not in lower:
+            hint += "；MiMo 订阅套餐 Key（tp- 开头）需用 Base URL https://token-plan-cn.xiaomimimo.com/v1"
+        elif "token-plan-cn.xiaomimimo.com" in lower:
+            hint += "；Token Plan 请用 tp- 开头 Key，按量付费请用 sk- Key 与 https://api.xiaomimimo.com/v1"
         return ErrorHint(
             "api_auth",
             "API Key 无效或已失效",
-            "请在 设置 → 大模型 检查当前服务商与 Key 是否匹配（MiMo / DeepSeek 等需分别配置）",
+            hint,
         )
 
     if any(k in lower for k in ("401", "403")) and ("api" in lower or "key" in lower or ctx == "api_test"):
@@ -116,6 +121,23 @@ def classify_error(raw: Any = "", *, context: str = "") -> ErrorHint:
             "api_bad_request",
             text.split("\n")[0][:240] or "生图请求被拒绝",
             "请核对模型名、Key 与服务商是否一致；中转站需使用其文档中的生图 model ID",
+        )
+
+    if any(
+        k in lower
+        for k in (
+            "readtimeout",
+            "read timeout",
+            "read timed out",
+            "response timed out",
+            "waiting for response",
+            "apitimeouterror",
+        )
+    ):
+        return ErrorHint(
+            "api_timeout",
+            "API 响应超时",
+            "服务器可能繁忙或网络较慢，请稍后重试；若仅偶发可忽略，反复出现请点「网络诊断」",
         )
 
     if any(k in lower for k in ("connection", "timeout", "timed out", "network", "connect", "refused", "unreachable")):

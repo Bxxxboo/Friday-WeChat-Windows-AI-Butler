@@ -53,12 +53,24 @@ def export_portable_bundle(
             else:
                 report["skipped"].append(name)
 
-        fernet = appdata / ".fernet_key"
+        fernet = appdata / "credentials" / ".fernet_key"
         if fernet.is_file():
-            zf.write(fernet, ".fernet_key")
-            report["included"].append(".fernet_key")
+            zf.write(fernet, "credentials/.fernet_key")
+            report["included"].append("credentials/.fernet_key")
         else:
-            report["warnings"].append("未包含 .fernet_key，导入后 API Key 可能需重新填写")
+            legacy_fernet = appdata / ".fernet_key"
+            if legacy_fernet.is_file():
+                zf.write(legacy_fernet, "credentials/.fernet_key")
+                report["included"].append("credentials/.fernet_key (from legacy)")
+            else:
+                report["warnings"].append("未包含 .fernet_key，导入后 API Key 可能需重新填写")
+
+        cred_secrets = appdata / "credentials" / "api_secrets.json"
+        if cred_secrets.is_file():
+            zf.write(cred_secrets, "credentials/api_secrets.json")
+            report["included"].append("credentials/api_secrets.json")
+        else:
+            report["warnings"].append("未包含 credentials/api_secrets.json，导入后 API Key 可能需重新填写")
 
         plugins_root = appdata / "plugins"
         if plugins_root.is_dir():
@@ -113,10 +125,21 @@ def import_portable_bundle(
         backup_dir.mkdir(parents=True, exist_ok=True)
         report["backup_dir"] = str(backup_dir)
 
-        for name in _CONFIG_FILES + (".fernet_key",):
+        for name in _CONFIG_FILES:
             src = appdata / name
             if src.is_file():
                 shutil.copy2(src, backup_dir / name)
+
+        cred_backup = backup_dir / "credentials"
+        cred_backup.mkdir(parents=True, exist_ok=True)
+        for name in (".fernet_key", "api_secrets.json"):
+            src = appdata / "credentials" / name
+            if src.is_file():
+                shutil.copy2(src, cred_backup / name)
+
+        legacy_fernet = appdata / ".fernet_key"
+        if legacy_fernet.is_file():
+            shutil.copy2(legacy_fernet, backup_dir / ".fernet_key")
 
         plugins_backup = appdata / "plugins"
         if plugins_backup.is_dir():

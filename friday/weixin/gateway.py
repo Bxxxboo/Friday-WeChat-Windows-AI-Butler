@@ -216,23 +216,36 @@ def ensure_gateway_running(
     force_restart: bool = False,
 ) -> dict[str, object]:
     """探测 Gateway；未运行时静默后台拉起（默认不 restart、不弹窗）。"""
-    from friday.weixin.setup import ensure_openclaw_gateway_config, ensure_weixin_plugin_for_gateway
+    from friday.weixin.setup import ensure_bridge_plugin_for_gateway, ensure_openclaw_gateway_config, ensure_weixin_plugin_for_gateway
 
     ensure_openclaw_gateway_config()
     ensure_weixin_plugin_for_gateway()
+    plugin_changed = ensure_bridge_plugin_for_gateway()
     ensure_gateway_cmd()
     target_port = port if port is not None else _gateway_port()
-    if probe_gateway(port=target_port) and not force_restart:
+    if probe_gateway(port=target_port) and not force_restart and not plugin_changed:
         return {"running": True, "started": False, "port": target_port}
 
-    if force_restart and cli_available():
+    if (force_restart or plugin_changed) and cli_available():
         try:
             run_openclaw(["gateway", "restart", "--force"], timeout=int(wait_sec))
         except (subprocess.TimeoutExpired, OSError) as exc:
             _log.warning("OpenClaw Gateway restart 失败 | %s", exc)
 
+    if (force_restart or plugin_changed) and probe_gateway(port=target_port):
+        if cli_available():
+            try:
+                run_openclaw(["gateway", "stop"], timeout=15)
+                time.sleep(1.0)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+        if not probe_gateway(port=target_port):
+            ok, message = _start_gateway_silent(port=target_port)
+            if not ok:
+                _log.warning("Gateway 静默重启失败 | %s", message)
+
     if probe_gateway(port=target_port):
-        return {"running": True, "started": force_restart, "port": target_port}
+        return {"running": True, "started": force_restart or plugin_changed, "port": target_port}
 
     ok, message = _start_gateway_silent(port=target_port)
     if not ok:
@@ -275,6 +288,39 @@ def ensure_gateway_running_background(*, wait_sec: float = _START_TIMEOUT_SEC) -
     threading.Thread(target=_worker, daemon=True, name="weixin-gateway-ensure").start()
 
 
+def ensure_weixin_gateway_with_retries(
+    *,
+    attempts: int = 3,
+    delay_sec: float = 4.0,
+    wait_sec: float = _START_TIMEOUT_SEC,
+) -> dict[str, object]:
+    """星期五启动后多次尝试拉起 Gateway（新电脑/重启后常见未就绪）。"""
+    last: dict[str, object] = {"running": False, "started": False}
+    tries = max(1, attempts)
+    for index in range(tries):
+        if index > 0:
+            time.sleep(max(1.0, delay_sec))
+        if probe_gateway():
+            _log.info("OpenClaw Gateway 已在线 | attempt=%d/%d", index + 1, tries)
+            return {"running": True, "started": False, "attempt": index + 1}
+        last = ensure_gateway_running(wait_sec=wait_sec)
+        if last.get("running"):
+            _log.info(
+                "OpenClaw Gateway 已拉起 | port=%s attempt=%d/%d",
+                last.get("port"),
+                index + 1,
+                tries,
+            )
+            return last
+        _log.warning(
+            "OpenClaw Gateway 启动未就绪 | attempt=%d/%d error=%s",
+            index + 1,
+            tries,
+            last.get("error", ""),
+        )
+    return last
+
+
 def ensure_gateway_running_async_delay(*, delay_sec: float = 4.0) -> None:
     """延迟在后台线程静默检查/启动 Gateway，不阻塞星期五启动。"""
     import threading
@@ -286,7 +332,15 @@ def ensure_gateway_running_async_delay(*, delay_sec: float = 4.0) -> None:
         if not getattr(load_settings(), "weixin_bridge_enabled", True):
             return
         if probe_gateway():
+            _log.info("微信桥接：Gateway 已在运行")
             return
-        ensure_gateway_running_background()
+        result = ensure_weixin_gateway_with_retries()
+        if not result.get("running"):
+            _log.warning(
+                "微信桥接：Gateway 未能自动启动，微信消息可能无回复。"
+                "请在「设置 → 微信桥接」点「启动 Gateway」或「一键配置」。"
+                " error=%s",
+                result.get("error", ""),
+            )
 
     threading.Thread(target=_worker, daemon=True, name="weixin-gateway-deferred").start()

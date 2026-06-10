@@ -3,10 +3,11 @@
 from friday.llm_profiles import (
     persist_active_profile,
     profiles_summary,
+    repair_llm_key_alignment,
     seed_profiles_from_active,
     switch_llm_provider,
 )
-from friday.storage import UserSettings, merge_settings
+from friday.storage import UserSettings, load_settings, merge_settings, save_settings
 
 
 def test_switch_llm_provider_restores_saved_profile():
@@ -112,3 +113,68 @@ def test_profiles_summary_masks_key():
     summary = profiles_summary(settings)
     assert summary["mimo"]["configured"] is True
     assert "abcd" in str(summary["mimo"]["api_key_masked"])
+
+
+def test_merge_settings_switches_provider_when_url_filled_but_key_empty():
+    current = UserSettings(
+        llm_provider="deepseek",
+        api_key="sk-deepseek-key-12345678",
+        base_url="https://api.deepseek.com",
+        model="deepseek-chat",
+        llm_profiles={
+            "mimo": {
+                "api_key": "sk-mimo-key-12345678",
+                "base_url": "https://api.xiaomimimo.com/v1",
+                "model": "mimo-v2.5-pro",
+            }
+        },
+    )
+    merged = merge_settings(
+        current,
+        {
+            "llm_provider": "mimo",
+            "api_key": "",
+            "base_url": "https://api.xiaomimimo.com/v1",
+            "model": "mimo-v2.5-pro",
+        },
+    )
+    assert merged.llm_provider == "mimo"
+    assert merged.api_key == "sk-mimo-key-12345678"
+
+
+def test_repair_llm_key_alignment_uses_active_profile():
+    settings = UserSettings(
+        llm_provider="mimo",
+        api_key="sk-deepseek-key-12345678",
+        base_url="https://api.xiaomimimo.com/v1",
+        model="mimo-v2.5-pro",
+        llm_profiles={
+            "mimo": {
+                "api_key": "sk-mimo-key-12345678",
+                "base_url": "https://api.xiaomimimo.com/v1",
+                "model": "mimo-v2.5-pro",
+            }
+        },
+    )
+    repaired = repair_llm_key_alignment(settings)
+    assert repaired.api_key == "sk-mimo-key-12345678"
+
+
+def test_load_settings_repairs_desynced_llm_key(tmp_appdata):
+    save_settings(
+        UserSettings(
+            llm_provider="mimo",
+            api_key="sk-deepseek-key-12345678",
+            base_url="https://api.xiaomimimo.com/v1",
+            model="mimo-v2.5-pro",
+            llm_profiles={
+                "mimo": {
+                    "api_key": "sk-mimo-key-12345678",
+                    "base_url": "https://api.xiaomimimo.com/v1",
+                    "model": "mimo-v2.5-pro",
+                }
+            },
+        )
+    )
+    loaded = load_settings()
+    assert loaded.api_key == "sk-mimo-key-12345678"

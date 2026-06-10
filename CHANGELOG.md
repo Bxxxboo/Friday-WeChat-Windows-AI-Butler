@@ -2,6 +2,52 @@
 
 版本说明与 `assets/changelog.json` 同步；应用内「更新公告」亦读取该文件。
 
+## 1.2.3（2026-06-10）
+
+**微信桥接加固、文件安全、状态栏检测与 API 稳定性**
+
+### 新功能
+
+- 内置「文件删改安全」准则（skill + 规则 + 插件）：删/改/移须专用工具并审批，禁止 Python/PowerShell 绕过
+- `run_python` 静态安全分析（`python_code_safety`）：拦截改 AppData/星期五配置；删除/覆盖每次审批，工作区新建同轮确认一次
+- API 凭据独立存储（`credentials_store`），与 settings 分离，换机/更新更稳
+- 开机 API 检测与设置页「测试连接」统一逻辑（`startup-tests` + `test_*_service`）
+- 状态栏三项（API / 视觉 / 生图）独立并行检测，谁先完成谁先更新
+- 微信登录运行器（`login_runner`）与资料同步（`profile`），Gateway 插件单 hook 去重
+- 审批说明文案外置（`approval_descriptions`），工具审批弹窗更清晰
+- `server` 拆出 `status_bar`、`weixin_routes`；设置页拆 weixin / python_env 面板脚本
+- 打包脚本 `pack-windows.cmd` / `pack-windows.ps1`
+
+### 改进
+
+- 微信桥接：去掉 `inbound_claim` 双转发；`forwardToFridayOnce` 去重；`before_dispatch` 620s 超时防慢回复
+- 微信问候快路径（你好等）在 API 就绪时直接回复，减少空等
+- 状态栏开机默认「检测中」黄点，不再先显示关/离线；检测完成前轮询不覆盖结果
+- 测试连接成功不再清空其他服务状态缓存，避免生图测完后视觉/API 被重复检测
+- API 瞬态超时/限流不误标永久离线；`brain` 对瞬态失败自动重试
+- 生图状态栏：有成功缓存时跳过重复 live probe；快速探测不覆盖成功缓存
+- 交互规则：允许正常闲聊，不必强行拉回电脑管理话题
+- Python Agent 环境：修复误绑开发目录 venv、跨机重建与设置页后台安装进度
+- 可移植性/配置包：credentials 合并、插件 manifest 与内置 file-safety 一并迁移
+- Yolo 模式下 `run_python` / PowerShell 仍须每次审批
+- 扩展管理 UI 与 onboarding 流程优化
+
+### 修复
+
+- 用着用着误报「无法连接 API」、设置里测试却正常（响应超时与缓存污染）
+- 状态栏 API/视觉/生图与设置页测试结果不一致
+- `run_python` 未审批即可删改 `operations.json` 等应用数据
+- 微信英文错答、重复回复、审批/通道与 Gateway 插件 inflight 问题
+- 生图离线误报、设置测试通过但底部仍显示离线
+- `category_profiles` / `llm_profiles` 切换生图与 API 快照恢复
+- registry 工具导入与若干微信/setup 边界用例
+
+### 测试
+
+- 新增/扩充：`api_connect`、`status_bar`、`startup_tests`、`python_code_safety`、`credentials_store`、weixin bridge/login/profile/node_runtime 等测试
+
+---
+
 ## 1.2.2（2026-06-09）
 
 **微信桥接、设置持久化与生图测试修复**

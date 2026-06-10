@@ -134,16 +134,19 @@
         },
         60000
       );
+      const raw = await res.text();
       let data = {};
       try {
-        data = await res.json();
+        data = raw ? JSON.parse(raw) : {};
       } catch {
         result.className = "settings-result error";
-        result.textContent = `服务响应异常 (${res.status})，请重启应用后重试。`;
+        result.textContent = raw.trim()
+          ? raw.trim().slice(0, 200)
+          : `服务响应异常 (${res.status})，请重启应用后重试。`;
         return false;
       }
       if (!res.ok) {
-        const detail = data.detail || data.message || `HTTP ${res.status}`;
+        const detail = data.message || data.detail || `HTTP ${res.status}`;
         result.className = "settings-result error";
         result.textContent =
           res.status === 401
@@ -208,6 +211,65 @@
     F.updateInputState();
   }
 
+  async function skipOnboardingWelcome() {
+    await finishOnboarding();
+  }
+
+  async function skipOnboardingApi() {
+    const result = $("onboardingApiResult");
+    const key = $("onboardingApiKey")?.value.trim() || "";
+    if (key) {
+      result.className = "settings-result";
+      result.textContent = "正在保存…";
+      const saved = await saveOnboardingApi();
+      if (!saved) {
+        result.className = "settings-result error";
+        result.textContent = "保存失败，仍可跳过；稍后在 设置 → API 中配置。";
+      }
+    }
+    await loadSuggestedFolder();
+    showStep(2);
+  }
+
+  async function applyDefaultWorkspace() {
+    const input = $("onboardingWorkspace");
+    const result = $("onboardingFolderResult");
+    try {
+      const res = await F.apiFetch("/api/folders");
+      if (!res.ok) return false;
+      const data = await res.json();
+      const workspace = String(data.suggested_workspace || "").trim();
+      if (!workspace) return false;
+      if (input) input.value = workspace;
+      const saveRes = await F.apiFetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace }),
+      });
+      if (!saveRes.ok) return false;
+      const saved = await saveRes.json();
+      const mainInput = document.getElementById("workspace");
+      if (mainInput) mainInput.value = saved.workspace;
+      if (result) {
+        result.className = "settings-result ok";
+        result.textContent = `已使用默认文件夹：${saved.workspace}`;
+      }
+      return true;
+    } catch (err) {
+      console.warn("applyDefaultWorkspace", err);
+      if (result) {
+        result.className = "settings-result error";
+        result.textContent = "无法获取默认文件夹，请手动选择或跳过。";
+      }
+      return false;
+    }
+  }
+
+  async function skipOnboardingFolder() {
+    await applyDefaultWorkspace();
+    showStep(3);
+  }
+
   async function checkOnboarding() {
     let data;
     try {
@@ -232,23 +294,40 @@
 
   function bindEvents() {
     $("onboardingStartBtn")?.addEventListener("click", () => showStep(1));
+    $("onboardingSkipWelcomeBtn")?.addEventListener("click", () => {
+      void skipOnboardingWelcome();
+    });
     $("onboardingTestBtn")?.addEventListener("click", testOnboardingApi);
+    $("onboardingSkipApiBtn")?.addEventListener("click", () => {
+      void skipOnboardingApi();
+    });
 
     $("onboardingApiNextBtn")?.addEventListener("click", async () => {
       const result = $("onboardingApiResult");
-      const ok = await testOnboardingApi();
-      if (!ok) return;
+      const key = $("onboardingApiKey")?.value.trim() || "";
+      if (!key) {
+        result.className = "settings-result error";
+        result.textContent = "请先填写 API Key，或点「稍后设置」跳过。";
+        return;
+      }
+      result.className = "settings-result";
+      result.textContent = "保存中…";
       const saved = await saveOnboardingApi();
       if (!saved) {
         result.className = "settings-result error";
-        result.textContent = "保存失败，请重试。";
+        result.textContent = "保存失败，请重试或使用「稍后设置」跳过。";
         return;
       }
+      result.className = "settings-result ok";
+      result.textContent = "已保存。可在设置中测试连接。";
       await loadSuggestedFolder();
       showStep(2);
     });
 
     $("onboardingPickFolderBtn")?.addEventListener("click", pickOnboardingFolder);
+    $("onboardingSkipFolderBtn")?.addEventListener("click", () => {
+      void skipOnboardingFolder();
+    });
 
     $("onboardingFolderNextBtn")?.addEventListener("click", async () => {
       const result = $("onboardingFolderResult");

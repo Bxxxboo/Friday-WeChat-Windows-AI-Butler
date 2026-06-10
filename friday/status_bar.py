@@ -1,0 +1,138 @@
+"""状态栏快照 — 从 server 拆出。"""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from friday.storage import load_settings, resolved_workspace
+
+
+async def build_status_bar_snapshot(
+    *,
+    session_id: str = "",
+    cached_only: bool = False,
+    session_usage: Callable[[str], dict[str, Any]] | None = None,
+) -> dict[str, object]:
+    from friday.image_gen import image_gen_ready
+    from friday.python_env import python_ready_light
+    from friday.schedules import list_schedules
+    from friday.vision import vision_ready
+
+    cfg = load_settings()
+    workspace = resolved_workspace(cfg)
+    ws_path = Path(workspace)
+    ws_label = ws_path.name or str(ws_path)
+
+    usage = (session_usage or (lambda _sid: {}))(session_id.strip())
+    prompt_tokens = int(usage.get("tokens_prompt", 0) or 0)
+    completion_tokens = int(usage.get("tokens_completion", 0) or 0)
+    cache_hit_tokens = int(usage.get("cache_hit_tokens", 0) or 0)
+    cache_miss_tokens = int(usage.get("cache_miss_tokens", 0) or 0)
+    cache_hit_rate = float(usage.get("cache_hit_rate", 0) or 0)
+
+    vision_on = bool(cfg.vision_enabled)
+    image_gen_on = bool(cfg.image_gen_enabled)
+
+    from friday.api_connect import (
+        read_cached_service_status,
+        test_image_gen_service,
+        test_llm_service,
+        test_vision_service,
+    )
+
+    llm_configured = cfg.api_ready
+    vision_configured = bool(vision_on and vision_ready(cfg))
+    image_gen_configured = bool(image_gen_on and image_gen_ready(cfg))
+
+    async def _resolve_llm() -> tuple[bool, str, bool]:
+        if not llm_configured:
+            return False, "未配置 API Key", False
+        if cached_only:
+            cached = read_cached_service_status("llm", cfg)
+            if cached is not None:
+                return cached[0], cached[1], False
+            return False, "正在检测连接…", True
+        cached = read_cached_service_status("llm", cfg)
+        if cached is not None:
+            return cached[0], cached[1], False
+        online, detail = await asyncio.to_thread(test_llm_service, cfg)
+        short = detail if online else detail.split("\n")[0]
+        return online, short, False
+
+    async def _resolve_vision() -> tuple[bool, str, bool]:
+        if not vision_on:
+            return False, "未启用", False
+        if not vision_configured:
+            return False, "未配置", False
+        if cached_only:
+            cached = read_cached_service_status("vision", cfg)
+            if cached is not None:
+                return cached[0], cached[1], False
+            return False, "正在检测视觉 API…", True
+        cached = read_cached_service_status("vision", cfg)
+        if cached is not None:
+            return cached[0], cached[1], False
+        result = await asyncio.to_thread(test_vision_service, cfg)
+        if result is None:
+            return False, "未配置", False
+        online, detail = result
+        short = detail if online else detail.split("\n")[0]
+        return online, short, False
+
+    async def _resolve_image_gen() -> tuple[bool, str, bool]:
+        if not image_gen_on:
+            return False, "未启用", False
+        if not image_gen_configured:
+            return False, "未配置", False
+        if cached_only:
+            cached = read_cached_service_status("image_gen", cfg)
+            if cached is not None:
+                return cached[0], cached[1], False
+            return False, "正在检测生图 API…", True
+        cached = read_cached_service_status("image_gen", cfg)
+        if cached is not None:
+            return cached[0], cached[1], False
+        result = await asyncio.to_thread(test_image_gen_service, cfg)
+        if result is None:
+            return False, "未配置", False
+        online, detail = result
+        short = detail if online else detail.split("\n")[0]
+        return online, short, False
+
+    (llm_online, llm_reach_detail, llm_checking), (vision_online, vision_reach_detail, vision_checking), (
+        image_gen_online,
+        image_gen_reach_detail,
+        image_gen_checking,
+    ) = await asyncio.gather(_resolve_llm(), _resolve_vision(), _resolve_image_gen())
+
+    return {
+        "api_online": llm_online,
+        "api_configured": llm_configured,
+        "api_reach_detail": llm_reach_detail,
+        "api_checking": llm_checking,
+        "vision_online": vision_online,
+        "vision_configured": vision_configured,
+        "vision_reach_detail": vision_reach_detail,
+        "vision_checking": vision_checking,
+        "vision_enabled": vision_on,
+        "image_gen_online": image_gen_online,
+        "image_gen_configured": image_gen_configured,
+        "image_gen_reach_detail": image_gen_reach_detail,
+        "image_gen_checking": image_gen_checking,
+        "image_gen_enabled": image_gen_on,
+        "model": cfg.model or "—",
+        "workspace": ws_label.replace("\\", "/"),
+        "workspace_path": workspace.replace("\\", "/"),
+        "tokens_prompt": prompt_tokens,
+        "tokens_completion": completion_tokens,
+        "tokens_total": prompt_tokens + completion_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_hit_rate": cache_hit_rate,
+        "tasks": len(list_schedules()),
+        "interaction_mode": getattr(cfg, "interaction_mode", "agent"),
+        "python_ready": python_ready_light(workspace),
+    }

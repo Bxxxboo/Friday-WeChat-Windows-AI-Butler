@@ -13,6 +13,7 @@ from friday.paths import get_appdata_dir
 _log = get_logger("rules")
 
 BUILTIN_RESPONSE_RULE_ID = "builtin:cursor-style-reply"
+BUILTIN_FILE_SAFETY_RULE_ID = "builtin:file-safety"
 
 _BUILTIN_RULES: tuple[dict[str, Any], ...] = (
     {
@@ -23,6 +24,25 @@ _BUILTIN_RULES: tuple[dict[str, Any], ...] = (
             "② 给出 2～4 条可执行的下一步建议（禁止只说「继续」或「告诉我下一步」）；"
             "③ 若未做完，说明剩余项并给出一句用户可直接复制发送的后续指令。"
             "禁止空泛收尾如「这部分任务已完成，请说继续」。"
+        ),
+        "enabled": True,
+        "always_apply": True,
+        "source": "builtin",
+    },
+    {
+        "id": BUILTIN_FILE_SAFETY_RULE_ID,
+        "title": "文件删改安全",
+        "content": (
+            "删/改/移用户电脑上已存在的文件须用 delete_file、write_text_file、move_file、"
+            "organize_directory 等专用工具，并等待用户在界面或微信点「同意」；"
+            "禁止用 run_python、run_python_script、run_powershell 执行 os.remove、rmtree、"
+            "shutil.move、os.replace 等删除/覆盖已有文件的方式绕过审批；"
+            "工作区内新建文件可经普通 run_python（同轮确认一次），覆盖已有文件仍须专用工具。"
+            "「整理」「清理」「修复」须先只读扫描并给出计划，用户确认后再执行；不等于同意删除。"
+            "禁止修改 %AppData%\\Friday\\ 下 settings.json、operations.json 等应用配置。"
+            "覆盖已有文件、删除、批量移动前须说明路径、数量与是否可恢复。"
+            "Ask 模式只读；Agent 每次危险操作须确认；Yolo 下删除与 Python/PowerShell 仍须确认。"
+            "收尾须列出实际动过的路径，或明确「未删除任何文件」。"
         ),
         "enabled": True,
         "always_apply": True,

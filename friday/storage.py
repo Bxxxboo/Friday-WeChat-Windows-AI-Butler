@@ -1,9 +1,10 @@
 """用户设置持久化 —— 支持 AES 加密存储 API Key。
 
 加密策略：
-- Fernet 密钥存储在 %APPDATA%/Friday/.fernet_key
-- api_key 落盘前加密，读取时解密
-- 旧版明文 Key 首次读取时自动迁移为加密存储
+- Fernet 密钥与 API Key 优先存储在 %APPDATA%/Friday/credentials/
+- settings.json 仍保留加密副本（兼容旧版）；凭据库为权威来源
+- 空 Key 保存时不覆盖已有加密值
+- 旧版根目录 .fernet_key 首次读取时自动迁移
 """
 
 from __future__ import annotations
@@ -24,7 +25,10 @@ _ENCRYPTION_PREFIX = "fernet:"
 
 
 def _fernet_key_path() -> Path:
-    return get_appdata_dir() / ".fernet_key"
+    from friday.credentials_store import ensure_credentials_migrated, fernet_key_path
+
+    ensure_credentials_migrated()
+    return fernet_key_path()
 
 
 def _get_fernet():
@@ -87,7 +91,7 @@ class UserSettings:
     base_url: str = "https://api.deepseek.com"
     model: str = "deepseek-chat"
     workspace: str = ""
-    theme: str = "dark"
+    theme: str = "light"
     font_size: str = "medium"
     restrict_to_workspace: bool = True
     allow_read_user_folders: bool = True
@@ -148,7 +152,9 @@ class UserSettings:
     @property
     def api_ready(self) -> bool:
         key = self.api_key.strip()
-        return bool(key and key != "sk-your-key-here")
+        if not key or key == "sk-your-key-here" or key.startswith("sk-test"):
+            return False
+        return True
 
     def masked_key(self) -> str:
         key = self.api_key.strip()
@@ -228,39 +234,63 @@ def _decrypt_llm_profiles(profiles: dict) -> dict:
 
 
 def save_settings(settings: UserSettings) -> None:
-    """保存设置到 %APPDATA%/Friday/settings.json，api_key 加密后落盘。"""
+    """保存设置到 settings.json；API 凭据写入 credentials/ 目录。"""
+    from friday.credentials_store import (
+        ALL_SECRET_KEYS,
+        load_encrypted_secrets_raw,
+        preserve_empty_secrets_in_settings,
+        save_api_secrets,
+    )
     from friday.portability import CURRENT_SETTINGS_SCHEMA_VERSION
 
-    data = asdict(settings)
-    data["api_key"] = _encrypt_key(data["api_key"])
-    data["vision_api_key"] = _encrypt_key(data.get("vision_api_key", ""))
-    data["image_gen_api_key"] = _encrypt_key(data.get("image_gen_api_key", ""))
-    data["llm_profiles"] = _encrypt_llm_profiles(data.get("llm_profiles") or {})
-    data["vision_profiles"] = _encrypt_provider_profiles(data.get("vision_profiles") or {}, category="vision")
-    data["image_gen_profiles"] = _encrypt_provider_profiles(data.get("image_gen_profiles") or {}, category="image_gen")
-    data["llm_custom_endpoints"] = _encrypt_custom_endpoints(data.get("llm_custom_endpoints") or [])
-    data["vision_custom_endpoints"] = _encrypt_custom_endpoints(data.get("vision_custom_endpoints") or [])
-    data["image_gen_custom_endpoints"] = _encrypt_custom_endpoints(data.get("image_gen_custom_endpoints") or [])
+    data = preserve_empty_secrets_in_settings(asdict(settings))
+    save_api_secrets(data)
+
+    encrypted_secrets = load_encrypted_secrets_raw()
     data["settings_schema_version"] = CURRENT_SETTINGS_SCHEMA_VERSION
+    for key in ALL_SECRET_KEYS:
+        if key in encrypted_secrets:
+            data[key] = encrypted_secrets[key]
+        elif key in ("api_key", "vision_api_key", "image_gen_api_key"):
+            data[key] = _encrypt_key(str(data.get(key) or ""))
+        elif key == "llm_profiles":
+            data[key] = _encrypt_llm_profiles(data.get(key) or {})
+        elif key == "vision_profiles":
+            data[key] = _encrypt_provider_profiles(data.get(key) or {}, category="vision")
+        elif key == "image_gen_profiles":
+            data[key] = _encrypt_provider_profiles(data.get(key) or {}, category="image_gen")
+        elif key in ("llm_custom_endpoints", "vision_custom_endpoints", "image_gen_custom_endpoints"):
+            data[key] = _encrypt_custom_endpoints(data.get(key) or [])
+
     path = _settings_path()
     atomic_write_json(path, data)
     _log.info("设置已保存 | path=%s", path)
 
 
 def load_settings() -> UserSettings:
-    """从 %APPDATA%/Friday/settings.json 加载设置，api_key 自动解密。"""
+    """加载设置；API 凭据优先从 credentials/ 读取。"""
+    from friday.credentials_store import apply_secrets_to_settings_data, ensure_credentials_migrated, load_api_secrets
     from friday.portability import CURRENT_SETTINGS_SCHEMA_VERSION, try_migrate_legacy_appdata
 
+    ensure_credentials_migrated()
     path = _settings_path()
     if not path.exists():
         try_migrate_legacy_appdata()
+        ensure_credentials_migrated()
         path = _settings_path()
+    secrets = load_api_secrets()
     if not path.exists():
+        if secrets:
+            settings = UserSettings.from_dict(apply_secrets_to_settings_data({}, secrets))
+            _log.info("凭据库存在但 settings.json 缺失，已从 credentials/ 恢复 API 设置")
+            return settings
         _log.info("设置文件不存在，使用默认设置 | path=%s", path)
         return UserSettings()
     data = load_json(path)
     if not isinstance(data, dict):
         _log.warning("设置文件无效，使用默认设置 | path=%s", path)
+        if secrets:
+            return UserSettings.from_dict(apply_secrets_to_settings_data({}, secrets))
         return UserSettings()
     schema = int(data.pop("settings_schema_version", 0) or 0)
     if "api_key" in data:
@@ -278,6 +308,8 @@ def load_settings() -> UserSettings:
     for key in ("llm_custom_endpoints", "vision_custom_endpoints", "image_gen_custom_endpoints"):
         if key in data:
             data[key] = _decrypt_custom_endpoints(data.get(key) or [])
+    if secrets:
+        data = apply_secrets_to_settings_data(data, secrets)
     settings = UserSettings.from_dict(data)
     if schema < CURRENT_SETTINGS_SCHEMA_VERSION:
         settings = _migrate_settings_schema(settings, schema)
@@ -301,17 +333,22 @@ def load_settings() -> UserSettings:
         _log.info("已修复视觉/生图与服务商不匹配的配置")
         settings = repaired
 
-    from friday.llm_profiles import active_provider_id, normalize_profiles, seed_profiles_from_active
+    from friday.llm_profiles import active_provider_id, normalize_profiles, repair_llm_key_alignment, seed_profiles_from_active
 
     profiles = normalize_profiles(settings.llm_profiles)
     active = active_provider_id(settings)
     active_key = (profiles.get(active) or {}).get("api_key", "").strip()
-    if settings.api_key.strip() and not active_key:
+    if settings.api_key.strip() and (active not in profiles or not active_key):
         seeded = seed_profiles_from_active(settings)
         if seeded.llm_profiles != settings.llm_profiles:
             save_settings(seeded)
             _log.info("已从当前 API Key 回填服务商配置记忆 | provider=%s", active)
             settings = seeded
+    aligned = repair_llm_key_alignment(settings)
+    if aligned.api_key != settings.api_key:
+        save_settings(aligned)
+        _log.info("已修复大模型 Key 与当前服务商 profile 不一致 | provider=%s", active)
+        settings = aligned
     return settings
 
 
@@ -465,24 +502,22 @@ def resolved_workspace(settings: UserSettings) -> str:
 
 def merge_settings(current: UserSettings, payload: dict) -> UserSettings:
     """合并前端传过来的部分设置更新；空 Key 保留原值，空 URL/模型回退默认值。"""
-    from friday.category_profiles import merge_category_settings, persist_category_profile
+    from friday.category_profiles import merge_category_settings, persist_category_profile, repair_isolated_category_settings
     from friday.custom_endpoints import merge_custom_settings, persist_custom_on_save
     from friday.llm_profiles import merge_llm_settings, persist_active_profile
 
     custom = merge_custom_settings(current, payload)
     if custom is not None:
-        from friday.category_profiles import repair_isolated_category_settings
-
         return repair_isolated_category_settings(custom)
 
     switched = merge_llm_settings(current, payload)
     if switched is not None:
-        return switched
+        return repair_isolated_category_settings(switched)
 
     for category in ("vision", "image_gen"):
         switched = merge_category_settings(current, payload, category)
         if switched is not None:
-            return switched
+            return repair_isolated_category_settings(switched)
 
     merged = current.merge({k: v for k, v in payload.items() if k not in {
         "switch_llm_profile",
@@ -522,4 +557,4 @@ def merge_settings(current: UserSettings, payload: dict) -> UserSettings:
     ):
         merged = persist_category_profile(merged, "image_gen")
     merged = persist_custom_on_save(merged, payload)
-    return merged
+    return repair_isolated_category_settings(merged)

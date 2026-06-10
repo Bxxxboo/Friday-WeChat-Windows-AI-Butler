@@ -30,6 +30,8 @@ ASK_BLOCK_REASON = (
 # Yolo 下仍须人工确认的高风险 EXEC
 YOLO_EXEC_REQUIRES_APPROVAL = frozenset({
     "run_powershell",
+    "run_python",
+    "run_python_script",
     "install_friday_plugin",
     "uninstall_friday_plugin",
 })

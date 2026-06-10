@@ -1,0 +1,23 @@
+---
+description: 删改用户已有文件须专用工具+用户审批，禁止 run_python 绕过；整理/清理任务先只读后确认。完整清单见 .friday/skills/file-safety/SKILL.md。
+alwaysApply: true
+---
+
+# 文件删改安全（强制）
+
+处理整理、清理、修复、删除、覆盖、移动文件时 **必须先读** [file-safety SKILL](../skills/file-safety/SKILL.md)。
+
+## 铁律
+
+1. **删 / 改 / 移动用户已有文件** → 用 `delete_file`、`write_text_file`、`move_file` 等专用工具，**等用户点「同意」**；禁止用 `run_python` / PowerShell 里 `remove`/`rmtree`/`move`/`replace` 绕过审批；工作区**新建**文件可经普通 `run_python`（同轮确认一次）。
+2. 「整理」「清理」「修复」**≠** 同意删除；须先只读扫描 → 给计划 → 用户确认后再动。
+3. **禁止**动 `%AppData%\Friday\` 配置；**禁止**未说明路径与后果就删改桌面/文档/下载/项目文件。
+4. Ask 模式只读；Agent 每次危险操作须确认；Yolo 下删除与 Python/PowerShell 仍须确认。
+
+## 调用写/删工具前
+
+- 已只读确认路径？
+- 已说明路径、操作、是否可恢复？
+- 已用专用工具且等审批通过？
+
+未满足 **不得** 执行删改。

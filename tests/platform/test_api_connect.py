@@ -6,6 +6,7 @@ from friday.api_connect import (
     apply_network_environment,
     diagnose_llm,
     format_api_error,
+    is_transient_api_error,
     parse_host_port,
     probe_llm_status,
     quick_reachability,
@@ -131,3 +132,172 @@ def test_probe_image_gen_status_uses_test_cache(monkeypatch):
     ok, detail = probe_image_gen_status(settings)
     assert ok is True
     assert "生图测试通过" in detail
+
+
+def test_save_settings_preserves_image_gen_test_cache():
+    from friday.api_connect import invalidate_auth_status_for_settings_change
+
+    before = UserSettings(
+        image_gen_enabled=True,
+        image_gen_api_key="ark-test-key-12345678",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        image_gen_provider="openai_compat",
+    )
+    after = UserSettings(
+        image_gen_enabled=True,
+        image_gen_api_key="ark-test-key-12345678",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        image_gen_provider="openai_compat",
+        workspace="D:/Friday-workspace",
+    )
+    record_service_status("image_gen", after, True, "生图测试通过，模型可正常调用")
+    invalidate_auth_status_for_settings_change(before, after)
+    cached = _read_auth_status(_auth_status_key("image_gen", after), service="image_gen")
+    assert cached is not None
+    assert cached[0] is True
+
+
+def test_probe_image_gen_status_keeps_ok_cache_on_inconclusive_failure(monkeypatch):
+    from friday.api_connect import probe_image_gen_status, record_service_status, _auth_status_key, _read_auth_status
+
+    settings = UserSettings(
+        image_gen_enabled=True,
+        image_gen_api_key="ark-test-key-12345678",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        image_gen_provider="openai_compat",
+    )
+    record_service_status("image_gen", settings, True, "生图测试通过，模型可正常调用")
+
+    def fake_probe(*_args, **_kwargs):
+        from friday.api_connect import ConnectivityStep
+
+        return ConnectivityStep("生图 API", False, "生图探测超时（端点响应较慢）", "确认 Key")
+
+    monkeypatch.setattr("friday.api_connect._probe_image_gen_api", fake_probe)
+
+    ok, detail = probe_image_gen_status(settings, force=True)
+    assert ok is True
+    assert "生图测试通过" in detail
+    cached = _read_auth_status(_auth_status_key("image_gen", settings), service="image_gen")
+    assert cached is not None
+    assert cached[0] is True
+
+
+def test_probe_image_gen_status_quick_failure_does_not_clobber_ok_cache(monkeypatch):
+    from friday.api_connect import probe_image_gen_status, record_service_status, _auth_status_key, _read_auth_status
+
+    settings = UserSettings(
+        image_gen_enabled=True,
+        image_gen_api_key="ark-test-key-12345678",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        image_gen_provider="openai_compat",
+    )
+    record_service_status("image_gen", settings, True, "生图测试通过，模型可正常调用")
+
+    def fake_probe(*_args, **_kwargs):
+        from friday.api_connect import ConnectivityStep
+
+        return ConnectivityStep("生图 API", False, "所有端点均无法用于生图", "确认 Key")
+
+    monkeypatch.setattr("friday.api_connect._probe_image_gen_api", fake_probe)
+
+    ok, detail = probe_image_gen_status(settings, force=True, quick=True)
+    assert ok is True
+    assert "生图测试通过" in detail
+    cached = _read_auth_status(_auth_status_key("image_gen", settings), service="image_gen")
+    assert cached is not None
+    assert cached[0] is True
+
+
+def test_verify_image_gen_api_ark_quick_probe_when_models_inconclusive(tmp_appdata, monkeypatch):
+    from friday.image_gen import verify_image_gen_api
+
+    settings = UserSettings(
+        image_gen_enabled=True,
+        image_gen_api_key="ark-test-key-12345678",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        image_gen_provider="openai_compat",
+    )
+
+    monkeypatch.setattr(
+        "friday.image_gen._verify_image_gen_models_http",
+        lambda *_a, **_k: (None, ""),
+    )
+    monkeypatch.setattr(
+        "friday.image_gen._verify_image_gen_images_auth",
+        lambda *_a, **_k: (None, "生图探测超时（端点响应较慢）"),
+    )
+
+    ok, message = verify_image_gen_api(settings, timeout=4.0, primary_only=True)
+    assert ok is True
+    assert "超时" in message or "可达" in message
+
+
+def test_is_transient_api_error():
+    assert is_transient_api_error("httpx.ReadTimeout: read operation timed out") is True
+    assert is_transient_api_error("Connection refused") is False
+    assert is_transient_api_error("429 Too Many Requests") is True
+
+
+def test_record_service_status_skips_transient_failure():
+    settings = UserSettings(
+        api_key="sk-live-key-1234567890",
+        base_url="https://api.deepseek.com",
+        model="deepseek-chat",
+    )
+    record_service_status("llm", settings, True, "对话成功")
+    record_service_status("llm", settings, False, "API 响应超时", transient=True)
+    cached = _read_auth_status(_auth_status_key("llm", settings), service="llm")
+    assert cached is not None
+    assert cached[0] is True
+
+
+def test_invalidate_probe_cache_can_preserve_auth_status():
+    from friday.api_connect import invalidate_probe_cache, read_cached_service_status
+
+    settings = UserSettings(
+        api_key="sk-live-key-1234567890",
+        base_url="https://api.deepseek.com",
+        model="deepseek-chat",
+        vision_enabled=True,
+        vision_api_key="ark-test-key-12345678",
+        vision_model="ep-test",
+    )
+    record_service_status("vision", settings, True, "视觉 API 可用")
+    invalidate_probe_cache(clear_auth=False)
+    cached = read_cached_service_status("vision", settings)
+    assert cached is not None
+    assert cached[0] is True
+
+
+def test_llm_test_success_does_not_clear_vision_auth_cache(monkeypatch):
+    from friday.api_connect import read_cached_service_status, test_llm_service
+
+    settings = UserSettings(
+        api_key="sk-live-key-1234567890",
+        base_url="https://api.deepseek.com",
+        model="deepseek-chat",
+        vision_enabled=True,
+        vision_api_key="ark-test-key-12345678",
+        vision_model="ep-test",
+    )
+    record_service_status("vision", settings, True, "视觉 API 可用")
+
+    class _FakeBrain:
+        def __init__(self, _settings):
+            pass
+
+        def test_connection(self):
+            return True, "API 可用"
+
+    monkeypatch.setattr("friday.brain.DeepSeekBrain", _FakeBrain)
+    ok, _msg = test_llm_service(settings)
+    assert ok is True
+    cached = read_cached_service_status("vision", settings)
+    assert cached is not None
+    assert cached[0] is True

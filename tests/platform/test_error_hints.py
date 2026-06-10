@@ -28,6 +28,12 @@ def test_classify_api_network():
     assert hint.code == "api_network"
 
 
+def test_classify_api_read_timeout():
+    hint = classify_error("httpx.ReadTimeout: read operation timed out", context="api_test")
+    assert hint.code == "api_timeout"
+    assert "超时" in hint.detail
+
+
 def test_classify_auth_401():
     hint = classify_error("Unauthorized", context="auth_401")
     assert hint.code == "auth_401"

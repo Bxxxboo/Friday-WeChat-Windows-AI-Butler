@@ -76,6 +76,7 @@ class SettingsResponse(BaseModel):
     model: str
     workspace: str
     api_ready: bool
+    llm_status_hint: str = ""
     theme: str
     font_size: str
     restrict_to_workspace: bool

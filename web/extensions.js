@@ -432,25 +432,98 @@
   /* ── MCP ── */
 
   const mcpListEl = document.getElementById("mcpServerList");
+  const mcpEmptyEl = document.getElementById("mcpEmpty");
   const mcpResultEl = document.getElementById("mcpResult");
   let mcpServers = [];
+
+  function escapeMcpAttr(text) {
+    return String(text ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;");
+  }
 
   function renderMcpServers() {
     if (!mcpListEl) return;
     mcpListEl.innerHTML = "";
+
+    if (!mcpServers.length) {
+      mcpEmptyEl?.classList.remove("hidden");
+      return;
+    }
+    mcpEmptyEl?.classList.add("hidden");
+
     mcpServers.forEach((srv, idx) => {
-      const card = document.createElement("div");
-      card.className = "mcp-server-card";
+      const card = document.createElement("article");
+      card.className = "mcp-server-card" + (srv.enabled ? "" : " mcp-server-card-off");
+      const displayName = srv.name?.trim() || "MCP Server";
+      const argsStr = (srv.args || []).join(" ");
+      const commandHint = srv.command?.trim() || "未设置命令";
+
       card.innerHTML = `
-        <label class="settings-check"><input type="checkbox" data-mcp-enabled="${idx}" ${srv.enabled ? "checked" : ""}/> 启用</label>
-        <label><span>名称</span><input type="text" data-mcp-name="${idx}" value="${srv.name || ""}"/></label>
-        <label><span>命令</span><input type="text" data-mcp-command="${idx}" value="${srv.command || ""}" placeholder="npx 或 python 路径"/></label>
-        <label><span>参数（空格分隔）</span><input type="text" data-mcp-args="${idx}" value="${(srv.args || []).join(" ")}"/></label>
-        <label><span>工作目录（可选）</span><input type="text" data-mcp-cwd="${idx}" value="${srv.cwd || ""}"/></label>
-        <button type="button" class="ghost-btn" data-mcp-remove="${idx}">删除</button>
+        <div class="mcp-card-head">
+          <div class="mcp-card-head-main">
+            <span class="mcp-card-badge">${idx + 1}</span>
+            <div class="mcp-card-head-text">
+              <h5 class="mcp-card-title" data-mcp-title="${idx}">${escapeMcpAttr(displayName)}</h5>
+              <p class="mcp-card-sub" data-mcp-sub="${idx}">${escapeMcpAttr(commandHint)}</p>
+            </div>
+          </div>
+          <div class="mcp-card-head-actions">
+            <label class="schedule-toggle mcp-card-toggle" title="${srv.enabled ? "启用中" : "已停用"}">
+              <input type="checkbox" data-mcp-enabled="${idx}" ${srv.enabled ? "checked" : ""}/>
+              <span class="schedule-toggle-ui"></span>
+            </label>
+            <button type="button" class="ghost-btn mcp-card-remove danger-text" data-mcp-remove="${idx}">删除</button>
+          </div>
+        </div>
+        <div class="mcp-card-body">
+          <div class="settings-form mcp-card-form">
+            <label>
+              <span>名称</span>
+              <input type="text" data-mcp-name="${idx}" value="${escapeMcpAttr(srv.name || "")}" placeholder="例如：Better Icons"/>
+            </label>
+            <label>
+              <span>命令</span>
+              <input type="text" data-mcp-command="${idx}" value="${escapeMcpAttr(srv.command || "")}" placeholder="npx 或 python 可执行文件路径"/>
+            </label>
+            <div class="mcp-form-row">
+              <label>
+                <span>参数</span>
+                <input type="text" data-mcp-args="${idx}" value="${escapeMcpAttr(argsStr)}" placeholder="空格分隔"/>
+              </label>
+              <label>
+                <span>工作目录</span>
+                <input type="text" data-mcp-cwd="${idx}" value="${escapeMcpAttr(srv.cwd || "")}" placeholder="可选"/>
+              </label>
+            </div>
+          </div>
+        </div>
       `;
+
+      const enabledInput = card.querySelector(`[data-mcp-enabled="${idx}"]`);
+      enabledInput?.addEventListener("change", () => {
+        card.classList.toggle("mcp-server-card-off", !enabledInput.checked);
+        enabledInput.closest(".mcp-card-toggle")?.setAttribute(
+          "title",
+          enabledInput.checked ? "启用中" : "已停用",
+        );
+      });
+
+      const nameInput = card.querySelector(`[data-mcp-name="${idx}"]`);
+      const cmdInput = card.querySelector(`[data-mcp-command="${idx}"]`);
+      const titleEl = card.querySelector(`[data-mcp-title="${idx}"]`);
+      const subEl = card.querySelector(`[data-mcp-sub="${idx}"]`);
+      const syncPreview = () => {
+        if (titleEl) titleEl.textContent = nameInput?.value?.trim() || "MCP Server";
+        if (subEl) subEl.textContent = cmdInput?.value?.trim() || "未设置命令";
+      };
+      nameInput?.addEventListener("input", syncPreview);
+      cmdInput?.addEventListener("input", syncPreview);
+
       mcpListEl.appendChild(card);
     });
+
     mcpListEl.querySelectorAll("[data-mcp-remove]").forEach((btn) => {
       btn.addEventListener("click", () => {
         mcpServers.splice(Number(btn.dataset.mcpRemove), 1);

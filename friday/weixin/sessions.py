@@ -72,6 +72,9 @@ def resolve_session_id(account_id: str, peer_id: str, *, activate: bool = False)
         _maybe_upgrade_weixin_title(existing)
         ensure_session_listed(existing, prepend=True)
         return existing
+    if existing:
+        _log.warning("微信会话映射失效，将重建 | peer=%s stale=%s", peer_id, existing)
+        mapping.pop(key, None)
 
     session = create_session(WEIXIN_SESSION_TITLE, title_pinned=True, activate=activate)
     mapping[key] = session.id

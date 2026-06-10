@@ -190,10 +190,40 @@ def merge_llm_settings(current: UserSettings, payload: dict) -> UserSettings | N
         return switch_llm_provider(current, str(payload["llm_provider"]))
     new_provider = str(payload.get("llm_provider") or "").strip()
     old_provider = active_provider_id(current)
-    if (
-        new_provider
-        and new_provider != old_provider
-        and not any(str(payload.get(k) or "").strip() for k in ("api_key", "base_url", "model"))
-    ):
+    explicit_key = "api_key" in payload and str(payload.get("api_key") or "").strip()
+    if new_provider and new_provider != old_provider and not explicit_key:
         return switch_llm_provider(current, new_provider)
     return None
+
+
+def llm_config_hint(settings: UserSettings) -> str:
+    key = settings.api_key.strip()
+    if not key:
+        return "请填写大模型 API Key"
+    if key == "sk-your-key-here" or key.startswith("sk-test"):
+        return "当前 Key 为占位/测试值，请粘贴真实 API Key 并点保存"
+    active = active_provider_id(settings)
+    profiles = normalize_profiles(settings.llm_profiles)
+    if active == "mimo" and active not in profiles:
+        deepseek_key = str((profiles.get("deepseek") or {}).get("api_key") or "").strip()
+        if deepseek_key and deepseek_key == key:
+            return "当前仍为 DeepSeek 的 Key，请粘贴 MiMo Key 并保存"
+    return ""
+
+
+def repair_llm_key_alignment(settings: UserSettings) -> UserSettings:
+    """顶层 api_key 与当前服务商 profile 不一致时，以 profile 为准。"""
+    active = active_provider_id(settings)
+    if is_custom_provider_id(active):
+        return settings
+    profiles = normalize_profiles(settings.llm_profiles)
+    saved = profiles.get(active) or {}
+    saved_key = str(saved.get("api_key") or "").strip()
+    current_key = settings.api_key.strip()
+    if not saved_key or saved_key == current_key:
+        return settings
+    saved_url = str(saved.get("base_url") or "").strip().rstrip("/")
+    active_url = (settings.base_url or "").strip().rstrip("/")
+    if saved_url and active_url and saved_url != active_url:
+        return settings
+    return settings.merge({"api_key": saved_key})

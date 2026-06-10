@@ -17,6 +17,7 @@ from friday.image_gen import (
     resolve_image_gen_size,
     resolve_image_gen_timeouts,
     verify_image_gen_api,
+    _is_ark_image_gen_endpoint,
     _should_skip_images_probe,
 )
 import friday.image_gen as image_gen_module
@@ -308,8 +309,85 @@ def test_resolve_generated_image_path(tmp_appdata):
 
 
 def test_should_skip_images_probe_for_ark(tmp_appdata):
-    assert _should_skip_images_probe("https://ark.cn-beijing.volces.com/api/v3", _settings(image_gen_provider="ark"))
+    ark_settings = _settings(image_gen_provider="ark")
+    base = "https://ark.cn-beijing.volces.com/api/v3"
+    assert _should_skip_images_probe(base, ark_settings)
+    assert _should_skip_images_probe(base, ark_settings, strict=True) is False
     assert _should_skip_images_probe("https://example.com", _settings(image_gen_provider="openai_compat")) is False
+
+
+def test_is_ark_image_gen_endpoint_detects_ep_and_volces(tmp_appdata):
+    ep_settings = _settings(
+        image_gen_provider="openai_compat",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+    )
+    assert _is_ark_image_gen_endpoint(ep_settings)
+    assert not _is_ark_image_gen_endpoint(_settings(image_gen_model="dall-e-3"))
+
+
+def test_verify_models_http_ark_ep_not_in_list_defers_to_images(tmp_appdata, monkeypatch):
+    import json
+    import urllib.error
+
+    class _FakeResp:
+        status = 200
+
+        def read(self, _n: int = -1) -> bytes:
+            payload = {"data": [{"id": "some-other-model"}]}
+            return json.dumps(payload).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr("friday.api_connect.urlopen_request", lambda *_a, **_k: _FakeResp())
+
+    settings = _settings(
+        image_gen_provider="openai_compat",
+        image_gen_model="ep-20260609235327-pf4mr",
+        image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+    )
+    ok, msg = image_gen_module._verify_image_gen_models_http(
+        "ark-test-key",
+        settings.image_gen_base_url,
+        settings,
+        timeout=3.0,
+        strict=True,
+    )
+    assert ok is None
+    assert msg == ""
+
+
+def test_verify_image_gen_api_ark_strict_uses_images_when_models_misses_ep(tmp_appdata, monkeypatch):
+    calls: list[str] = []
+
+    def fake_models(*_a, **_k):
+        calls.append("models")
+        return None, ""
+
+    def fake_images(*_a, **_k):
+        calls.append("images")
+        return True, "生图端点可用，模型「ep-20260609235327-pf4mr」可正常调用（探测尺寸 1920x1920）"
+
+    monkeypatch.setattr("friday.image_gen._verify_image_gen_models_http", fake_models)
+    monkeypatch.setattr("friday.image_gen._verify_image_gen_images_auth", fake_images)
+
+    ok, message = verify_image_gen_api(
+        _settings(
+            image_gen_provider="openai_compat",
+            image_gen_api_key="ark-test-key-12345678",
+            image_gen_model="ep-20260609235327-pf4mr",
+            image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        ),
+        strict=True,
+        primary_only=True,
+    )
+    assert ok is True
+    assert "可正常调用" in message
+    assert calls == ["models", "images"]
 
 
 def test_verify_image_gen_api_prefers_models_http(tmp_appdata, monkeypatch):
@@ -341,6 +419,10 @@ def test_test_image_gen_connection_uses_strict_probe(tmp_appdata, monkeypatch):
         return False, "模型不可用"
 
     monkeypatch.setattr("friday.image_gen.verify_image_gen_api", fake_verify)
+    monkeypatch.setattr(
+        "friday.image_gen._strict_test_via_images_client",
+        lambda *_a, **_k: (False, "client failed"),
+    )
 
     with patch("friday.image_gen.generate_image") as mock_generate:
         ok, _message = image_gen_module.test_image_gen_connection(_settings())
@@ -349,6 +431,36 @@ def test_test_image_gen_connection_uses_strict_probe(tmp_appdata, monkeypatch):
         assert calls[0].get("strict")
         assert calls[0].get("primary_only")
         mock_generate.assert_not_called()
+
+
+def test_test_image_gen_connection_ark_uses_client_probe(tmp_appdata, monkeypatch):
+    client_calls: list[float] = []
+    verify_calls: list[object] = []
+
+    monkeypatch.setattr(
+        "friday.image_gen._strict_test_via_images_client",
+        lambda _settings, *, timeout: client_calls.append(timeout) or (
+            True,
+            "生图测试通过，模型「ep-20260609235327-pf4mr」可正常调用（探测尺寸 1920x1920）",
+        ),
+    )
+    monkeypatch.setattr(
+        "friday.image_gen.verify_image_gen_api",
+        lambda *_a, **_k: verify_calls.append(True) or (False, "should not run"),
+    )
+
+    ok, msg = image_gen_module.test_image_gen_connection(
+        _settings(
+            image_gen_api_key="ark-test-key-12345678",
+            image_gen_model="ep-20260609235327-pf4mr",
+            image_gen_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        )
+    )
+    assert ok
+    assert "可正常调用" in msg
+    assert client_calls
+    assert client_calls[0] >= 90
+    assert verify_calls == []
 
 
 def test_humanize_image_gen_http_error_ep_404():

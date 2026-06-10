@@ -75,6 +75,13 @@ def _maybe_ensure_openclaw_gateway() -> None:
     if not getattr(load_settings(), "weixin_bridge_enabled", True):
         return
     _gateway_health_ticks += 1
+    if _gateway_health_ticks < 2:
+        if _gateway_health_ticks == 1:
+            from friday.weixin.gateway import ensure_weixin_gateway_with_retries, probe_gateway
+
+            if not probe_gateway():
+                ensure_weixin_gateway_with_retries(attempts=2, delay_sec=3.0)
+        return
     if _gateway_health_ticks < 5:
         return
     _gateway_health_ticks = 0

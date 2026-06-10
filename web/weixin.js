@@ -119,15 +119,92 @@
       : "请刷新状态或检查 OpenClaw 是否已安装。";
   }
 
-  function setResult(ok, message) {
+  function splitResultLines(message) {
+    return String(message || "")
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  function summarizeSetupMessage(ok, message, data) {
+    const lines = splitResultLines(message);
+    if (lines.length <= 1) return message || (ok ? "操作完成" : "操作未完成");
+    if (data?.ready) return "已全部就绪，可以直接用手机微信发消息测试。";
+    const failLine = lines.find((line) => line.startsWith("✗"));
+    if (failLine) return failLine.replace(/^✗\s*/, "失败：");
+    if (lines.some((line) => /扫码|登录窗口|浏览器/.test(line))) {
+      return "扫码窗口已打开。请等待浏览器自动弹出扫码页（勿扫终端字符二维码），或点「浏览器打开扫码页」，完成后点「刷新状态」。";
+    }
+    if (ok) return "配置已完成。请查看下方各步骤状态。";
+    const last = lines[lines.length - 1] || "";
+    return last.replace(/^[✓✗→]\s*/, "");
+  }
+
+  function renderResultSummary(el, ok, summary) {
+    el.replaceChildren();
+    el.className = `settings-result weixin-setup-result weixin-setup-result--summary ${ok ? "ok" : "error"}`;
+    const icon = document.createElement("span");
+    icon.className = `weixin-result-icon ${ok ? "ok" : "error"}`;
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = ok ? "✓" : "!";
+    const text = document.createElement("span");
+    text.className = "weixin-result-text";
+    text.textContent = summary;
+    el.append(icon, text);
+  }
+
+  function setResult(ok, message, data) {
     const el = $("weixinSetupResult");
     if (!el) return;
+    el.replaceChildren();
+    const text = (message || "").trim();
+
     if (ok === null) {
-      el.className = "settings-result";
-    } else {
-      el.className = ok ? "settings-result ok" : "settings-result error";
+      el.className = "settings-result weixin-setup-result weixin-setup-result--progress";
+      if (!text) return;
+      el.textContent = text;
+      return;
     }
-    el.textContent = message || "";
+
+    if (!text) {
+      el.className = "settings-result weixin-setup-result";
+      return;
+    }
+
+    const lines = splitResultLines(text);
+    if (lines.length > 1 && Array.isArray(data?.steps) && data.steps.length > 0) {
+      renderResultSummary(el, !!ok, summarizeSetupMessage(!!ok, text, data));
+      return;
+    }
+
+    if (lines.length === 1) {
+      el.className = `settings-result weixin-setup-result ${ok ? "ok" : "error"}`;
+      el.textContent = text;
+      return;
+    }
+
+    el.className = `settings-result weixin-setup-result weixin-setup-result--log ${ok ? "ok" : "error"}`;
+    const list = document.createElement("ul");
+    list.className = "weixin-setup-log";
+    lines.forEach((line) => {
+      const item = document.createElement("li");
+      let kind = "neutral";
+      let label = line;
+      if (line.startsWith("✓")) {
+        kind = "ok";
+        label = line.slice(1).trim();
+      } else if (line.startsWith("✗")) {
+        kind = "error";
+        label = line.slice(1).trim();
+      } else if (line.startsWith("→")) {
+        kind = "action";
+        label = line.slice(1).trim();
+      }
+      item.className = `weixin-setup-log-item weixin-setup-log-item--${kind}`;
+      item.textContent = label;
+      list.appendChild(item);
+    });
+    el.appendChild(list);
   }
 
   function setProgress(message) {
@@ -142,13 +219,55 @@
   }
 
   function setBusy(busy) {
-    ["weixinSetupFullBtn", "weixinSetupRefreshBtn", "weixinSetupLoginBtn"].forEach((id) => {
+    ["weixinSetupFullBtn", "weixinSetupRefreshBtn", "weixinSetupLoginBtn", "weixinSetupBrowserBtn"].forEach((id) => {
       const btn = $(id);
       if (btn) btn.disabled = busy;
     });
   }
 
+  let loginUrlPollTimer = null;
+
+  function stopLoginUrlPoll() {
+    if (loginUrlPollTimer) {
+      clearInterval(loginUrlPollTimer);
+      loginUrlPollTimer = null;
+    }
+  }
+
+  async function pollLoginUrlAndOpen() {
+    stopLoginUrlPoll();
+    let attempts = 0;
+    loginUrlPollTimer = setInterval(async () => {
+      attempts += 1;
+      if (attempts > 30) {
+        stopLoginUrlPoll();
+        return;
+      }
+      try {
+        const res = await F.apiFetch("/api/weixin/setup/login-url");
+        const data = await res.json();
+        const url = String(data?.url || "").trim();
+        if (!url) return;
+        stopLoginUrlPoll();
+        window.open(url, "_blank", "noopener");
+      } catch {
+        /* ignore transient errors while login starts */
+      }
+    }, 2000);
+  }
+
+  async function openLoginUrlInBrowser() {
+    try {
+      const res = await F.apiFetch("/api/weixin/setup/open-login-url", { method: "POST" });
+      const data = await res.json();
+      setResult(!!data.ok, data.message || (data.ok ? "已打开浏览器" : "打开失败"));
+    } catch {
+      setResult(false, "无法打开扫码页，请先点「打开微信扫码登录」并等待约 30 秒。");
+    }
+  }
+
   async function refreshWeixinSetup() {
+    setResult(null, "");
     const badge = $("weixinSetupBadge");
     if (badge) {
       badge.className = "weixin-setup-badge";
@@ -222,8 +341,12 @@
       updateBanner(data);
       setResult(
         data.ok || data.ready,
-        (data.message || "").replace(/\n/g, " · ") || (data.ok ? "完成" : "未完成"),
+        (data.message || "").trim() || (data.ok ? "完成" : "未完成"),
+        data,
       );
+      if (action === "login" || action === "full") {
+        pollLoginUrlAndOpen();
+      }
       void refreshOpenclawAutostart();
     } catch (err) {
       const aborted = err?.name === "AbortError";
@@ -309,6 +432,7 @@
   $("weixinSetupFullBtn")?.addEventListener("click", () => void runSetup("full"));
   $("weixinSetupRefreshBtn")?.addEventListener("click", () => void refreshWeixinSetup());
   $("weixinSetupLoginBtn")?.addEventListener("click", () => void runSetup("login"));
+  $("weixinSetupBrowserBtn")?.addEventListener("click", () => void openLoginUrlInBrowser());
   $("weixinBridgeEnabled")?.addEventListener("change", (e) => {
     void toggleBridge(!!e.target.checked);
   });

@@ -109,6 +109,28 @@ def _preset_default_base_url(category: Category, provider_id: str) -> str:
     return (get_image_gen_provider(provider_id).default_base_url or "").strip()
 
 
+def _resolve_profile_api_key(
+    category: Category,
+    provider_id: str,
+    current_key: str,
+    saved_key: str,
+) -> str:
+    """切换服务商时避免把旧 profile 里格式不匹配的 Key 覆盖掉当前可用 Key。"""
+    current = (current_key or "").strip()
+    saved = (saved_key or "").strip()
+    if category in ("vision", "image_gen") and provider_id == "ark":
+        if not saved:
+            return current
+        if not current:
+            return saved
+        if saved.startswith("sk-") and current.startswith("ark-"):
+            return current
+        if current.startswith("sk-") and saved.startswith("ark-"):
+            return saved
+        return saved
+    return saved
+
+
 def switch_category_profile(
     settings: UserSettings,
     category: EndpointCategory,
@@ -133,21 +155,31 @@ def switch_category_profile(
         return settings.merge({c["provider"]: new_id, _profiles_field(category): profiles})
 
     saved = profiles.get(new_id) or {}
-    base_url = (saved.get("base_url") or _preset_default_base_url(category, new_id)).strip()
+    current_key = str(getattr(settings, c["api_key"], "") or "").strip()
+    resolved_key = _resolve_profile_api_key(
+        category,
+        new_id,
+        current_key,
+        str(saved.get("api_key") or ""),
+    )
+    current_base = str(getattr(settings, c["base_url"], "") or "").strip()
+    base_url = (saved.get("base_url") or current_base or _preset_default_base_url(category, new_id)).strip()
+    current_model = str(getattr(settings, c["model"], "") or "").strip()
     model = _normalize_model(
         category,
         new_id,
-        (saved.get("model") or _default_model(category, new_id)).strip(),
+        (saved.get("model") or current_model or _default_model(category, new_id)).strip(),
     )
     patch: dict[str, Any] = {
         c["provider"]: new_id,
-        c["api_key"]: saved.get("api_key") or "",
+        c["api_key"]: resolved_key,
         c["base_url"]: base_url,
         c["model"]: model,
         _profiles_field(category): profiles,
     }
     if category == "image_gen":
-        patch["image_gen_fallback_urls"] = saved.get("fallback_urls") or ""
+        current_fallback = (settings.image_gen_fallback_urls or "").strip()
+        patch["image_gen_fallback_urls"] = saved.get("fallback_urls") or current_fallback or ""
 
     return settings.merge(patch)
 
@@ -258,7 +290,7 @@ def repair_category_settings(settings: UserSettings, category: Category) -> User
     url_mismatch = not _provider_url_allowed(category, provider, base_url)
     model_mismatch = category == "image_gen" and model.startswith("mimo-") and provider != "mimo"
     key_mismatch = (
-        category == "vision"
+        category in ("vision", "image_gen")
         and provider == "ark"
         and current_key.startswith("sk-")
         and saved_key.startswith("ark-")
@@ -284,7 +316,7 @@ def repair_category_settings(settings: UserSettings, category: Category) -> User
         cfg["base_url"]: repair_url,
         cfg["model"]: repair_model,
     }
-    if category == "vision" and provider == "ark":
+    if category in ("vision", "image_gen") and provider == "ark":
         if current_key.startswith("sk-") and saved_key.startswith("ark-"):
             patch[cfg["api_key"]] = saved_key
         elif not current_key and saved_key:
@@ -316,13 +348,8 @@ def merge_category_settings(current: UserSettings, payload: dict, category: Cate
         return switch_category_profile(current, category, str(payload[provider_field]))
     new_provider = str(payload.get(provider_field) or "").strip()
     old_provider = active_provider_id(current, category)
-    key_fields: tuple[str, ...] = (cfg["api_key"], cfg["base_url"], cfg["model"])
-    if category == "image_gen":
-        key_fields = key_fields + ("image_gen_fallback_urls", "image_gen_default_size")
-    if (
-        new_provider
-        and new_provider != old_provider
-        and not any(str(payload.get(k) or "").strip() for k in key_fields if k in payload)
-    ):
+    api_key_field = cfg["api_key"]
+    explicit_key = api_key_field in payload and str(payload.get(api_key_field) or "").strip()
+    if new_provider and new_provider != old_provider and not explicit_key:
         return switch_category_profile(current, category, new_provider)
     return None

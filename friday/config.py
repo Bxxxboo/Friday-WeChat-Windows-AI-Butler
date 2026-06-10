@@ -38,7 +38,7 @@ VISION_HTTP_TIMEOUT = 90  # 视觉 API 单次 HTTP 读超时（秒）
 IMAGE_GEN_HTTP_TIMEOUT = 180  # 生图 HTTP 默认读超时；实际按分辨率动态上调
 IMAGE_GEN_PROBE_TIMEOUT = 8.0  # 设置页「测试生图」轻量认证总超时预算（秒）
 IMAGE_GEN_IMAGES_PROBE_TIMEOUT = 3.0  # POST /images/generations 探测上限（避免等完整生图）
-STATUS_BAR_IMAGE_GEN_PROBE_TIMEOUT = 4.0  # 状态栏快速探测（秒）
+STATUS_BAR_IMAGE_GEN_PROBE_TIMEOUT = 8.0  # 状态栏快速探测（秒；慢端点可能仍 inconclusive）
 
 # 联网限制
 WEB_PAGE_MAX_BYTES = 10 * 1024 * 1024

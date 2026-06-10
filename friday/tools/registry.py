@@ -79,11 +79,21 @@ _TOOL_MODULE: dict[str, str] = {
 }
 
 
-def _import_tools_module(name: str) -> None:
+def _import_tools_module(name: str) -> bool:
     if name in _IMPORTED:
-        return
-    importlib.import_module(f"friday.tools.{name}")
-    _IMPORTED.add(name)
+        return True
+    try:
+        importlib.import_module(f"friday.tools.{name}")
+        _IMPORTED.add(name)
+        return True
+    except Exception as exc:
+        _log.warning(
+            "工具模块加载失败 | module=friday.tools.%s | %s",
+            name,
+            exc,
+            exc_info=True,
+        )
+        return False
 
 
 def _rebuild_maps() -> None:

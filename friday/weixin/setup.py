@@ -10,20 +10,44 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from friday.config import APP_NAME
 from friday.logging_config import get_logger
 from friday.paths import extensions_dir
 from friday.storage import UserSettings, load_settings, save_settings
+from friday.version import __version__
 from friday.weixin.client import list_account_ids, resolve_account
 from friday.weixin.config import openclaw_state_dir, read_bridge_config, write_bridge_config
 from friday.weixin.gateway import ensure_gateway_cmd, ensure_gateway_running, gateway_status
 from friday.weixin.node_runtime import ensure_node_npm, npm_command, run_npm_global
-from friday.weixin.openclaw_cli import openclaw_shell_invocation, resolve_openclaw_command, run_openclaw
+from friday.weixin.openclaw_cli import (
+    cli_available,
+    find_openclaw_script,
+    openclaw_argv,
+    openclaw_shell_invocation,
+    resolve_openclaw_command,
+    run_openclaw,
+)
 
 _log = get_logger("weixin.setup")
 
 WEIXIN_PLUGIN_ID = "openclaw-weixin"
 BRIDGE_PLUGIN_ID = "friday-weixin-bridge"
 WEIXIN_NPM_SPEC = "@tencent-weixin/openclaw-weixin@2.4.3"
+DEFAULT_WEIXIN_BOT_AGENT = f"Friday/{__version__}"
+_LEGACY_WEIXIN_DISPLAY_NAMES = frozenset(
+    {
+        "",
+        "openclaw-weixin",
+        "openclaw",
+        "OpenClaw",
+        "clawbot",
+        "ClawBot",
+        "微信clawbot",
+        "微信ClawBot",
+        "微信 ClawBot",
+        "微信 clawbot",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -46,10 +70,7 @@ def invalidate_cli_info_cache() -> None:
 
 
 def _openclaw_cli_available() -> bool:
-    cli = resolve_openclaw_command()
-    if cli != ["openclaw"]:
-        return True
-    return shutil.which("openclaw") is not None
+    return cli_available()
 
 
 def _openclaw_cli_info() -> tuple[bool, str, str]:
@@ -248,22 +269,16 @@ def migrate_legacy_openclaw_state() -> tuple[bool, str]:
 def _install_weixin_via_npm() -> tuple[bool, str]:
     import tempfile
 
-    from friday.weixin.config import openclaw_env
+    from friday.weixin.node_runtime import run_npm
 
-    npm = npm_command()
-    if not npm:
+    if not npm_command():
         return False, "npm 不可用，无法安装微信插件"
     tmp = Path(tempfile.mkdtemp(prefix="friday-weixin-"))
     try:
-        proc = subprocess.run(
-            [npm, "install", WEIXIN_NPM_SPEC, "--prefix", str(tmp)],
-            capture_output=True,
-            text=True,
+        proc = run_npm(
+            ["install", WEIXIN_NPM_SPEC],
             timeout=600,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
-            env=openclaw_env(),
+            prefix=tmp,
         )
         detail = (proc.stderr or proc.stdout or "").strip()[-400:]
         if proc.returncode != 0:
@@ -280,6 +295,107 @@ def _install_weixin_via_npm() -> tuple[bool, str]:
         return False, f"npm 安装微信插件异常：{exc}"
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _should_replace_weixin_display_name(name: Any) -> bool:
+    if name is None:
+        return True
+    text = str(name).strip()
+    if not text:
+        return True
+    lowered = text.casefold()
+    if lowered in {item.casefold() for item in _LEGACY_WEIXIN_DISPLAY_NAMES if item}:
+        return True
+    return lowered.endswith("clawbot") or lowered.endswith(" openclaw")
+
+
+def _apply_agent_branding(data: dict[str, Any]) -> None:
+    """写入 OpenClaw 默认 agent 显示名「星期五」，覆盖 ClawBot/OpenClaw 遗留名。"""
+    agents = data.setdefault("agents", {})
+    if not isinstance(agents, dict):
+        return
+    agent_list = agents.get("list")
+    if not isinstance(agent_list, list):
+        agent_list = []
+        agents["list"] = agent_list
+
+    main: dict[str, Any] | None = None
+    for entry in agent_list:
+        if isinstance(entry, dict) and entry.get("id") == "main":
+            main = entry
+            break
+    if main is None:
+        main = {"id": "main", "default": True}
+        agent_list.insert(0, main)
+
+    if _should_replace_weixin_display_name(main.get("name")):
+        main["name"] = APP_NAME
+
+    identity = main.get("identity")
+    if not isinstance(identity, dict):
+        identity = {}
+        main["identity"] = identity
+    if _should_replace_weixin_display_name(identity.get("name")):
+        identity["name"] = APP_NAME
+
+    ui = data.setdefault("ui", {})
+    if isinstance(ui, dict):
+        assistant = ui.get("assistant")
+        if not isinstance(assistant, dict):
+            assistant = {}
+            ui["assistant"] = assistant
+        if _should_replace_weixin_display_name(assistant.get("name")):
+            assistant["name"] = APP_NAME
+
+
+def _apply_weixin_channel_branding(data: dict[str, Any]) -> None:
+    """微信通道默认显示名与 botAgent（覆盖「微信clawbot」等遗留默认）。"""
+    channels = data.get("channels")
+    if not isinstance(channels, dict):
+        return
+    wx = channels.get(WEIXIN_PLUGIN_ID)
+    if not isinstance(wx, dict):
+        return
+
+    if _should_replace_weixin_display_name(wx.get("name")):
+        wx["name"] = APP_NAME
+    wx["botAgent"] = DEFAULT_WEIXIN_BOT_AGENT
+
+    accounts = wx.get("accounts")
+    if isinstance(accounts, dict):
+        for account_cfg in accounts.values():
+            if isinstance(account_cfg, dict) and _should_replace_weixin_display_name(
+                account_cfg.get("name")
+            ):
+                account_cfg["name"] = APP_NAME
+
+    for account_id in list_account_ids():
+        accounts = wx.setdefault("accounts", {})
+        if not isinstance(accounts, dict):
+            accounts = {}
+            wx["accounts"] = accounts
+        account_cfg = accounts.setdefault(account_id, {})
+        if isinstance(account_cfg, dict) and _should_replace_weixin_display_name(
+            account_cfg.get("name")
+        ):
+            account_cfg["name"] = APP_NAME
+
+
+def ensure_weixin_branding() -> tuple[bool, str]:
+    """同步 openclaw.json 中的微信/agent 显示名与功能介绍。"""
+    data = _read_openclaw_config()
+    if not isinstance(data, dict):
+        data = {}
+    _apply_agent_branding(data)
+    _apply_weixin_channel_branding(data)
+    from friday.weixin.profile import apply_weixin_description, sync_weixin_bot_profile
+
+    apply_weixin_description(data)
+    _write_openclaw_config(data)
+    ok, msg = sync_weixin_bot_profile()
+    if ok:
+        return True, f"微信显示名与功能介绍已设为「{APP_NAME}」（{msg}）"
+    return False, msg
 
 
 def _apply_gateway_config(data: dict[str, Any]) -> dict[str, Any]:
@@ -324,6 +440,11 @@ def configure_openclaw_plugins() -> tuple[bool, str]:
         entry = entries.setdefault(pid, {})
         if isinstance(entry, dict):
             entry["enabled"] = True
+    bridge_entry = entries.get(BRIDGE_PLUGIN_ID)
+    if isinstance(bridge_entry, dict):
+        hooks = bridge_entry.setdefault("hooks", {})
+        if isinstance(hooks, dict):
+            hooks.setdefault("timeoutMs", 620_000)
     channels = data.setdefault("channels", {})
     wx = channels.setdefault(WEIXIN_PLUGIN_ID, {})
     if isinstance(wx, dict):
@@ -331,8 +452,14 @@ def configure_openclaw_plugins() -> tuple[bool, str]:
     session = data.setdefault("session", {})
     if isinstance(session, dict) and session.get("dmScope") != "per-account-channel-peer":
         session["dmScope"] = "per-account-channel-peer"
+    _apply_agent_branding(data)
+    _apply_weixin_channel_branding(data)
+    from friday.weixin.profile import apply_weixin_description, patch_weixin_plugin_profile
+
+    apply_weixin_description(data)
     _apply_gateway_config(data)
     _write_openclaw_config(data)
+    patch_weixin_plugin_profile()
     _log.info("已写入 OpenClaw 微信相关配置")
     return True, f"配置已写入 {openclaw_state_dir() / 'openclaw.json'}"
 
@@ -355,6 +482,17 @@ def ensure_weixin_plugin_for_gateway() -> None:
     if _plugin_installed(WEIXIN_PLUGIN_ID):
         return
     install_weixin_plugin()
+
+
+def ensure_bridge_plugin_for_gateway() -> bool:
+    """Gateway 启动前同步桥接插件；若文件有更新则返回 True（需重启 Gateway 加载）。"""
+    ok, msg, changed = sync_bridge_plugin(force=False)
+    if not ok:
+        _log.warning("桥接插件同步失败 | %s", msg)
+        return False
+    if changed:
+        _log.info("桥接插件已更新，需重启 Gateway | %s", msg)
+    return changed
 
 
 def install_weixin_plugin() -> tuple[bool, str]:
@@ -393,10 +531,37 @@ def install_weixin_plugin() -> tuple[bool, str]:
     return False, msg or "微信通道插件安装失败，请检查网络后重试"
 
 
-def install_bridge_plugin() -> tuple[bool, str]:
-    if _plugin_installed(BRIDGE_PLUGIN_ID):
+def sync_bridge_plugin(*, force: bool = False) -> tuple[bool, str, bool]:
+    """将内置 friday-weixin-bridge 同步到 OpenClaw 扩展目录。返回 (ok, message, changed)。"""
+    src = _bridge_plugin_source()
+    if not src.is_dir():
+        return False, f"未找到内置桥接插件：{src}", False
+
+    dest = _plugin_extension_dir(BRIDGE_PLUGIN_ID)
+    src_index = src / "index.js"
+    dest_index = dest / "index.js"
+    changed = force
+    if src_index.is_file() and dest_index.is_file():
+        changed = force or src_index.read_bytes() != dest_index.read_bytes()
+    elif src_index.is_file():
+        changed = True
+
+    if not changed and _plugin_installed(BRIDGE_PLUGIN_ID):
         configure_openclaw_plugins()
-        return True, "星期五桥接插件已安装"
+        return True, "星期五桥接插件已是最新", False
+
+    ok, msg = _copy_plugin_tree(src, BRIDGE_PLUGIN_ID)
+    if ok:
+        configure_openclaw_plugins()
+        _run_openclaw_doctor_repair()
+        return True, msg, True
+    return False, msg, False
+
+
+def install_bridge_plugin() -> tuple[bool, str]:
+    ok, msg, _changed = sync_bridge_plugin(force=False)
+    if ok:
+        return True, msg
 
     src = _bridge_plugin_source()
     if not src.is_dir():
@@ -423,8 +588,8 @@ def install_bridge_plugin() -> tuple[bool, str]:
     return False, "桥接插件安装失败"
 
 
-def start_gateway() -> tuple[bool, str]:
-    from friday.weixin.gateway import probe_gateway
+def start_gateway(*, force_restart: bool = False) -> tuple[bool, str]:
+    from friday.weixin.gateway import ensure_gateway_running
 
     cfg_ok, cfg_msg = ensure_openclaw_gateway_config()
     if not cfg_ok:
@@ -432,11 +597,17 @@ def start_gateway() -> tuple[bool, str]:
     ok_cmd, cmd_msg = ensure_gateway_cmd(force=True)
     if not ok_cmd:
         return False, cmd_msg
-    if probe_gateway():
-        return True, f"Gateway 已在运行（{cfg_msg}）"
-    result = ensure_gateway_running(force_restart=False)
+    ensure_weixin_plugin_for_gateway()
+    plugin_changed = ensure_bridge_plugin_for_gateway()
+    need_restart = force_restart or plugin_changed
+    result = ensure_gateway_running(force_restart=need_restart)
     if result.get("running"):
-        return True, f"Gateway 已启动（{cfg_msg}；{cmd_msg}）"
+        if need_restart and not result.get("started"):
+            _log.warning(
+                "Gateway 已在运行但桥接插件可能未热加载，建议手动重启 Gateway | plugin_changed=%s",
+                plugin_changed,
+            )
+        return True, f"Gateway 已就绪（{cfg_msg}；{cmd_msg}）"
     return False, str(result.get("error") or "Gateway 未能启动")
 
 
@@ -453,21 +624,21 @@ def sync_friday_bridge(port: int, token: str) -> tuple[bool, str]:
 def launch_weixin_login_terminal() -> tuple[bool, str]:
     if not _openclaw_cli_available():
         return False, "未找到 openclaw 命令，请先完成 OpenClaw 安装"
-    login_line = openclaw_shell_invocation(
-        ["channels", "login", "--channel", WEIXIN_PLUGIN_ID],
-    )
-    if os.name != "nt":
-        return False, f"请在终端执行：{login_line}"
-    try:
-        from friday.weixin.config import openclaw_env
+    if not _weixin_channel_available():
+        ok, msg = install_weixin_plugin()
+        if not ok:
+            return False, f"微信通道插件未安装：{msg}"
+    configure_openclaw_plugins()
+    gw_ok, gw_msg = start_gateway()
+    if not gw_ok:
+        return False, f"OpenClaw Gateway 未能启动，无法扫码登录：{gw_msg}"
+    from friday.weixin.login_runner import clear_cached_login_url, launch_weixin_login_console
 
-        subprocess.Popen(
-            ["cmd", "/c", "start", "cmd", "/k", login_line],
-            env=openclaw_env(),
-        )
-        return True, "已打开扫码登录窗口，请用微信扫描二维码完成绑定"
-    except OSError as exc:
-        return False, f"无法打开登录窗口：{exc}"
+    clear_cached_login_url()
+    ok, msg = launch_weixin_login_console()
+    if ok:
+        return True, f"{msg} 扫码完成后点「刷新状态」。"
+    return ok, msg
 
 
 def install_openclaw_cli() -> tuple[bool, str]:
@@ -496,7 +667,12 @@ def install_openclaw_cli() -> tuple[bool, str]:
 
     invalidate_cli_info_cache()
     if not _openclaw_cli_available():
-        return False, "OpenClaw 已安装但命令未找到，请关闭并重新打开星期五后再试"
+        script = find_openclaw_script()
+        hint = f"（已检测到 {script.name}，但缺少 node.exe）" if script else ""
+        return False, (
+            "OpenClaw 安装完成但命令不可用"
+            f"{hint}。请重启星期五后重试，或检查 %APPDATA%\\Friday\\runtime\\npm-global。"
+        )
 
     _, ver, _ = _openclaw_cli_info()
     suffix = f"（{ver}）" if ver else ""
@@ -553,7 +729,7 @@ def collect_setup_steps(*, port: int = 8765, api_token: str = "") -> list[SetupS
         SetupStep(
             id="weixin_login",
             title="微信扫码登录",
-            description="绑定你的微信，与「星期五 AI」对话",
+            description="绑定你的微信，与「星期五」对话",
             status="ok" if accounts else ("warn" if cli_ok else "pending"),
             message=f"已登录 {len(accounts)} 个账号" if accounts else "尚未登录，需扫码一次",
             action="" if accounts else "login",

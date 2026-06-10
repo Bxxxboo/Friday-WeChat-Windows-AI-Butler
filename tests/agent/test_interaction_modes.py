@@ -59,7 +59,7 @@ def test_yolo_unlocked_auto_approves_workspace_write(workspace):
     assert decision.needs_approval is False
 
 
-def test_yolo_unlocked_auto_approves_powershell():
+def test_yolo_unlocked_still_requires_powershell():
     settings = UserSettings(
         interaction_mode="yolo",
         require_approval_exec=True,
@@ -72,10 +72,11 @@ def test_yolo_unlocked_auto_approves_powershell():
         yolo_unlocked=True,
     )
     assert decision.allowed is True
-    assert decision.needs_approval is False
+    assert decision.needs_approval is True
+    assert decision.always_require_approval is True
 
 
-def test_yolo_unlocked_auto_approves_python(workspace):
+def test_yolo_unlocked_still_requires_python(workspace):
     settings = UserSettings(
         interaction_mode="yolo",
         workspace=str(workspace).replace("\\", "/"),
@@ -89,7 +90,8 @@ def test_yolo_unlocked_auto_approves_python(workspace):
         yolo_unlocked=True,
     )
     assert decision.allowed is True
-    assert decision.needs_approval is False
+    assert decision.needs_approval is True
+    assert decision.always_require_approval is True
 
 
 def test_ask_mode_blocks_powershell():

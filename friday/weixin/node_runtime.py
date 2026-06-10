@@ -21,6 +21,14 @@ NODE_ROOT = get_appdata_dir() / "runtime" / "node"
 NODE_HOME = NODE_ROOT / f"node-v{NODE_VERSION}-win-x64"
 NPM_GLOBAL = get_appdata_dir() / "runtime" / "npm-global"
 
+# 默认国内源，避免新设备访问 registry.npmjs.org 需 VPN
+NPM_REGISTRY_DEFAULT = "https://registry.npmmirror.com"
+NPM_REGISTRIES: tuple[str, ...] = (
+    NPM_REGISTRY_DEFAULT,
+    "https://mirrors.cloud.tencent.com/npm/",
+    "https://registry.npmjs.org",
+)
+
 
 def _creationflags() -> int:
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -58,12 +66,117 @@ def openclaw_cmd_in_friday_prefix() -> Path | None:
 
 def node_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = os.environ.copy()
+    path_parts: list[str] = []
     if NODE_HOME.is_dir():
-        node_bin = str(NODE_HOME)
-        env["PATH"] = node_bin + os.pathsep + env.get("PATH", "")
+        path_parts.append(str(NODE_HOME))
+    if NPM_GLOBAL.is_dir():
+        path_parts.append(str(NPM_GLOBAL))
+    existing = env.get("PATH", "")
+    if path_parts:
+        env["PATH"] = os.pathsep.join(path_parts + ([existing] if existing else []))
+    env.setdefault("NPM_CONFIG_REGISTRY", NPM_REGISTRY_DEFAULT)
+    env.setdefault("npm_config_registry", NPM_REGISTRY_DEFAULT)
     if extra:
         env.update(extra)
     return env
+
+
+def _npm_network_error(output: str) -> bool:
+    text = (output or "").lower()
+    needles = (
+        "network",
+        "etimedout",
+        "econnrefused",
+        "enotfound",
+        "fetch failed",
+        "connect timeout",
+        "socket hang up",
+    )
+    return any(n in text for n in needles)
+
+
+def _run_npm_once(
+    npm: str,
+    args: list[str],
+    *,
+    timeout: int,
+    registry: str,
+    prefix: Path | None = None,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    cmd = [npm, *args]
+    if prefix is not None:
+        cmd.extend(["--prefix", str(prefix)])
+    env = node_env(
+        {
+            "NPM_CONFIG_REGISTRY": registry,
+            "npm_config_registry": registry,
+        }
+    )
+    if prefix is not None:
+        env["NPM_CONFIG_PREFIX"] = str(prefix)
+    return subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=_creationflags(),
+        env=env,
+        cwd=str(cwd) if cwd else None,
+    )
+
+
+def run_npm(
+    args: list[str],
+    *,
+    timeout: int = 600,
+    prefix: Path | None = None,
+    cwd: Path | None = None,
+    global_install: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """执行 npm 命令；默认国内源，网络失败时自动切换镜像。"""
+    npm = npm_command()
+    if not npm:
+        raise FileNotFoundError("npm not available")
+
+    npm_args = list(args)
+    if (
+        global_install
+        and npm_args
+        and npm_args[0] == "install"
+        and "--global" not in npm_args
+        and "-g" not in npm_args
+    ):
+        npm_args = ["install", "--global", *npm_args[1:]]
+
+    last: subprocess.CompletedProcess[str] | None = None
+    for registry in NPM_REGISTRIES:
+        proc = _run_npm_once(
+            npm,
+            npm_args,
+            timeout=timeout,
+            registry=registry,
+            prefix=prefix,
+            cwd=cwd,
+        )
+        last = proc
+        if proc.returncode == 0:
+            if registry != NPM_REGISTRY_DEFAULT:
+                _log.info("npm 命令成功 | registry=%s", registry)
+            return proc
+        detail = (proc.stderr or proc.stdout or "").strip()
+        if not _npm_network_error(detail):
+            return proc
+        _log.warning("npm 网络失败，切换镜像 | registry=%s tail=%s", registry, detail[-200:])
+
+    assert last is not None
+    return last
+
+
+def run_npm_global(args: list[str], *, timeout: int = 600) -> subprocess.CompletedProcess[str]:
+    return run_npm(args, timeout=timeout, prefix=npm_global_prefix(), global_install=True)
 
 
 def _try_winget_node() -> bool:
@@ -149,19 +262,3 @@ def ensure_node_npm() -> tuple[bool, str]:
     )
 
 
-def run_npm_global(args: list[str], *, timeout: int = 600) -> subprocess.CompletedProcess[str]:
-    npm = npm_command()
-    if not npm:
-        raise FileNotFoundError("npm not available")
-    prefix = npm_global_prefix()
-    cmd = [npm, *args, "--prefix", str(prefix)]
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=_creationflags(),
-        env=node_env(),
-    )

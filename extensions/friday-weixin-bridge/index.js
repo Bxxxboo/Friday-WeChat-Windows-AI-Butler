@@ -2,7 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_TIMEOUT_MS = 600_000;
+const HOOK_TIMEOUT_MS = 620_000;
 const WEIXIN_CHANNEL = "openclaw-weixin";
+
+/** 同一条微信消息可能被多个 hook 并发触发，合并为一次 inbound 请求。 */
+const inflightForwards = new Map();
 
 function resolveBridgeConfig() {
   const configPath = path.join(
@@ -33,13 +37,45 @@ function unavailableText(reason) {
   return reason ?? "星期五未运行或桥接未就绪。请先打开电脑上的「星期五」客户端。";
 }
 
+function isWeixinChannel(event, ctx) {
+  const values = [
+    event?.channel,
+    event?.channelId,
+    ctx?.channelId,
+    ctx?.messageProvider,
+    event?.messageProvider,
+    event?.OriginatingChannel,
+    event?.Provider,
+    ctx?.sessionKey,
+  ];
+  return values.some((value) => {
+    const text = String(value ?? "").trim().toLowerCase();
+    return text === WEIXIN_CHANNEL || text.includes("weixin");
+  });
+}
+
 function resolvePeerId(event, ctx) {
   return String(
-    event.senderId ??
-      ctx.senderId ??
-      ctx.conversationId ??
-      "",
+    event.senderId
+      ?? event.conversationId
+      ?? ctx.senderId
+      ?? ctx.conversationId
+      ?? "",
   ).trim();
+}
+
+function resolveContextToken(event, ctx, accountId, senderId) {
+  const fromEvent = String(
+    event.contextToken
+      ?? event.context_token
+      ?? ctx.contextToken
+      ?? ctx.context_token
+      ?? ctx.metadata?.contextToken
+      ?? ctx.metadata?.context_token
+      ?? "",
+  ).trim();
+  if (fromEvent) return fromEvent;
+  return loadContextToken(accountId, senderId);
 }
 
 function loadContextToken(accountId, peerId) {
@@ -57,6 +93,29 @@ function loadContextToken(accountId, peerId) {
     return String(data?.[peerId] ?? "").trim();
   } catch {
     return "";
+  }
+}
+
+function saveContextToken(accountId, peerId, token) {
+  if (!accountId || !peerId || !token) return;
+  const filePath = path.join(
+    process.env.USERPROFILE ?? "",
+    ".openclaw",
+    "openclaw-weixin",
+    "accounts",
+    `${accountId}.context-tokens.json`,
+  );
+  try {
+    let data = {};
+    if (fs.existsSync(filePath)) {
+      const raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      if (raw && typeof raw === "object") data = raw;
+    }
+    data[peerId] = token;
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
+  } catch {
+    // Friday 侧也会持久化 context_token
   }
 }
 
@@ -81,7 +140,7 @@ async function refreshBridgeToken(bridge) {
         );
       }
     } catch {
-      // 内存重试即可；写回失败不阻断
+      // 写回失败不阻断
     }
     return token;
   } catch {
@@ -101,15 +160,32 @@ async function postInbound(bridge, payload, token) {
   });
 }
 
+async function forwardToFridayOnce(api, args) {
+  const key = `${args.accountId}:${args.senderId}:${args.text}`;
+  const existing = inflightForwards.get(key);
+  if (existing) {
+    api.logger?.info?.(
+      `friday-weixin-bridge: coalesce duplicate forward peer=${args.senderId.slice(0, 24)}`,
+    );
+    return existing;
+  }
+  const promise = forwardToFriday(api, args).finally(() => {
+    inflightForwards.delete(key);
+  });
+  inflightForwards.set(key, promise);
+  return promise;
+}
+
 async function forwardToFriday(api, { text, senderId, accountId, contextToken }) {
   const bridge = resolveBridgeConfig();
   if (!bridge) {
-    return { handled: true, text: unavailableText() };
+    return { text: unavailableText() };
   }
 
   const payload = {
     text,
     sender_id: senderId,
+    peer_id: senderId,
     account_id: accountId,
     context_token: contextToken,
     channel: WEIXIN_CHANNEL,
@@ -127,18 +203,61 @@ async function forwardToFriday(api, { text, senderId, accountId, contextToken })
     }
     if (!resp.ok) {
       api.logger?.warn?.(`friday-weixin-bridge: HTTP ${resp.status}`);
-      return { handled: true, text: unavailableText("星期五暂时不可用，请确认客户端已启动。") };
+      return { text: unavailableText("星期五暂时不可用，请确认客户端已启动。") };
     }
     const data = await resp.json();
-    if (!data?.handled) return;
-    const replyText = String(data.reply ?? "").trim();
-    // 空回复：星期五已通过 iLink 直接发微信（收到/审批/结果），此处勿再占位回复。
-    if (!replyText) return { handled: true };
-    return { handled: true, text: replyText };
+    if (!data?.handled) {
+      return {
+        text: unavailableText("星期五未处理此消息（可能桥接已关闭）。请打开桌面版检查「设置 → 微信桥接」。"),
+      };
+    }
+    // 空 reply：Friday 已通过 iLink 送达；非空 reply：iLink 失败，交 OpenClaw 通道发送。
+    return { text: String(data.reply ?? "").trim() };
   } catch (err) {
     api.logger?.warn?.(`friday-weixin-bridge: ${String(err)}`);
-    return { handled: true, text: unavailableText() };
+    return { text: unavailableText() };
   }
+}
+
+function extractMessageText(event) {
+  return String(
+    event.content ?? event.body ?? event.bodyForAgent ?? "",
+  ).trim();
+}
+
+async function handleWeixinMessage(api, event, ctx) {
+  const text = extractMessageText(event);
+  if (!text || text.startsWith("/")) return null;
+
+  const senderId = resolvePeerId(event, ctx);
+  const accountId = String(ctx.accountId ?? event.accountId ?? "").trim();
+  if (!senderId) {
+    api.logger?.warn?.("friday-weixin-bridge: missing peer id");
+    return { text: "无法识别发送者（缺少 conversationId）。" };
+  }
+
+  const contextToken = resolveContextToken(event, ctx, accountId, senderId);
+  if (contextToken) {
+    saveContextToken(accountId, senderId, contextToken);
+  }
+
+  api.logger?.info?.(
+    `friday-weixin-bridge: forward peer=${senderId.slice(0, 24)} chars=${text.length}`,
+  );
+  return forwardToFridayOnce(api, { text, senderId, accountId, contextToken });
+}
+
+function toBeforeDispatchResult(result) {
+  if (!result) return;
+  return { handled: true, text: String(result.text ?? "").trim() };
+}
+
+function blockBuiltinWeixinAgent(message) {
+  return {
+    outcome: "block",
+    reason: "friday-weixin-bridge",
+    message,
+  };
 }
 
 export default {
@@ -146,33 +265,31 @@ export default {
   name: "Friday Weixin Bridge",
   description: "Route Weixin text commands to the Friday desktop agent",
   register(api) {
-    // inbound_claim 仅对 plugin-bound 会话生效；微信普通 DM 走 before_dispatch。
     api.on(
       "before_dispatch",
       async (event, ctx) => {
-        const channel = String(event.channel ?? ctx.channelId ?? "").trim();
-        if (channel !== WEIXIN_CHANNEL && !channel.includes("weixin")) return;
-
-        const text = String(event.body ?? event.content ?? "").trim();
-        if (!text || text.startsWith("/")) return;
-
-        const senderId = resolvePeerId(event, ctx);
-        const accountId = String(ctx.accountId ?? "").trim();
-        if (!senderId) {
-          api.logger?.warn?.("friday-weixin-bridge: missing peer id");
-          return { handled: true, text: "无法识别发送者（缺少 conversationId）。" };
-        }
-
-        return forwardToFriday(api, {
-          text,
-          senderId,
-          accountId,
-          contextToken: loadContextToken(accountId, senderId),
-        });
+        if (!isWeixinChannel(event, ctx)) return;
+        return toBeforeDispatchResult(await handleWeixinMessage(api, event, ctx));
       },
-      { priority: 100 },
+      { priority: 110, timeoutMs: HOOK_TIMEOUT_MS },
     );
 
-    api.logger?.info?.("friday-weixin-bridge: before_dispatch hook registered");
+    api.on(
+      "before_agent_run",
+      (event, ctx) => {
+        if (!isWeixinChannel(event, ctx)) return;
+        if (!resolveBridgeConfig()) {
+          return blockBuiltinWeixinAgent(
+            "星期五桥接未配置。请打开电脑上的「星期五」，在「设置 → 微信桥接」完成连接。",
+          );
+        }
+        return blockBuiltinWeixinAgent(
+          "此微信会话应由星期五桌面版处理。若未收到回复，请在「设置 → 微信桥接」点「启动 Gateway」后重试。",
+        );
+      },
+      { priority: 100, timeoutMs: 15_000 },
+    );
+
+    api.logger?.info?.("friday-weixin-bridge: before_dispatch registered (single inbound path)");
   },
 };

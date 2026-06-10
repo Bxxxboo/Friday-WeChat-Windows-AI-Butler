@@ -17,7 +17,7 @@ def splash_background(settings: UserSettings | None = None) -> str:
 def resolved_boot_theme(settings: UserSettings | None = None) -> str:
     """返回 light / dark。"""
     settings = settings or load_settings()
-    theme = (settings.theme or "dark").strip().lower()
+    theme = (settings.theme or "light").strip().lower()
     if theme == "system":
         return "dark" if _system_prefers_dark() else "light"
     return "light" if theme == "light" else "dark"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 import ssl
@@ -444,8 +445,11 @@ def quick_reachability(base_url: str, settings: UserSettings | None = None) -> t
     now = time.time()
     with _PROBE_LOCK:
         cached = _PROBE_CACHE.get(cache_key)
-        if cached and now - cached[0] < _PROBE_TTL:
-            return cached[1], cached[2]
+        if cached:
+            ok, detail = cached[1], cached[2]
+            ttl = _PROBE_TTL if ok else min(_PROBE_TTL, 30.0)
+            if now - cached[0] < ttl:
+                return ok, detail
 
     if settings is not None:
         apply_network_environment(settings)
@@ -468,10 +472,72 @@ def quick_reachability(base_url: str, settings: UserSettings | None = None) -> t
         return False, detail
 
 
-def invalidate_probe_cache() -> None:
+def invalidate_probe_cache(*, clear_auth: bool = True) -> None:
     with _PROBE_LOCK:
         _PROBE_CACHE.clear()
-        _AUTH_STATUS_CACHE.clear()
+        if clear_auth:
+            _AUTH_STATUS_CACHE.clear()
+
+
+def _drop_auth_status_key(cache_key: str) -> None:
+    with _PROBE_LOCK:
+        _AUTH_STATUS_CACHE.pop(cache_key, None)
+
+
+def invalidate_auth_status_for_settings_change(before: UserSettings, after: UserSettings) -> None:
+    """仅当对应服务的 Key/模型/地址变更时清除认证缓存，避免保存设置抹掉刚通过的测试结果。"""
+    proxy_before = (getattr(before, "api_proxy", "") or "").strip()
+    proxy_after = (getattr(after, "api_proxy", "") or "").strip()
+    if proxy_before != proxy_after:
+        invalidate_probe_cache(clear_auth=True)
+        return
+
+    llm_before = (
+        (before.api_key or "")[-6:],
+        (before.base_url or UserSettings.base_url).strip(),
+        (before.model or "").strip(),
+    )
+    llm_after = (
+        (after.api_key or "")[-6:],
+        (after.base_url or UserSettings.base_url).strip(),
+        (after.model or "").strip(),
+    )
+    if llm_before != llm_after:
+        _drop_auth_status_key(_auth_status_key("llm", before))
+
+    vision_before = (
+        (before.vision_api_key or "")[-6:],
+        (before.vision_base_url or UserSettings.vision_base_url).strip(),
+        (before.vision_model or "").strip(),
+        bool(before.vision_enabled),
+    )
+    vision_after = (
+        (after.vision_api_key or "")[-6:],
+        (after.vision_base_url or UserSettings.vision_base_url).strip(),
+        (after.vision_model or "").strip(),
+        bool(after.vision_enabled),
+    )
+    if vision_before != vision_after:
+        _drop_auth_status_key(_auth_status_key("vision", before))
+
+    from friday.image_gen import default_base_url
+
+    image_before = (
+        (before.image_gen_api_key or "")[-6:],
+        default_base_url(before),
+        (before.image_gen_model or "").strip(),
+        (before.image_gen_provider or "").strip(),
+        bool(before.image_gen_enabled),
+    )
+    image_after = (
+        (after.image_gen_api_key or "")[-6:],
+        default_base_url(after),
+        (after.image_gen_model or "").strip(),
+        (after.image_gen_provider or "").strip(),
+        bool(after.image_gen_enabled),
+    )
+    if image_before != image_after:
+        _drop_auth_status_key(_auth_status_key("image_gen", before))
 
 
 def _auth_status_key(service: str, settings: UserSettings) -> str:
@@ -502,16 +568,155 @@ def _read_auth_status(cache_key: str, *, service: str = "") -> tuple[bool, str] 
     return None
 
 
+def read_cached_service_status(service: str, settings: UserSettings) -> tuple[bool, str] | None:
+    """读取最近一次测试/探测缓存，不发起网络请求。"""
+    if service == "llm":
+        if not settings.api_ready:
+            return None
+    elif service == "vision":
+        from friday.vision import vision_ready
+
+        if not settings.vision_enabled or not vision_ready(settings):
+            return None
+    elif service == "image_gen":
+        from friday.image_gen import image_gen_ready
+
+        if not settings.image_gen_enabled or not image_gen_ready(settings):
+            return None
+    else:
+        return None
+    cache_key = _auth_status_key(service, settings)
+    return _read_auth_status(cache_key, service=service)
+
+
+def is_transient_api_error(raw: Any) -> bool:
+    """瞬态失败（超时、限流、网关抖动）——不应长期污染「API 离线」状态。"""
+    text = str(raw or "").strip().lower()
+    if not text and raw is not None:
+        text = type(raw).__name__.lower()
+    if not text:
+        return False
+    transient_tokens = (
+        "readtimeout",
+        "read timeout",
+        "read timed out",
+        "response timed out",
+        "waiting for response",
+        "apitimeouterror",
+        "429",
+        "rate limit",
+        "too many requests",
+        "502",
+        "503",
+        "504",
+        "bad gateway",
+        "service unavailable",
+        "gateway timeout",
+        "connection reset",
+        "connection aborted",
+        "remote disconnected",
+        "temporarily unavailable",
+        "overloaded",
+        "server overloaded",
+    )
+    if any(token in text for token in transient_tokens):
+        return True
+    if "timeout" in text or "timed out" in text:
+        return "connect" not in text and "connection refused" not in text
+    return False
+
+
 def record_service_status(
     service: str,
     settings: UserSettings,
     ok: bool,
     detail: str = "",
+    *,
+    transient: bool = False,
 ) -> None:
     """记录一次真实 API 调用结果（测试连接 / 对话成功或失败）。"""
+    if not ok and transient:
+        return
     cache_key = _auth_status_key(service, settings)
     with _PROBE_LOCK:
         _AUTH_STATUS_CACHE[cache_key] = (time.time(), bool(ok), (detail or "")[:240])
+
+
+def test_llm_service(settings: UserSettings) -> tuple[bool, str]:
+    """与设置页「测试连接」相同逻辑，并写入状态缓存。"""
+    from friday.brain import DeepSeekBrain
+    from friday.error_hints import classify_error
+    from friday.llm_profiles import llm_config_hint
+
+    config_hint = llm_config_hint(settings)
+    if config_hint:
+        return False, config_hint
+    if not settings.api_ready:
+        hint = classify_error("", context="api_key_missing")
+        return False, f"{hint.detail}\n{hint.hint}"
+    ok, message = DeepSeekBrain(settings).test_connection()
+    record_service_status("llm", settings, ok, message if ok else message.split("\n")[0])
+    return ok, message
+
+
+def test_vision_service(settings: UserSettings) -> tuple[bool, str] | None:
+    """与设置页「测试视觉」相同；未启用或未配置时返回 None（跳过）。"""
+    from friday.vision import test_vision_connection, vision_ready
+
+    if not settings.vision_enabled or not vision_ready(settings):
+        return None
+    ok, message = test_vision_connection(settings)
+    record_service_status("vision", settings, ok, message if ok else message.split("\n")[0])
+    return ok, message
+
+
+def test_image_gen_service(settings: UserSettings) -> tuple[bool, str] | None:
+    """与设置页「测试生图」相同；未启用或未配置时返回 None（跳过）。"""
+    from friday.image_gen import image_gen_ready, test_image_gen_connection
+
+    if not settings.image_gen_enabled or not image_gen_ready(settings):
+        return None
+    ok, message = test_image_gen_connection(settings)
+    detail = message if ok else message.split("\n")[0]
+    record_service_status("image_gen", settings, ok, detail)
+    if ok:
+        from friday.storage import load_settings
+
+        record_service_status("image_gen", load_settings(), True, detail)
+    return ok, message
+
+
+async def run_startup_service_tests(settings: UserSettings | None = None) -> dict[str, object]:
+    """并行运行与设置页相同的 API 检测，供开机状态栏刷新。"""
+    from friday.storage import load_settings
+
+    cfg = settings or load_settings()
+
+    async def _llm() -> tuple[bool, str] | None:
+        if not cfg.api_ready:
+            return None
+        return await asyncio.to_thread(test_llm_service, cfg)
+
+    async def _vision() -> tuple[bool, str] | None:
+        return await asyncio.to_thread(test_vision_service, cfg)
+
+    async def _image_gen() -> tuple[bool, str] | None:
+        return await asyncio.to_thread(test_image_gen_service, cfg)
+
+    llm_result, vision_result, image_gen_result = await asyncio.gather(_llm(), _vision(), _image_gen())
+
+    def _pack(result: tuple[bool, str] | None) -> dict[str, object] | None:
+        if result is None:
+            return None
+        ok, message = result
+        return {"ok": ok, "message": message}
+
+    return {
+        "llm": _pack(llm_result),
+        "vision": _pack(vision_result),
+        "image_gen": _pack(image_gen_result),
+    }
+
 
 
 def probe_llm_status(
@@ -580,6 +785,34 @@ def probe_vision_status(settings: UserSettings, *, force: bool = False) -> tuple
     return True, detail
 
 
+def _image_gen_probe_inconclusive(message: str) -> bool:
+    text = (message or "").strip().lower()
+    return any(
+        token in text
+        for token in (
+            "超时",
+            "timeout",
+            "timed out",
+            "响应较慢",
+            "响应过慢",
+            "probe timed out",
+            "inconclusive",
+            "无法连接",
+            "connection",
+            "network",
+            "所有端点均无法",
+        )
+    )
+
+
+def _peek_image_gen_ok_cache(settings: UserSettings) -> tuple[bool, str] | None:
+    cache_key = _auth_status_key("image_gen", settings)
+    cached = _read_auth_status(cache_key, service="image_gen")
+    if cached and cached[0]:
+        return cached
+    return None
+
+
 def _probe_image_gen_api(
     *,
     api_key: str,
@@ -588,7 +821,7 @@ def _probe_image_gen_api(
     quick: bool = False,
 ) -> ConnectivityStep:
     from friday.config import STATUS_BAR_IMAGE_GEN_PROBE_TIMEOUT
-    from friday.image_gen import verify_image_gen_api
+    from friday.image_gen import _is_ark_image_gen_endpoint, verify_image_gen_api
 
     if not api_key.strip():
         return ConnectivityStep(
@@ -604,9 +837,12 @@ def _probe_image_gen_api(
             "模型未配置",
             "填写生图模型名称",
         )
+    probe_timeout = STATUS_BAR_IMAGE_GEN_PROBE_TIMEOUT if quick else None
+    if quick and _is_ark_image_gen_endpoint(settings):
+        probe_timeout = max(float(probe_timeout or 0), 20.0)
     ok, message = verify_image_gen_api(
         settings,
-        timeout=STATUS_BAR_IMAGE_GEN_PROBE_TIMEOUT if quick else None,
+        timeout=probe_timeout,
         primary_only=quick,
     )
     if ok:
@@ -633,9 +869,15 @@ def probe_image_gen_status(settings: UserSettings, *, force: bool = False, quick
         if cached is not None:
             return cached
 
+    prev_ok = _peek_image_gen_ok_cache(settings) if quick else None
+
     base_url = default_base_url(settings)
     host_ok, host_detail = quick_reachability(base_url, settings)
     if not host_ok:
+        if quick and prev_ok:
+            return prev_ok
+        if quick and _image_gen_probe_inconclusive(host_detail):
+            return False, host_detail
         record_service_status("image_gen", settings, False, host_detail)
         return False, host_detail
 
@@ -646,8 +888,19 @@ def probe_image_gen_status(settings: UserSettings, *, force: bool = False, quick
         quick=quick,
     )
     detail = step.detail if step.ok else (f"{step.detail} {step.hint}".strip())
-    record_service_status("image_gen", settings, step.ok, detail)
-    return step.ok, detail
+
+    if step.ok:
+        record_service_status("image_gen", settings, True, detail)
+        return True, detail
+
+    if quick and prev_ok:
+        return prev_ok
+
+    if _image_gen_probe_inconclusive(step.detail):
+        return False, detail
+
+    record_service_status("image_gen", settings, False, detail)
+    return False, detail
 
 
 def format_api_error(

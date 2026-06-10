@@ -56,7 +56,9 @@
       F.wsRetryCount = 0;
       F.wsConnected = true;
       F.setConnectionStatus("就绪", true);
-      F.refreshStatusBar?.();
+      if (!F.isStatusBarBooting?.()) {
+        F.refreshStatusBar?.();
+      }
       flushQueue();
     };
 
@@ -923,6 +925,10 @@
       detail = "";
     }
 
+    const lead = document.createElement("p");
+    lead.className = "approval-lead";
+    lead.textContent = "准备做什么";
+
     const text = document.createElement("p");
     text.className = "approval-text";
     text.textContent = summary;
@@ -957,12 +963,15 @@
 
     actions.append(rejectBtn, approveBtn);
     if (detail) {
+      const detailLead = document.createElement("p");
+      detailLead.className = "approval-lead";
+      detailLead.textContent = "补充说明";
       const detailNode = document.createElement("p");
       detailNode.className = "approval-detail";
       detailNode.textContent = detail;
-      node.append(title, text, detailNode, actions);
+      node.append(title, lead, text, detailLead, detailNode, actions);
     } else {
-      node.append(title, text, actions);
+      node.append(title, lead, text, actions);
     }
     F.chatLog.appendChild(node);
     pendingApprovalNode = node;

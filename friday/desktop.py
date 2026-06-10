@@ -328,12 +328,12 @@ def _wait_for_backend(timeout: float = 45.0) -> int | None:
     return None
 
 
-def _prefetch_url(url: str) -> None:
+def _load_main_page(window, *, main_url: str) -> None:
+    """正常 URL 导航，确保 /static 脚本在 WebView2 各版本下可加载。"""
     try:
-        with urllib.request.urlopen(url, timeout=5.0) as resp:
-            resp.read()
-    except (urllib.error.URLError, TimeoutError, OSError):
-        pass
+        window.load_url(main_url)
+    except Exception:
+        _log.exception("加载主界面 URL 失败")
 
 
 def main() -> None:
@@ -457,7 +457,6 @@ def main() -> None:
         token_q = f"&token={token}" if token else ""
         main_url = f"http://127.0.0.1:{port}/?desktop=1&boot={boot_theme}{token_q}"
         _log.info("后端就绪 port=%d，准备加载主界面", port)
-        _prefetch_url(main_url)
         _splash_status("正在加载界面…")
         boot_phase["step"] = "main"
         try:
@@ -466,10 +465,7 @@ def main() -> None:
             start_scheduler()
         except Exception:
             _log.exception("定时调度器启动失败")
-        try:
-            window.load_url(main_url)
-        except Exception:
-            _log.exception("加载主界面 URL 失败")
+        _load_main_page(window, main_url=main_url)
 
     def _on_page_loaded() -> None:
         step = boot_phase["step"]

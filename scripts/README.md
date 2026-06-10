@@ -18,6 +18,7 @@
 | 脚本 | 用途 |
 |------|------|
 | `build.ps1` | PyInstaller 一键打包 |
+| `pack-windows.ps1` / `pack-windows.cmd` | **本地一键**：编译 + 打 `release/Friday-Windows.zip`（换机试用） |
 | `friday-dist.ps1` | 分发目录整理 |
 | `create_icon.py` | 生成应用图标 |
 | `clean.ps1` | 清理 build/dist/__pycache__ |

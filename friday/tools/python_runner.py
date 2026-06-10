@@ -134,9 +134,15 @@ def python_env_info() -> str:
     },
 )
 def run_python(code: str, cwd: str = "", timeout: int = 120) -> str:
+    from friday.python_code_safety import analyze_python_code
+
     danger = _check_dangerous_code(code)
     if danger:
         return f"⛔ 已拒绝危险 Python 代码（{danger}）。"
+
+    safety = analyze_python_code(code)
+    if safety.blocked:
+        return f"⛔ {safety.block_reason}"
 
     workspace = resolved_workspace(load_settings())
     python_exe, env_msg = _ensure_python(workspace)
@@ -190,11 +196,17 @@ def run_python(code: str, cwd: str = "", timeout: int = 120) -> str:
     },
 )
 def run_python_script(path: str, args: str = "", cwd: str = "", timeout: int = 300) -> str:
+    from friday.python_code_safety import analyze_python_script_file
+
     script = Path(path).expanduser().resolve()
     if not script.is_file():
         return f"脚本不存在: {path}"
     if script.suffix.lower() != ".py":
         return "仅支持 .py 脚本。"
+
+    safety = analyze_python_script_file(str(script))
+    if safety.blocked:
+        return f"⛔ {safety.block_reason}"
 
     workspace = resolved_workspace(load_settings())
     python_exe, env_msg = _ensure_python(workspace)

@@ -760,6 +760,19 @@ def render_preview_bytes(path: Path, *, max_width: int = 720) -> tuple[bytes, st
         return buf.getvalue(), "image/jpeg"
 
 
+def _is_ark_image_gen_endpoint(settings: UserSettings, base_url: str = "") -> bool:
+    """火山方舟生图：模型为 ep 接入点，/models 列表通常不包含该 id。"""
+    provider = (settings.image_gen_provider or "").strip()
+    model = settings.image_gen_model.strip()
+    base = (base_url or settings.image_gen_base_url or "").strip().lower()
+    return (
+        provider == "ark"
+        or model.startswith("ep-")
+        or "volces.com" in base
+        or "/ark" in base
+    )
+
+
 def image_gen_config_hint(settings: UserSettings) -> str:
     """生图配置未完成或明显不匹配时的简短原因。"""
     if not settings.image_gen_enabled:
@@ -773,9 +786,11 @@ def image_gen_config_hint(settings: UserSettings) -> str:
     model = settings.image_gen_model.strip()
     if provider == "ark":
         if key.startswith("sk-"):
-            return "Key 格式不匹配：火山方舟需 ark- 开头"
+            return "Key 格式不匹配：火山方舟需 ark- 开头（请重新粘贴 ark- Key，或切回 OpenAI 兼容中转）"
         if model and not model.startswith("ep-"):
             return "火山方舟请填写 ep- 开头的推理接入点"
+    if _is_ark_image_gen_endpoint(settings) and key.startswith("sk-"):
+        return "Key 格式不匹配：火山方舟需 ark- 开头的 Key"
     return ""
 
 
@@ -944,9 +959,12 @@ def verify_image_gen_api(
         elif http_ok is True and strict:
             last_msg = http_msg
 
+        ark_endpoint = _is_ark_image_gen_endpoint(settings, base)
         skip_images = _should_skip_images_probe(base, settings, strict=strict) or (
             primary_only and not strict
         )
+        if not strict and ark_endpoint and http_ok is not True:
+            skip_images = False
         if not skip_images:
             if _past_deadline():
                 break
@@ -968,6 +986,10 @@ def verify_image_gen_api(
                 return True, images_msg
             if images_ok is False:
                 last_msg = images_msg
+            elif images_ok is None:
+                last_msg = images_msg or "生图探测超时（端点响应较慢）"
+                if not strict and ark_endpoint and http_ok is not False:
+                    return True, last_msg
 
         elif http_ok is True and not strict:
             return True, http_msg
@@ -1072,6 +1094,8 @@ def _verify_image_gen_models_http(
             ids.discard("")
             model = settings.image_gen_model.strip()
             if ids and model and model not in ids:
+                if strict and _is_ark_image_gen_endpoint(settings, base_url):
+                    return None, ""
                 if strict:
                     return (
                         False,
@@ -1210,8 +1234,13 @@ def _verify_image_gen_images_auth(
             timeout=timeout,
             strict=strict,
         )
-        if ok is not False:
-            return ok, msg
+        if ok is True:
+            return True, msg
+        if ok is None:
+            last_msg = msg or "生图探测超时（端点响应较慢）"
+            if strict:
+                return None, last_msg
+            continue
         last_msg = msg
         min_px = _parse_min_pixels_from_error(msg)
         if not min_px and "尺寸过小" in msg:
@@ -1226,8 +1255,37 @@ def _verify_image_gen_images_auth(
     return False, last_msg
 
 
+def _strict_test_via_images_client(
+    settings: UserSettings,
+    *,
+    timeout: float,
+) -> tuple[bool, str]:
+    """设置页严格测试：与实际生图同路径，避免短 POST 探测超时误判。"""
+    from friday.api_connect import format_api_error
+
+    model = settings.image_gen_model.strip()
+    size = resolve_image_gen_size("", settings)
+    try:
+        data = _call_images_api(
+            api_key=settings.image_gen_api_key.strip(),
+            base_urls=_candidate_base_urls(settings)[:1],
+            model=model,
+            prompt="Friday connectivity test",
+            size=size,
+            settings=settings,
+            per_url_timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, format_api_error(exc, context="api_test", service="生图 API").split("\n")[0][:240]
+    if len(data) < 64:
+        return False, "生图 API 返回的图片数据过小"
+    return True, f"生图测试通过，模型「{model}」可正常调用（探测尺寸 {size}）"
+
+
 def test_image_gen_connection(settings: UserSettings) -> tuple[bool, str]:
     import time
+
+    from friday.config import IMAGE_GEN_HTTP_TIMEOUT_MIN
 
     if not settings.image_gen_enabled:
         return False, "请先勾选「启用生图」"
@@ -1238,18 +1296,44 @@ def test_image_gen_connection(settings: UserSettings) -> tuple[bool, str]:
 
     hint = image_gen_config_hint(settings)
     if hint:
+        from friday.category_profiles import repair_category_settings
+
+        repaired = repair_category_settings(settings, "image_gen")
+        if repaired is not settings:
+            settings = repaired
+            hint = image_gen_config_hint(settings)
+    if hint:
         return False, hint
 
-    deadline = time.monotonic() + 35.0
+    if _is_ark_image_gen_endpoint(settings):
+        client_timeout = max(90.0, float(IMAGE_GEN_HTTP_TIMEOUT_MIN))
+        deadline = time.monotonic() + client_timeout + 15.0
+        ok, message = _strict_test_via_images_client(settings, timeout=client_timeout)
+        if ok:
+            return True, message
+        if time.monotonic() >= deadline:
+            return _settings_test_timed_out(message)
+        return ok, message
+
+    deadline = time.monotonic() + 45.0
     ok, message = verify_image_gen_api(
         settings,
         strict=True,
         primary_only=True,
-        timeout=15.0,
+        timeout=25.0,
         deadline=deadline,
     )
     if ok:
         return True, message
-    if time.monotonic() >= deadline:
+    if message and message != "所有端点均无法用于生图，请检查 Key、Base URL 与模型名":
+        if time.monotonic() >= deadline:
+            return _settings_test_timed_out(message)
+        return ok, message
+
+    client_timeout = max(60.0, float(IMAGE_GEN_HTTP_TIMEOUT_MIN))
+    ok, message = _strict_test_via_images_client(settings, timeout=client_timeout)
+    if ok:
+        return True, message
+    if time.monotonic() >= deadline + client_timeout:
         return _settings_test_timed_out(message)
     return ok, message or "生图 API 不可用，请检查 Key、Base URL 与模型/接入点"

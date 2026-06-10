@@ -1,0 +1,25 @@
+{
+  "id": "file-safety",
+  "name": "文件删改安全",
+  "version": "1.0.0",
+  "description": "防止误删误覆盖：删改用户已有文件须专用工具与用户审批，禁止 Python/PowerShell 绕过。星期五内置准则。",
+  "author": "Friday",
+  "skills": [
+    {
+      "id": "safe-file-ops",
+      "label": "安全整理文件",
+      "icon": "🛡️",
+      "category": "files",
+      "prompt": "请 read_text_file 读取 {plugin_dir}/SKILL.md，严格按「文件删改安全准则」执行：① 先只读扫描并给出计划，不直接删除；② 删/改/移须用专用工具并等我点「同意」；③ 禁止用 run_python 删写文件。"
+    }
+  ],
+  "rules": [
+    {
+      "id": "file-safety",
+      "title": "文件删改安全",
+      "enabled": true,
+      "always_apply": true,
+      "content": "删/改/移用户已有文件须用 delete_file、write_text_file、move_file 等专用工具并等用户审批；禁止 run_python/PowerShell 绕过。整理/清理/修复须先只读+计划+确认，「整理」不等于同意删除。禁止改 %AppData%\\Friday\\ 配置。Ask 只读；Agent 每次危险操作须确认；Yolo 下删除与 Python/PowerShell 仍须确认。详见 {plugin_dir}/SKILL.md。"
+    }
+  ]
+}

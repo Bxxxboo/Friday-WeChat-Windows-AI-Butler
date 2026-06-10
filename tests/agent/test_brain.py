@@ -6,7 +6,12 @@ from friday.brain import DeepSeekBrain, build_system_prompt, resolve_max_context
 from friday.storage import UserSettings
 
 
-def test_brain_lazy_encoder():
+def test_init_encoder_returns_none_when_encoding_unavailable():
+    brain = DeepSeekBrain(UserSettings(api_key="sk-test", model="deepseek-chat"))
+    with patch("tiktoken.get_encoding", side_effect=ValueError("Unknown encoding")):
+        assert brain._init_encoder() is None
+    tokens = brain.count_tokens([{"role": "user", "content": "hello world"}])
+    assert tokens > 0
     brain = DeepSeekBrain(UserSettings(api_key="sk-test", model="deepseek-chat"))
     assert brain._encoder_initialized is False
     with patch.object(DeepSeekBrain, "_init_encoder", return_value=None) as init:

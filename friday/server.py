@@ -105,10 +105,6 @@ from friday.api.schemas import (
     SkillUpdatePayload,
     TestResponse,
     UpdateCheckResponse,
-    WeixinBridgeTogglePayload,
-    WeixinInboundPayload,
-    WeixinInboundResponse,
-    WeixinSetupRunPayload,
     YoloUnlockPayload,
 )
 from friday.storage import (
@@ -158,8 +154,10 @@ async def _lifespan(app: FastAPI):
             from friday.weixin.gateway import ensure_gateway_running_async_delay
 
             await asyncio.to_thread(sync_bridge_config_from_runtime)
+            from friday.weixin.setup import ensure_weixin_branding
             from friday.weixin.sessions import ensure_weixin_sessions_ready
 
+            await asyncio.to_thread(ensure_weixin_branding)
             await asyncio.to_thread(ensure_weixin_sessions_ready)
             ensure_gateway_running_async_delay(delay_sec=2.0)
         except Exception:
@@ -170,6 +168,10 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Friday", lifespan=_lifespan)
+
+from friday.api.weixin_routes import register_weixin_routes
+
+register_weixin_routes(app)
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
 _PUBLIC_PATHS = {"/", "/favicon.ico", "/api/health", "/api/auth/token"}
@@ -370,10 +372,15 @@ async def update_settings(payload: SettingsPayload) -> SettingsResponse:
     current = load_settings()
     merged = merge_settings(current, payload.model_dump(exclude_unset=True))
     save_settings(merged)
-    from friday.api_connect import apply_network_environment, invalidate_probe_cache
+    from friday.api_connect import (
+        apply_network_environment,
+        invalidate_auth_status_for_settings_change,
+        invalidate_probe_cache,
+    )
 
     apply_network_environment(merged)
-    invalidate_probe_cache()
+    invalidate_auth_status_for_settings_change(current, merged)
+    invalidate_probe_cache(clear_auth=False)
     clear_agent_cache()
     ensure_workspace(merged)
     return _to_response(merged)
@@ -392,19 +399,6 @@ async def set_autostart(payload: AutostartPayload) -> dict[str, object]:
 
     return set_autostart_enabled(payload.enabled)
 
-
-@app.get("/api/weixin/gateway/autostart")
-async def get_openclaw_autostart() -> dict[str, object]:
-    from friday.openclaw_autostart import openclaw_autostart_status
-
-    return openclaw_autostart_status()
-
-
-@app.put("/api/weixin/gateway/autostart")
-async def set_openclaw_autostart(payload: AutostartPayload) -> dict[str, object]:
-    from friday.openclaw_autostart import set_openclaw_autostart_enabled
-
-    return set_openclaw_autostart_enabled(payload.enabled)
 
 
 @app.get("/api/sessions/{session_id}/plan")
@@ -506,67 +500,87 @@ async def get_python_env_status() -> dict[str, object]:
 
 @app.post("/api/python-env/setup")
 async def setup_python_env() -> dict[str, object]:
-    from friday.python_env import env_dict, setup_agent_env
+    from friday.python_env import start_setup_agent_env_background
 
     cfg = load_settings()
     workspace = resolved_workspace(cfg)
-    ok, message = await asyncio.to_thread(setup_agent_env, workspace)
-    status = await asyncio.to_thread(env_dict, workspace)
-    status["ok"] = ok
-    status["setup_message"] = message
-    return status
+    return await asyncio.to_thread(start_setup_agent_env_background, workspace)
+
+
+@app.get("/api/python-env/setup/progress")
+async def python_env_setup_progress() -> dict[str, object]:
+    from friday.python_env import get_setup_progress_dict
+
+    return await asyncio.to_thread(get_setup_progress_dict)
 
 
 @app.post("/api/settings/test", response_model=TestResponse)
 async def test_settings(payload: SettingsPayload) -> TestResponse:
-    from friday.brain import DeepSeekBrain
+    from friday.api_connect import test_llm_service
     from friday.error_hints import classify_error
+    from friday.logging_config import get_logger
 
-    cfg = _merge_payload(payload)
-    if not cfg.api_ready:
-        hint = classify_error("", context="api_key_missing")
-        return TestResponse(ok=False, message=hint.detail + "\n" + hint.hint, code=hint.code)
-    ok, message = await asyncio.to_thread(DeepSeekBrain(cfg).test_connection)
-    code = "ok" if ok else classify_error(message, context="api_test").code
-    from friday.api_connect import record_service_status
+    log = get_logger("api")
+    try:
+        cfg = _merge_payload(payload)
+        from friday.llm_profiles import llm_config_hint
 
-    record_service_status("llm", cfg, ok, message if ok else message.split("\n")[0])
-    return TestResponse(ok=ok, message=message, code=code)
+        config_hint = llm_config_hint(cfg)
+        if config_hint:
+            return TestResponse(ok=False, message=config_hint, code="api_key_missing")
+        ok, message = await asyncio.to_thread(test_llm_service, cfg)
+        code = "ok" if ok else classify_error(message, context="api_test").code
+        return TestResponse(ok=ok, message=message, code=code)
+    except Exception as exc:
+        log.exception("settings/test 未捕获异常")
+        hint = classify_error(exc, context="api_test")
+        return TestResponse(ok=False, message=f"{hint.detail}\n{hint.hint}", code=hint.code)
 
 
 @app.post("/api/settings/test-vision", response_model=TestResponse)
 async def test_vision_settings(payload: SettingsPayload) -> TestResponse:
+    from friday.api_connect import test_vision_service
     from friday.error_hints import classify_error
-    from friday.vision import test_vision_connection
 
     cfg = _merge_payload(payload)
-    ok, message = await asyncio.to_thread(test_vision_connection, cfg)
-    code = "ok" if ok else classify_error(message, context="api_test").code
-    from friday.api_connect import record_service_status
+    result = await asyncio.to_thread(test_vision_service, cfg)
+    if result is None:
+        from friday.vision import vision_config_hint, vision_ready
 
-    record_service_status("vision", cfg, ok, message if ok else message.split("\n")[0])
+        hint = vision_config_hint(cfg) or "请先勾选「启用视觉辅助」并填写 API Key"
+        if not cfg.vision_enabled:
+            hint = "未启用视觉辅助"
+        elif not vision_ready(cfg):
+            hint = vision_config_hint(cfg) or "未配置视觉 API Key"
+        return TestResponse(ok=False, message=hint, code=classify_error(hint, context="api_test").code)
+    ok, message = result
+    code = "ok" if ok else classify_error(message, context="api_test").code
     return TestResponse(ok=ok, message=message, code=code)
 
 
 @app.post("/api/settings/test-image-gen", response_model=TestResponse)
 async def test_image_gen_settings(payload: SettingsPayload) -> TestResponse:
+    from friday.api_connect import test_image_gen_service
     from friday.error_hints import classify_error
-    from friday.image_gen import test_image_gen_connection
 
     cfg = _merge_payload(payload)
-    ok, message = await asyncio.to_thread(test_image_gen_connection, cfg)
+    result = await asyncio.to_thread(test_image_gen_service, cfg)
+    if result is None:
+        hint = "请先勾选「启用生图」并填写 API Key 与模型"
+        if not cfg.image_gen_enabled:
+            hint = "请先勾选「启用生图」"
+        return TestResponse(ok=False, message=hint, code=classify_error(hint, context="api_test").code)
+    ok, message = result
     code = "ok" if ok else classify_error(message, context="api_test").code
-    from friday.api_connect import record_service_status
-
-    record_service_status("image_gen", cfg, ok, message if ok else message.split("\n")[0])
-    if ok:
-        record_service_status(
-            "image_gen",
-            load_settings(),
-            ok,
-            message if ok else message.split("\n")[0],
-        )
     return TestResponse(ok=ok, message=message, code=code)
+
+
+@app.post("/api/settings/startup-tests")
+async def startup_api_tests() -> dict[str, object]:
+    """开机并行检测 LLM / 视觉 / 生图（与设置页测试连接相同逻辑）。"""
+    from friday.api_connect import run_startup_service_tests
+
+    return await run_startup_service_tests()
 
 
 @app.post("/api/settings/diagnose", response_model=DiagnoseResponse)
@@ -762,8 +776,11 @@ async def api_rename_session(session_id: str, payload: SessionRenamePayload) -> 
 
 
 def _merge_payload(payload: SettingsPayload) -> UserSettings:
+    from friday.llm_profiles import repair_llm_key_alignment
+
     current = load_settings()
-    return merge_settings(current, payload.model_dump(exclude_unset=True))
+    merged = merge_settings(current, payload.model_dump(exclude_unset=True))
+    return repair_llm_key_alignment(merged)
 
 
 def _to_response(cfg: UserSettings) -> SettingsResponse:
@@ -775,7 +792,7 @@ def _to_response(cfg: UserSettings) -> SettingsResponse:
         masked_image_gen_key,
     )
     from friday.category_profiles import category_profiles_summary
-    from friday.llm_profiles import active_provider_id, profiles_summary
+    from friday.llm_profiles import active_provider_id, llm_config_hint, profiles_summary
     from friday.model_providers import infer_llm_provider, infer_vision_provider
     from friday.portability import pop_startup_notices
     from friday.vision import masked_vision_key, vision_config_hint, vision_ready
@@ -803,6 +820,7 @@ def _to_response(cfg: UserSettings) -> SettingsResponse:
         model=cfg.model,
         workspace=resolved_workspace(cfg),
         api_ready=cfg.api_ready,
+        llm_status_hint=llm_config_hint(cfg),
         theme=cfg.theme,
         font_size=cfg.font_size,
         restrict_to_workspace=cfg.restrict_to_workspace,
@@ -1134,7 +1152,16 @@ async def _run_chat(
         return
 
     approval_bridge = _make_approval_bridge(loop, emit, session_id)
-    agent = _get_agent(session_id, settings, approval_bridge)
+    try:
+        agent = _get_agent(session_id, settings, approval_bridge)
+    except Exception as exc:
+        from friday.logging_config import get_logger
+
+        get_logger("chat").exception("Agent 初始化失败")
+        from friday.api_connect import format_api_error
+
+        await emit("error", {"message": format_api_error(exc, context="api_test")})
+        return
     yolo_unlocked = (
         normalize_mode(settings.interaction_mode) == "yolo"
         and is_session_yolo_unlocked(session_id)
@@ -1195,10 +1222,16 @@ async def _run_chat(
             },
         )
     except Exception as exc:  # noqa: BLE001
-        from friday.api_connect import format_api_error, record_service_status
+        from friday.api_connect import format_api_error, is_transient_api_error, record_service_status
 
         err_msg = format_api_error(exc, context="api_test", service="DeepSeek API")
-        record_service_status("llm", settings, False, err_msg.split("\n")[0])
+        record_service_status(
+            "llm",
+            settings,
+            False,
+            err_msg.split("\n")[0],
+            transient=is_transient_api_error(exc),
+        )
         await emit("error", {"message": err_msg})
     finally:
         _save_session_approval(session_id, agent)
@@ -1222,72 +1255,11 @@ async def cancel_chat(payload: CancelPayload) -> dict[str, bool]:
     return {"ok": False}
 
 
-@app.post("/api/weixin/inbound", response_model=WeixinInboundResponse)
-async def weixin_inbound(payload: WeixinInboundPayload) -> WeixinInboundResponse:
-    from friday.weixin import handle_inbound
-    from friday.weixin.bridge import InboundRequest
-
-    result = await asyncio.to_thread(
-        handle_inbound,
-        InboundRequest(
-            text=payload.text,
-            sender_id=payload.sender_id,
-            peer_id=payload.peer_id,
-            account_id=payload.account_id,
-            context_token=payload.context_token,
-        ),
-    )
-    return WeixinInboundResponse(handled=result.handled, reply=result.reply)
-
-
-@app.get("/api/weixin/status")
-async def weixin_status() -> dict[str, object]:
-    from friday.weixin.setup import weixin_status_payload
-
-    return await asyncio.to_thread(weixin_status_payload)
-
-
 @app.get("/api/runtime/status")
 async def runtime_status() -> dict[str, object]:
     from friday.win10_runtime import runtime_status_payload
 
     return await asyncio.to_thread(runtime_status_payload)
-
-
-@app.get("/api/weixin/setup/status")
-async def weixin_setup_status() -> dict[str, object]:
-    from friday.auth import get_api_token
-
-    port = int(os.environ.get("FRIDAY_PORT", "8765"))
-    from friday.weixin.setup import setup_status_payload
-
-    return await asyncio.to_thread(
-        setup_status_payload,
-        port=port,
-        api_token=get_api_token(),
-    )
-
-
-@app.post("/api/weixin/setup/run")
-async def weixin_setup_run(payload: WeixinSetupRunPayload) -> dict[str, object]:
-    from friday.auth import get_api_token
-    from friday.weixin.setup import run_setup_action
-
-    port = int(os.environ.get("FRIDAY_PORT", "8765"))
-    return await asyncio.to_thread(
-        run_setup_action,
-        payload.action,
-        port=port,
-        api_token=get_api_token(),
-    )
-
-
-@app.post("/api/weixin/setup/toggle")
-async def weixin_setup_toggle(payload: WeixinBridgeTogglePayload) -> dict[str, object]:
-    from friday.weixin.setup import set_bridge_enabled
-
-    updated = await asyncio.to_thread(set_bridge_enabled, payload.enabled)
-    return {"ok": True, "bridge_enabled": getattr(updated, "weixin_bridge_enabled", True)}
 
 
 @app.get("/api/chat/yolo-unlock/{session_id}")
@@ -1730,88 +1702,19 @@ async def api_changelog() -> ChangelogResponse:
 
 
 @app.get("/api/status-bar")
-async def get_status_bar(session_id: str = "") -> dict[str, object]:
-    from friday.image_gen import image_gen_ready
-    from friday.python_env import python_ready_light
-    from friday.schedules import list_schedules
-    from friday.vision import vision_ready
+async def get_status_bar(session_id: str = "", cached_only: bool = False) -> dict[str, object]:
+    from friday.status_bar import build_status_bar_snapshot
 
-    cfg = load_settings()
-    workspace = resolved_workspace(cfg)
-    ws_path = Path(workspace)
-    ws_label = ws_path.name or str(ws_path)
+    def _usage(sid: str) -> dict[str, object]:
+        if sid and sid in _agent_cache:
+            return _agent_cache[sid].usage_snapshot()
+        return {}
 
-    prompt_tokens = 0
-    completion_tokens = 0
-    cache_hit_tokens = 0
-    cache_miss_tokens = 0
-    cache_hit_rate = 0.0
-    if session_id and session_id in _agent_cache:
-        usage = _agent_cache[session_id].usage_snapshot()
-        prompt_tokens = int(usage.get("tokens_prompt", 0) or 0)
-        completion_tokens = int(usage.get("tokens_completion", 0) or 0)
-        cache_hit_tokens = int(usage.get("cache_hit_tokens", 0) or 0)
-        cache_miss_tokens = int(usage.get("cache_miss_tokens", 0) or 0)
-        cache_hit_rate = float(usage.get("cache_hit_rate", 0) or 0)
-
-    vision_on = bool(cfg.vision_enabled)
-    image_gen_on = bool(cfg.image_gen_enabled)
-
-    from friday.api_connect import probe_image_gen_status, probe_llm_status, probe_vision_status
-
-    llm_configured = cfg.api_ready
-    vision_configured = bool(vision_on and vision_ready(cfg))
-    image_gen_configured = bool(image_gen_on and image_gen_ready(cfg))
-
-    async def _probe_llm() -> tuple[bool, str]:
-        if not llm_configured:
-            return False, "未配置 API Key"
-        return await asyncio.to_thread(lambda: probe_llm_status(cfg, read_timeout=10.0))
-
-    async def _probe_vision() -> tuple[bool, str]:
-        if not vision_on:
-            return False, "未启用"
-        if not vision_configured:
-            return False, "未配置"
-        return await asyncio.to_thread(probe_vision_status, cfg)
-
-    async def _probe_image_gen() -> tuple[bool, str]:
-        if not image_gen_on:
-            return False, "未启用"
-        if not image_gen_configured:
-            return False, "未配置"
-        return await asyncio.to_thread(probe_image_gen_status, cfg)
-
-    (llm_online, llm_reach_detail), (vision_online, vision_reach_detail), (
-        image_gen_online,
-        image_gen_reach_detail,
-    ) = await asyncio.gather(_probe_llm(), _probe_vision(), _probe_image_gen())
-
-    return {
-        "api_online": llm_online,
-        "api_configured": llm_configured,
-        "api_reach_detail": llm_reach_detail,
-        "vision_online": vision_online,
-        "vision_configured": vision_configured,
-        "vision_reach_detail": vision_reach_detail,
-        "vision_enabled": vision_on,
-        "image_gen_online": image_gen_online,
-        "image_gen_configured": image_gen_configured,
-        "image_gen_reach_detail": image_gen_reach_detail,
-        "image_gen_enabled": image_gen_on,
-        "model": cfg.model or "—",
-        "workspace": ws_label.replace("\\", "/"),
-        "workspace_path": workspace.replace("\\", "/"),
-        "tokens_prompt": prompt_tokens,
-        "tokens_completion": completion_tokens,
-        "tokens_total": prompt_tokens + completion_tokens,
-        "cache_hit_tokens": cache_hit_tokens,
-        "cache_miss_tokens": cache_miss_tokens,
-        "cache_hit_rate": cache_hit_rate,
-        "tasks": len(list_schedules()),
-        "interaction_mode": getattr(cfg, "interaction_mode", "agent"),
-        "python_ready": python_ready_light(workspace),
-    }
+    return await build_status_bar_snapshot(
+        session_id=session_id,
+        cached_only=cached_only,
+        session_usage=_usage,
+    )
 
 
 @app.get("/api/version")

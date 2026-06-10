@@ -49,21 +49,26 @@ def parse_approval_text(text: str) -> bool | None:
 
 
 def format_approval_prompt(summary: str, *, preview: str = "") -> str:
+    summary = summary.strip()
+    detail = (preview or "").strip()
+    if detail == summary:
+        detail = ""
+
     lines = [
         "【星期五 · 需要你的许可】",
         "",
-        summary.strip(),
+        "▸ 准备做什么",
+        summary,
     ]
-    detail = (preview or "").strip()
-    if detail and detail != summary.strip():
-        lines.extend(["", detail[:200]])
+    if detail:
+        lines.extend(["", "▸ 补充说明", detail[:280]])
     lines.extend(
         [
             "",
-            "这步会在这台电脑上实际执行。",
-            "回复「同意」= 允许；回复「拒绝」= 取消。",
+            "▸ 请你决定",
+            "回复「同意」= 允许在这台电脑上执行",
+            "回复「拒绝」= 取消，不做任何改动",
             "",
-            "请回复：同意 / 拒绝",
             "（5 分钟内有效）",
         ]
     )

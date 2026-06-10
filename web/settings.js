@@ -34,7 +34,7 @@
   }
 
   function applyTheme(mode) {
-    const themeMode = mode || "dark";
+    const themeMode = mode || "light";
     document.documentElement.dataset.themeMode = themeMode;
     document.documentElement.dataset.theme = resolveTheme(themeMode);
     const resolved = resolveTheme(themeMode);
@@ -63,11 +63,11 @@
   }
 
   function applyUiSettings(data) {
-    applyTheme(data.theme || "dark");
+    applyTheme(data.theme || "light");
     applyFontSize(data.font_size || "medium");
     const lang = data.ui_language || "zh";
     window.FridayI18n?.setLanguage?.(lang);
-    cacheUiPrefs(data.theme || "dark", data.font_size || "medium", lang);
+    cacheUiPrefs(data.theme || "light", data.font_size || "medium", lang);
     F.refreshProviderLabels?.();
   }
 
@@ -227,7 +227,7 @@
         data.image_gen_status_hint || "",
       );
     }
-    document.getElementById("themeMode").value = data.theme || "dark";
+    document.getElementById("themeMode").value = data.theme || "light";
     document.getElementById("fontSize").value = data.font_size || "medium";
     const langEl = document.getElementById("uiLanguage");
     if (langEl) langEl.value = data.ui_language || "zh";
@@ -237,9 +237,10 @@
     applyAutostartUi(data);
     applyUiSettings(data);
     F.updateApiStatus(data.api_ready);
+    F.bootSettingsSnapshot = data;
     F.applyStatusFromSettings?.(data);
     F.updateInputState();
-    void F.refreshStatusBar?.();
+    void F.runStartupApiTests?.();
     if (Array.isArray(data.portability_notices) && data.portability_notices.length && F.settingsResult) {
       F.settingsResult.className = "settings-result error";
       F.settingsResult.textContent = data.portability_notices.join("\n");
@@ -724,7 +725,10 @@
         resultEl.className = "settings-result ok";
         resultEl.textContent = `${data.message}（已自动保存）`;
       }
-      void F.refreshStatusBar?.();
+      await F.refreshStatusBar?.({ force: true });
+      if (saved.image_gen_ready && saved.image_gen_enabled) {
+        markImageGenStatusBarOnline(data.message || "生图 API 已就绪");
+      }
     } catch (err) {
       const timedOut = err?.name === "AbortError";
       if (resultEl) {
@@ -900,60 +904,6 @@
   F.switchSettingsPanel = switchSettingsPanel;
   F.refreshLogPreview = refreshLogPreview;
   F.openLogFolder = openLogFolder;
-
-  async function refreshPythonEnvStatus() {
-    const statusEl = document.getElementById("pythonEnvStatus");
-    const resultEl = document.getElementById("pythonEnvResult");
-    if (!statusEl) return;
-    statusEl.textContent = "加载中…";
-    try {
-      const res = await F.apiFetchWithTimeout("/api/python-env", {}, 20000);
-      const data = await res.json();
-      const lines = [
-        data.ready ? "✓ 已就绪" : "○ 未就绪",
-        data.version ? `版本：${data.version}` : "",
-        data.python_exe ? `解释器：${data.python_exe}` : "",
-        `目录：${data.env_dir || "—"}`,
-        data.message || "",
-      ].filter(Boolean);
-      statusEl.textContent = lines.join("\n");
-      if (resultEl && !resultEl.classList.contains("ok") && !resultEl.classList.contains("error")) {
-        resultEl.textContent = "";
-        resultEl.className = "settings-result";
-      }
-    } catch {
-      statusEl.textContent = "无法读取 Python 环境状态。若正在初始化，请等待数分钟后再点「刷新状态」。";
-    }
-  }
-
-  async function setupPythonEnv() {
-    const btn = document.getElementById("setupPythonEnvBtn");
-    const resultEl = document.getElementById("pythonEnvResult");
-    if (btn) btn.disabled = true;
-    if (resultEl) {
-      resultEl.className = "settings-result";
-      resultEl.textContent = "正在初始化（首次可能需几分钟下载依赖）…";
-    }
-    try {
-      const res = await F.apiFetchWithTimeout("/api/python-env/setup", { method: "POST" }, 900000);
-      const data = await res.json();
-      if (resultEl) {
-        resultEl.className = data.ok ? "settings-result ok" : "settings-result error";
-        resultEl.textContent = data.setup_message || data.message || (data.ok ? "完成" : "失败");
-      }
-      await refreshPythonEnvStatus();
-    } catch {
-      if (resultEl) {
-        resultEl.className = "settings-result error";
-        resultEl.textContent = "初始化失败，请检查网络或系统是否已安装 Python 3.11+。";
-      }
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  }
-
-  F.refreshPythonEnvStatus = refreshPythonEnvStatus;
-  F.setupPythonEnv = setupPythonEnv;
 
   document.getElementById("openLogFolderBtn")?.addEventListener("click", openLogFolder);
   document.getElementById("refreshLogPreviewBtn")?.addEventListener("click", refreshLogPreview);

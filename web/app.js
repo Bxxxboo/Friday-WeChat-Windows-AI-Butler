@@ -16,13 +16,21 @@
 
   const BOOT_MIN_MS = 1600;
   const bootStarted = performance.now();
-  document.documentElement.classList.add("boot-active");
+  const bootSeamless = document.documentElement.classList.contains("boot-seamless");
+  if (!document.documentElement.classList.contains("boot-active")) {
+    document.documentElement.classList.add("boot-active");
+  }
 
   async function bootstrap() {
+    window.__FRIDAY_MARK_BOOT__?.();
     const overlay = document.getElementById("appBootOverlay");
     const setBootText = (text) => {
       const hint = overlay?.querySelector(".app-boot-status") || overlay?.querySelector("p");
       if (!hint || hint.textContent === text) return;
+      if (bootSeamless) {
+        hint.textContent = text;
+        return;
+      }
       hint.classList.add("is-swapping");
       setTimeout(() => {
         hint.textContent = text;
@@ -59,6 +67,7 @@
     };
 
     const waitBootMinimum = async () => {
+      if (bootSeamless) return;
       const remain = BOOT_MIN_MS - (performance.now() - bootStarted);
       if (remain > 0) {
         await new Promise((resolve) => setTimeout(resolve, remain));
@@ -82,7 +91,6 @@
       void F.checkOnboarding?.().catch((err) => console.warn("checkOnboarding", err)).finally(() => {
         setTimeout(() => void F.checkReleaseNotes?.(), 400);
       });
-      void F.refreshStatusBar?.();
     } catch (err) {
       console.error(err);
       const detail = err?.message || String(err);
@@ -224,7 +232,7 @@
   function syncWindowChrome() {
     const api = window.pywebview?.api;
     if (!api?.sync_window_chrome) return;
-    const theme = document.documentElement.dataset.theme || "dark";
+    const theme = document.documentElement.dataset.theme || "light";
     const bg = theme === "light" ? "#f0ebe3" : "#0a0d12";
     api.sync_window_chrome(bg, theme === "dark");
   }

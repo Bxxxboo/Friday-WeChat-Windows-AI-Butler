@@ -33,7 +33,15 @@ def test_unseen_none_when_ack_current():
 
 def test_unseen_first_install():
     unseen = unseen_entries("", "1.1.0")
-    assert any(e["version"] == "1.1.0" for e in unseen)
+    assert len(unseen) == 1
+    assert unseen[0]["version"] == "1.1.0"
+
+
+def test_unseen_skips_intermediate_versions():
+    """从 1.0.4 升到 1.2.2 时，弹窗只展示当前版本，不堆叠中间版本。"""
+    unseen = unseen_entries("1.0.4", "1.2.2")
+    assert len(unseen) == 1
+    assert unseen[0]["version"] == "1.2.2"
 
 
 def test_changelog_payload():

@@ -350,7 +350,6 @@
       apiStatus.textContent = ready ? "API 已就绪" : "API 未配置";
       apiStatus.classList.toggle("ready", ready);
     }
-    window.Friday?.refreshStatusBar?.();
   }
 
   function updateQueueIndicator(count) {

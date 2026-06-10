@@ -1,0 +1,52 @@
+---
+description: 修 bug 时范围锁定、共享模块回归、禁止改 A 坏 B。Fix/debug/regression 或动 credentials/merge/profile/settings 时必须遵守；完整清单见 .cursor/skills/surgical-bugfix/SKILL.md。
+alwaysApply: true
+---
+
+# 外科手术式 Bug 修复（强制）
+
+与 `karpathy-guidelines` 互补。修 bug、查回归、动共享设置/凭据时 **必须先读** [surgical-bugfix SKILL](../skills/surgical-bugfix/SKILL.md)。
+
+## 开工前（写进回复再改代码）
+
+1. **根因路径**：哪条链路？（保存 / 测试 / Agent / 微信 / 生图…）
+2. **允许改的文件**：默认 ≤5 个；超出须说明
+3. **成功标准**：pytest 或脚本 + 预期输出
+
+## 禁止
+
+- 顺手重构、改相邻 UI/文案、一次修多个 unrelated 问题
+- 根因在 A，为「方便」改 B（尤其下列共享模块）
+
+## 高风险共享模块（改动必跑回归）
+
+| 文件 | 影响面 |
+|------|--------|
+| `friday/credentials_store.py` | 全部 API Key 读写 |
+| `friday/storage.py`（`merge/load/save_settings`） | 设置合并与持久化 |
+| `friday/llm_profiles.py` / `category_profiles.py` | 服务商切换与 Key |
+| `friday/server.py`（`_merge_payload`、test/PUT settings） | 前端测试与保存 |
+| `friday/api_connect.py` | 状态栏与测试连接 |
+
+动上表任一文件，**必须**执行：
+
+```powershell
+python -m pytest tests/api/test_credentials_store.py tests/providers/test_llm_profiles.py tests/providers/test_category_profiles.py -q
+```
+
+并按 SKILL 第 3 节追加域相关测试（微信 / 生图 / brain）。
+
+## 凭据/合并改动必查
+
+- 新 Key 写入后 `load_settings()` 读回须一致（非旧凭据）
+- `preserve_empty_*` 只填空字段，**禁止**用凭据库覆盖非空新 Key
+- 换 provider 且 Key 为空 → 须 `switch_*_profile`
+- 测试路径与运行路径共用同一套 merge/load
+
+## 完成前
+
+- [ ] 每行 diff 可追溯到本 bug 或对应测试
+- [ ] 回归矩阵已跑通
+- [ ] 回复含：根因、改动文件、未改动范围、验证命令
+
+未满足不得声称「已修好」。

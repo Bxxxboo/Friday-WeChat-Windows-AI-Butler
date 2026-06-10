@@ -320,7 +320,7 @@ def test_vision_connection(settings: UserSettings) -> tuple[bool, str]:
         return False, hint or "请先勾选「启用视觉辅助」并填写 API Key，再点「保存视觉设置」"
     steps = diagnose_vision(settings, include_api=True)
     if steps and steps[-1].ok:
-        invalidate_probe_cache()
+        invalidate_probe_cache(clear_auth=False)
         return True, steps[-1].detail
     failed = next((s for s in reversed(steps) if not s.ok), steps[-1] if steps else None)
     if failed is None:

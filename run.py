@@ -60,6 +60,11 @@ except Exception:
 from friday.single_instance import ensure_single_instance
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--weixin-login":
+        from friday.weixin.login_runner import main as weixin_login_main
+
+        weixin_login_main()
+        raise SystemExit(0)
     ensure_single_instance()
     if sys.platform == "win32" and getattr(sys, "frozen", False):
         from friday.win10_runtime import ensure_win10_runtime, notify_runtime_failure
