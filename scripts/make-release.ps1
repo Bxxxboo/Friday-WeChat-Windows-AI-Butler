@@ -90,49 +90,67 @@ function Write-ReleaseZip {
 }
 
 # --- Friday-Windows：解压后运行 Setup 安装程序（官网默认下载）---
-$winStage = Join-Path $ReleaseRoot "stage-windows"
-New-ReleaseZip -Stage $winStage -ZipPath (Join-Path $ReleaseRoot $ZipName) | Out-Null
+$WindowsStageRoot = Join-Path $ReleaseRoot "stage-windows"
+if (-not $WindowsStageRoot) { throw "WindowsStageRoot is empty (ReleaseRoot=$ReleaseRoot)" }
+New-ReleaseZip -Stage $WindowsStageRoot -ZipPath (Join-Path $ReleaseRoot $ZipName) | Out-Null
 
 @(
     "Friday Windows $TargetVersion"
     "Build: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     "Installer: $SetupName"
-) | Set-Content -Path (Join-Path $winStage "VERSION.txt") -Encoding UTF8
+) | Set-Content -Path (Join-Path $WindowsStageRoot "VERSION.txt") -Encoding UTF8
 
-Copy-Item (Join-Path $ReleaseRoot $GuideName) $winStage -Force
-Copy-Item $SetupPath (Join-Path $winStage $SetupName) -Force
+Copy-Item (Join-Path $ReleaseRoot $GuideName) $WindowsStageRoot -Force
+Copy-Item $SetupPath (Join-Path $WindowsStageRoot $SetupName) -Force
 $UnblockScript = Join-Path $ReleaseRoot $UnblockName
 if (Test-Path $UnblockScript) {
-    Copy-Item $UnblockScript $winStage -Force
+    Copy-Item $UnblockScript $WindowsStageRoot -Force
 }
 # 兼容 1.2.x 应用内一键更新（旧版只拉 Friday-Windows.zip，须含 Friday\Friday.exe）
-Copy-Item $DistApp (Join-Path $winStage "Friday") -Recurse -Force
+if (-not $ReleaseRoot) { throw "ReleaseRoot is empty before portable stage (PWD=$PWD)" }
+$PortableStageDir = $ReleaseRoot + [System.IO.Path]::DirectorySeparatorChar + "stage-windows" + [System.IO.Path]::DirectorySeparatorChar + "Friday"
+Write-Host ("Staging portable app -> {0}" -f $PortableStageDir) -ForegroundColor Cyan
+New-Item -ItemType Directory -Path $PortableStageDir -Force | Out-Null
+$portableSrc = $DistApp
+$installerStage = [System.IO.Path]::Combine($PWD, "installer", "stage", "Friday")
+if (Test-Path -LiteralPath ([System.IO.Path]::Combine($installerStage, "Friday.exe"))) {
+    $portableSrc = $installerStage
+}
+Copy-Item -Path (Join-Path $portableSrc "*") -Destination $PortableStageDir -Recurse -Force
 Write-Host "Unblocking staged Windows zip files..." -ForegroundColor Cyan
-Get-ChildItem -LiteralPath (Join-Path $winStage "Friday") -Recurse -ErrorAction SilentlyContinue |
+Get-ChildItem -LiteralPath $PortableStageDir -Recurse -ErrorAction SilentlyContinue |
     Unblock-File -ErrorAction SilentlyContinue
+
+$portableExe = [System.IO.Path]::Combine($PortableStageDir, "Friday.exe")
+if (-not (Test-Path -LiteralPath $portableExe)) {
+    throw "Windows zip stage missing Friday.exe (src=$portableSrc). Re-run scripts\build.ps1 then make-release.ps1."
+}
 
 Write-Host ""
 Write-Host "Packing $ZipName (Setup + portable for legacy updater)..." -ForegroundColor Cyan
-Write-ReleaseZip -Stage $winStage -ZipPath (Join-Path $ReleaseRoot $ZipName)
+Write-ReleaseZip -Stage $WindowsStageRoot -ZipPath (Join-Path $ReleaseRoot $ZipName)
 
 # --- Friday-Update：便携目录，供应用内「一键更新」覆盖安装 ---
-$updateStage = Join-Path $ReleaseRoot "stage-update"
-New-ReleaseZip -Stage $updateStage -ZipPath (Join-Path $ReleaseRoot $UpdateZipName) | Out-Null
+$UpdateStageRoot = Join-Path $ReleaseRoot "stage-update"
+New-ReleaseZip -Stage $UpdateStageRoot -ZipPath (Join-Path $ReleaseRoot $UpdateZipName) | Out-Null
 
 @(
     "Friday Update $TargetVersion"
     "Build: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     "For in-app auto-update only (contains Friday\Friday.exe)."
-) | Set-Content -Path (Join-Path $updateStage "VERSION.txt") -Encoding UTF8
+) | Set-Content -Path (Join-Path $UpdateStageRoot "VERSION.txt") -Encoding UTF8
 
-Copy-Item $DistApp (Join-Path $updateStage "Friday") -Recurse -Force
+$UpdatePortableDir = $ReleaseRoot + [System.IO.Path]::DirectorySeparatorChar + "stage-update" + [System.IO.Path]::DirectorySeparatorChar + "Friday"
+New-Item -ItemType Directory -Path $UpdatePortableDir -Force | Out-Null
+$updateSrc = if (Test-Path -LiteralPath ([System.IO.Path]::Combine($installerStage, "Friday.exe"))) { $installerStage } else { $DistApp }
+Copy-Item -Path (Join-Path $updateSrc "*") -Destination $UpdatePortableDir -Recurse -Force
 Write-Host "Unblocking staged update files..." -ForegroundColor Cyan
-Get-ChildItem -LiteralPath (Join-Path $updateStage "Friday") -Recurse -ErrorAction SilentlyContinue |
+Get-ChildItem -LiteralPath $UpdatePortableDir -Recurse -ErrorAction SilentlyContinue |
     Unblock-File -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "Packing $UpdateZipName (in-app updater)..." -ForegroundColor Cyan
-Write-ReleaseZip -Stage $updateStage -ZipPath (Join-Path $ReleaseRoot $UpdateZipName)
+Write-ReleaseZip -Stage $UpdateStageRoot -ZipPath (Join-Path $ReleaseRoot $UpdateZipName)
 
 Write-Host ""
 Write-Host "Release artifacts ready in $ReleaseRoot" -ForegroundColor Green

@@ -80,6 +80,15 @@ def find_release(repo: str, tag: str, token: str) -> dict | None:
     return None
 
 
+def _asset_content_type(path: Path) -> str:
+    lower = path.name.lower()
+    if lower.endswith(".zip"):
+        return "application/zip"
+    if lower.endswith(".exe"):
+        return "application/octet-stream"
+    return "application/octet-stream"
+
+
 def upload_asset(repo: str, release_id: int, token: str, zip_path: Path) -> None:
     release = _get_json(f"{API}/repos/{repo}/releases/{release_id}?access_token={token}")
     for asset in release.get("assets") or []:
@@ -98,7 +107,7 @@ def upload_asset(repo: str, release_id: int, token: str, zip_path: Path) -> None
     print(f"Uploading {zip_path.name} ({zip_path.stat().st_size // (1024 * 1024)} MB) ...")
     body, boundary = _multipart(
         {"access_token": token},
-        {"file": (zip_path.name, zip_path.read_bytes(), "application/zip")},
+        {"file": (zip_path.name, zip_path.read_bytes(), _asset_content_type(zip_path))},
     )
     req = urllib.request.Request(
         f"{API}/repos/{repo}/releases/{release_id}/attach_files",
