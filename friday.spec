@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配置 —— 生成 dist/Friday/星期五.exe"""
+"""PyInstaller 打包配置 —— 生成 dist/Friday/Friday.exe"""
 
 from pathlib import Path
 
@@ -160,7 +160,7 @@ exe = EXE(
     pyz,
     a.scripts,
     [],
-    name="星期五",
+    name="Friday",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

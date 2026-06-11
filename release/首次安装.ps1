@@ -5,7 +5,8 @@ $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $FridayDir = Join-Path $Root "Friday"
-$ExeName = [char]0x661F + [char]0x671F + [char]0x4E94 + ".exe"  # 星期五.exe
+$ExeName = "Friday.exe"
+$LegacyExeName = [char]0x661F + [char]0x671F + [char]0x4E94 + ".exe"  # 旧包兼容
 
 if (-not (Test-Path $FridayDir)) {
     Write-Host "未找到 Friday 文件夹，请确认已完整解压 zip。" -ForegroundColor Red
@@ -28,11 +29,15 @@ if (Test-Path $ShortcutScript) {
 }
 
 $Exe = Join-Path $FridayDir $ExeName
-if (-not (Test-Path $Exe)) {
+if (-not (Test-Path -LiteralPath $Exe)) {
+    $legacy = Join-Path $FridayDir $LegacyExeName
+    if (Test-Path -LiteralPath $legacy) { $Exe = $legacy }
+}
+if (-not (Test-Path -LiteralPath $Exe)) {
     $Exe = Get-ChildItem $FridayDir -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $Exe) {
-    Write-Host "未找到 星期五.exe" -ForegroundColor Red
+    Write-Host "未找到 Friday.exe" -ForegroundColor Red
     Read-Host "按 Enter 退出"
     exit 1
 }

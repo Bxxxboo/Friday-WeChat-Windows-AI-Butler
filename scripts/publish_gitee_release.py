@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from friday.version import __version__, release_zip_name
+from friday.version import __version__, release_setup_name, release_zip_name
 
 API = "https://gitee.com/api/v5"
 
@@ -163,6 +163,12 @@ def main() -> int:
             print(f"Zip not found: {zip_path}", file=sys.stderr)
             return 1
         upload_asset(repo, release_id, token, zip_path)
+        setup_path = ROOT / "release" / release_setup_name(args.version)
+        if setup_path.is_file():
+            print(f"Uploading setup: {setup_path.name} ...")
+            upload_asset(repo, release_id, token, setup_path)
+        else:
+            print(f"Setup not found (optional): {setup_path}")
     else:
         print("Skip upload.")
 

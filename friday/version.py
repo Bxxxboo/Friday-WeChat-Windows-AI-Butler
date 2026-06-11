@@ -1,13 +1,19 @@
 ﻿"""应用版本号 —— 与 PyInstaller version_info 保持一致。"""
 
-__version__ = "1.2.5"
-__version_tuple__ = (1, 2, 5, 0)
+__version__ = "1.3.0"
+__version_tuple__ = (1, 3, 0, 0)
 
 
 def release_zip_name(version: str | None = None) -> str:
-    """Windows 安装包文件名，与 scripts/make-release.ps1 一致。"""
+    """Windows ZIP 包文件名，与 scripts/make-release.ps1 一致。"""
     v = (version or __version__).strip()
     return f"Friday-Windows-{v}.zip"
+
+
+def release_setup_name(version: str | None = None) -> str:
+    """Windows Inno Setup 安装包文件名，与 installer/friday.iss 一致。"""
+    v = (version or __version__).strip()
+    return f"Friday-Setup-{v}.exe"
 
 # GitHub Releases（备用，国内常需 VPN）
 GITHUB_REPO = "Bxxxboo/Friday-WeChat-Windows-AI-Butler"

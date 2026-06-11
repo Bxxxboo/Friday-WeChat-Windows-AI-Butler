@@ -4056,8 +4056,19 @@ html.desktop .session-rename-input {
 }
 
 .weixin-setup-actions {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 8px;
   margin-bottom: 18px;
+}
+
+.weixin-setup-actions .primary-btn,
+.weixin-setup-actions .ghost-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 9px 8px;
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
 }
 
 .weixin-setup-steps {

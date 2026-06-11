@@ -673,7 +673,7 @@
     if (btn) btn.disabled = true;
     if (resultEl) {
       resultEl.className = "settings-result";
-      resultEl.textContent = "正在验证生图端点与模型（约需数秒至半分钟）…";
+      resultEl.textContent = "正在验证生图端点与模型（约需半分钟至 2 分钟）…";
     }
     const payload = collectImageGenSettings();
     if (!payload.image_gen_enabled) {
@@ -699,7 +699,7 @@
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      }, 60000);
+      }, 120000);
       const data = await res.json();
       if (!data.ok) {
         F.applyApiTestResult?.(resultEl, data);
@@ -734,7 +734,7 @@
       if (resultEl) {
         resultEl.className = "settings-result error";
         resultEl.textContent = timedOut
-          ? "生图测试超时（60 秒）。端点可能响应过慢或不可达，请检查 Base URL 与模型名。"
+          ? "生图测试超时（120 秒）。端点可能响应过慢或不可达，请检查 Base URL 与模型名。"
           : "生图测试失败，请确认星期五后端已启动并重试。";
       }
       updateImageGenStatus(false, payload.image_gen_enabled, timedOut ? "测试超时" : "测试失败");
@@ -795,6 +795,7 @@
     });
     if (panel === "app") {
       void refreshLogPreview();
+      void loadAppVersion();
     }
     if (panel === "agent") {
       void F.refreshPythonEnvStatus?.();
@@ -1107,20 +1108,58 @@
   document.getElementById("refreshPythonEnvBtn")?.addEventListener("click", () => void F.refreshPythonEnvStatus?.());
   document.getElementById("setupPythonEnvBtn")?.addEventListener("click", () => void F.setupPythonEnv?.());
 
+  function renderRuntimeAbout(data) {
+    const statusEl = document.getElementById("runtimeAboutStatus");
+    const hintEl = document.getElementById("runtimeAboutHint");
+    if (!statusEl) return;
+    if (!data) {
+      statusEl.textContent = "无法加载运行信息。";
+      if (hintEl) hintEl.classList.add("hidden");
+      return;
+    }
+    const lines = [
+      data.run_mode_label ? `运行模式：${data.run_mode_label}` : "",
+      data.main_process_name ? `主进程：${data.main_process_name}` : "",
+      data.main_executable ? `路径：${data.main_executable}` : "",
+      data.pid != null ? `PID：${data.pid}` : "",
+      data.agent_runner_name ? `Agent 解释器：${data.agent_runner_name}` : "",
+      data.agent_runner && data.agent_runner !== data.main_executable
+        ? `Agent 路径：${data.agent_runner}`
+        : "",
+    ].filter(Boolean);
+    statusEl.textContent = lines.join("\n") || "—";
+    if (!hintEl) return;
+    const hint = data.task_manager_hint || "";
+    if (!hint) {
+      hintEl.classList.add("hidden");
+      hintEl.textContent = "";
+      return;
+    }
+    hintEl.textContent = hint;
+    hintEl.classList.remove("hidden");
+    hintEl.classList.toggle("settings-hint-warn", data.run_mode === "dev");
+  }
+
   async function loadAppVersion() {
     const label = document.getElementById("appVersionLabel");
     const sourceLink = document.getElementById("updateSourceLink");
-    if (!label) return;
+    const statusEl = document.getElementById("runtimeAboutStatus");
+    if (statusEl && !statusEl.dataset.loaded) {
+      statusEl.textContent = "加载中…";
+    }
     try {
       const res = await F.apiFetch("/api/version");
       const data = await res.json();
-      label.textContent = data.version || "—";
+      if (label) label.textContent = data.version || "—";
       if (sourceLink && data.gitee_home) {
         sourceLink.href = `${data.gitee_home}/releases`;
         sourceLink.textContent = "Gitee Releases";
       }
+      renderRuntimeAbout(data);
+      if (statusEl) statusEl.dataset.loaded = "1";
     } catch {
-      label.textContent = "—";
+      if (label) label.textContent = "—";
+      renderRuntimeAbout(null);
     }
   }
 

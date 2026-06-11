@@ -60,12 +60,19 @@ except Exception:
 from friday.single_instance import ensure_single_instance
 
 if __name__ == "__main__":
+    if "--install-launch" in sys.argv:
+        os.environ["FRIDAY_INSTALL_LAUNCH"] = "1"
     if len(sys.argv) > 1 and sys.argv[1] == "--weixin-login":
         from friday.weixin.login_runner import main as weixin_login_main
 
         weixin_login_main()
         raise SystemExit(0)
     ensure_single_instance()
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        from friday.update_rollback import guard_startup_after_update
+
+        if not guard_startup_after_update():
+            raise SystemExit(0)
     if sys.platform == "win32" and getattr(sys, "frozen", False):
         from friday.win10_runtime import ensure_win10_runtime, notify_runtime_failure
 

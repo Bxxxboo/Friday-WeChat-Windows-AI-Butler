@@ -11,8 +11,16 @@ function Get-FridayDistDir {
 
 function Get-FridayExe {
     param([string]$DistDir)
-    $exe = Get-ChildItem $DistDir -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    return $exe
+    $preferred = Join-Path $DistDir "Friday.exe"
+    if (Test-Path -LiteralPath $preferred) {
+        return Get-Item -LiteralPath $preferred
+    }
+    $legacyName = -join ([char]0x661F, [char]0x671F, [char]0x4E94) + ".exe"
+    $legacy = Join-Path $DistDir $legacyName
+    if (Test-Path -LiteralPath $legacy) {
+        return Get-Item -LiteralPath $legacy
+    }
+    return Get-ChildItem $DistDir -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
 }
 
 function Get-FridayVersion {

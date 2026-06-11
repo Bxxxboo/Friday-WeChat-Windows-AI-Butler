@@ -25,7 +25,10 @@ coverage.xml
 *.egg-info/
 
 release/*.zip
+release/Friday-Setup-*.exe
 release/stage/
+installer/stage/
+installer/output/
 release/.release-notes.md
 
 openclaw-weixin/

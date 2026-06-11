@@ -5,10 +5,16 @@ $AppFolder = Join-Path $ReleaseRoot "Friday"
 if (-not (Test-Path $AppFolder)) {
     $AppFolder = Join-Path $ReleaseRoot (-join ([char]0x661F, [char]0x671F, [char]0x4E94))
 }
-$Exe = Get-ChildItem $AppFolder -Filter "*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+$ExePath = Join-Path $AppFolder "Friday.exe"
+if (-not (Test-Path -LiteralPath $ExePath)) {
+    $legacyName = -join ([char]0x661F, [char]0x671F, [char]0x4E94) + ".exe"
+    $legacyPath = Join-Path $AppFolder $legacyName
+    if (Test-Path -LiteralPath $legacyPath) { $ExePath = $legacyPath }
+}
+$Exe = if (Test-Path -LiteralPath $ExePath) { Get-Item -LiteralPath $ExePath } else { $null }
 
 if (-not $Exe) {
-    Write-Host "未找到 星期五.exe，请确认已解压完整安装包。" -ForegroundColor Red
+    Write-Host "未找到 Friday.exe，请确认已解压完整安装包。" -ForegroundColor Red
     pause
     exit 1
 }

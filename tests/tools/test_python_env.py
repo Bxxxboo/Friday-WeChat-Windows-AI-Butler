@@ -3,7 +3,18 @@ from __future__ import annotations
 import sys
 from unittest.mock import patch
 
-from friday.python_env import agent_env_dir, find_system_python, get_env_status, setup_agent_env
+import pytest
+
+from friday.python_env import (
+    AGENT_RUNNER_NAME,
+    agent_env_dir,
+    ensure_branded_agent_runner,
+    find_system_python,
+    get_env_status,
+    resolve_agent_python,
+    resolve_agent_runner_exe,
+    setup_agent_env,
+)
 from friday.safety import RiskLevel, classify_tool, evaluate_tool
 from friday.storage import UserSettings
 from friday.tools.python_runner import _check_dangerous_code, run_python
@@ -192,3 +203,34 @@ def test_report_percent_monotonic():
     pe._report("installing", 91, "second")
     pe._report("installing", 58, "mirror retry")
     assert pe.get_setup_progress_dict()["percent"] == 91
+
+
+def test_ensure_branded_agent_runner_creates_fridayagent(tmp_path):
+    if sys.platform != "win32":
+        pytest.skip("Windows only")
+    src = tmp_path / "python.exe"
+    src.write_bytes(b"fake-python")
+    runner = ensure_branded_agent_runner(src)
+    assert runner.name == AGENT_RUNNER_NAME
+    assert runner.is_file()
+    assert runner.read_bytes() == b"fake-python"
+
+
+def test_resolve_agent_python_returns_branded_runner(workspace, monkeypatch):
+    if sys.platform != "win32":
+        pytest.skip("Windows only")
+    env_dir = agent_env_dir(str(workspace))
+    env_dir.mkdir(parents=True, exist_ok=True)
+    scripts = env_dir / "Scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    py = scripts / "python.exe"
+    py.write_bytes(b"venv-python")
+    marker = env_dir / ".packages_ok"
+    marker.write_text("ok", encoding="utf-8")
+
+    monkeypatch.setattr("friday.python_env._venv_is_stale", lambda _d: False)
+
+    resolved, _msg = resolve_agent_python(str(workspace), auto_setup=False)
+    assert resolved is not None
+    assert resolved.name == AGENT_RUNNER_NAME
+    assert resolve_agent_runner_exe(py).name == AGENT_RUNNER_NAME

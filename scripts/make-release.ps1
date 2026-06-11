@@ -44,7 +44,7 @@ New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 @(
     "Friday Windows $TargetVersion"
     "Build: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-    "Exe: Friday\星期五.exe"
+    "Exe: Friday\Friday.exe"
 ) | Set-Content -Path (Join-Path $Stage "VERSION.txt") -Encoding UTF8
 
 Copy-Item (Join-Path $ReleaseRoot $GuideName) $Stage -Force
@@ -79,4 +79,22 @@ Remove-Item $Stage -Recurse -Force
 
 $sizeMb = [math]::Round((Get-Item $ZipPath).Length / 1MB, 1)
 Write-Host ""
-Write-Host "Done: $ZipPath (${sizeMb} MB)" -ForegroundColor Green
+Write-Host "Done ZIP: $ZipPath (${sizeMb} MB)" -ForegroundColor Green
+
+$BuildInstaller = Join-Path $PWD "scripts\build-installer.ps1"
+if (Test-Path $BuildInstaller) {
+    Write-Host ""
+    Write-Host "Building Setup installer..." -ForegroundColor Cyan
+    & $BuildInstaller -SkipBuild -Root $PWD
+    if ($LASTEXITCODE -eq 0) {
+        $SetupPath = Join-Path $ReleaseRoot "Friday-Setup-$TargetVersion.exe"
+        if (Test-Path -LiteralPath $SetupPath) {
+            $setupMb = [math]::Round((Get-Item $SetupPath).Length / 1MB, 1)
+            Write-Host "Done Setup: $SetupPath (${setupMb} MB)" -ForegroundColor Green
+        }
+    } elseif ($LASTEXITCODE -eq 2) {
+        Write-Host "Setup skipped (install Inno Setup 6 to build Friday-Setup-*.exe)" -ForegroundColor Yellow
+    } else {
+        Write-Host "Setup build failed (exit $LASTEXITCODE); ZIP release is still ready." -ForegroundColor Yellow
+    }
+}

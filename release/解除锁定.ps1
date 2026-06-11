@@ -7,4 +7,4 @@ if (-not (Test-Path $FridayDir)) {
 }
 Write-Host "正在解除锁定: $FridayDir" -ForegroundColor Yellow
 Get-ChildItem -LiteralPath $FridayDir -Recurse -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue
-Write-Host "完成。请双击 Friday\星期五.exe 启动。" -ForegroundColor Green
+Write-Host "完成。请双击 Friday\Friday.exe 启动。" -ForegroundColor Green

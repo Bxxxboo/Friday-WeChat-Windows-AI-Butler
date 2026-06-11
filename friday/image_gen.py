@@ -1036,6 +1036,37 @@ def _settings_test_timed_out(last_msg: str) -> tuple[bool, str]:
     return False, hint
 
 
+def _settings_test_probe_retryable(message: str) -> bool:
+    """快速探测失败时，是否值得继续走完整生图测试（慢中转常需 >25s）。"""
+    text = (message or "").strip()
+    if not text:
+        return True
+    if text == "所有端点均无法用于生图，请检查 Key、Base URL 与模型名":
+        return True
+    slow_markers = ("生图探测超时", "响应较慢", "响应过慢", "timed out", "timeout")
+    if any(marker in text.lower() or marker in text for marker in slow_markers):
+        return True
+    hard_markers = (
+        "401",
+        "403",
+        "404",
+        "无效",
+        "过期",
+        "不匹配",
+        "欠费",
+        "余额",
+        "accountoverdue",
+        "未配置",
+        "请填写",
+        "请先勾选",
+        "HTTP 4",
+    )
+    lowered = text.lower()
+    if any(marker.lower() in lowered for marker in hard_markers):
+        return False
+    return False
+
+
 def _should_skip_images_probe(base_url: str, settings: UserSettings, *, strict: bool = False) -> bool:
     """状态栏轻量探测可跳过慢速 POST；设置页 strict 测试必须走 images。"""
     if strict:
@@ -1321,25 +1352,23 @@ def test_image_gen_connection(settings: UserSettings) -> tuple[bool, str]:
             return _settings_test_timed_out(message)
         return ok, message
 
-    deadline = time.monotonic() + 45.0
+    client_timeout = max(90.0, float(IMAGE_GEN_HTTP_TIMEOUT_MIN))
+    overall_deadline = time.monotonic() + client_timeout + 20.0
     ok, message = verify_image_gen_api(
         settings,
         strict=True,
         primary_only=True,
         timeout=25.0,
-        deadline=deadline,
+        deadline=time.monotonic() + 30.0,
     )
     if ok:
         return True, message
-    if message and message != "所有端点均无法用于生图，请检查 Key、Base URL 与模型名":
-        if time.monotonic() >= deadline:
-            return _settings_test_timed_out(message)
-        return ok, message
+    if message and not _settings_test_probe_retryable(message):
+        return False, message
 
-    client_timeout = max(60.0, float(IMAGE_GEN_HTTP_TIMEOUT_MIN))
     ok, message = _strict_test_via_images_client(settings, timeout=client_timeout)
     if ok:
         return True, message
-    if time.monotonic() >= deadline + client_timeout:
+    if time.monotonic() >= overall_deadline:
         return _settings_test_timed_out(message)
-    return ok, message or "生图 API 不可用，请检查 Key、Base URL 与模型/接入点"
+    return False, message or "生图 API 不可用，请检查 Key、Base URL 与模型/接入点"

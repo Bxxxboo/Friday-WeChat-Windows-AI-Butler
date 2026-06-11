@@ -24,6 +24,7 @@ PIP_INDEX_DEFAULT = "https://pypi.tuna.tsinghua.edu.cn/simple"
 PIP_TRUSTED_HOST_DEFAULT = "pypi.tuna.tsinghua.edu.cn"
 EMBED_PYTHON_VERSION = "3.12.10"
 EMBED_PYTHON_DIR = get_appdata_dir() / "runtime" / f"python-{EMBED_PYTHON_VERSION}-embed-amd64"
+AGENT_RUNNER_NAME = "FridayAgent.exe"
 _PACKAGES_OK_MARKER = ".packages_ok"
 _packages_cache: dict[str, tuple[float, bool]] = {}
 _PACKAGES_CACHE_TTL = 120.0
@@ -153,9 +154,56 @@ def _venv_python(env_dir: Path) -> Path:
     return env_dir / "bin" / "python"
 
 
+def ensure_branded_agent_runner(source_py: Path) -> Path:
+    """将 python.exe 复制为同目录 FridayAgent.exe，供 Agent 执行时显示品牌化进程名。"""
+    if sys.platform != "win32":
+        return source_py
+    if not source_py.is_file():
+        return source_py
+    dest = source_py.with_name(AGENT_RUNNER_NAME)
+    try:
+        src_stat = source_py.stat()
+        need_copy = True
+        if dest.is_file():
+            dst_stat = dest.stat()
+            need_copy = (
+                src_stat.st_mtime > dst_stat.st_mtime
+                or src_stat.st_size != dst_stat.st_size
+            )
+        if need_copy:
+            shutil.copy2(source_py, dest)
+    except OSError as exc:
+        _log.warning("无法创建 Agent 品牌化解释器 %s | %s", dest, exc)
+        return source_py
+    return dest
+
+
+def resolve_agent_runner_exe(python_exe: Path) -> Path:
+    """Agent 执行路径：优先 FridayAgent.exe（pip/venv 内部仍用 python.exe）。"""
+    return ensure_branded_agent_runner(python_exe)
+
+
+def brand_embed_agent_python() -> Path | None:
+    """为 %APPDATA%/Friday/runtime 便携 Python 创建 FridayAgent.exe。"""
+    raw = EMBED_PYTHON_DIR / "python.exe"
+    if not raw.is_file():
+        return None
+    return ensure_branded_agent_runner(raw)
+
+
+def brand_workspace_agent_python(workspace: str) -> Path | None:
+    """为工作区 .python-env 创建 Scripts/FridayAgent.exe。"""
+    venv_py = _venv_python(agent_env_dir(workspace))
+    if not venv_py.is_file():
+        return None
+    return ensure_branded_agent_runner(venv_py)
+
+
 def embed_python_exe() -> Path | None:
-    exe = EMBED_PYTHON_DIR / "python.exe"
-    return exe if exe.is_file() else None
+    raw = EMBED_PYTHON_DIR / "python.exe"
+    if not raw.is_file():
+        return None
+    return ensure_branded_agent_runner(raw)
 
 
 def _configure_embed_python(root: Path) -> None:
@@ -256,7 +304,7 @@ def _download_embed_python(on_progress: ProgressReporter | None = None) -> Path 
         return None
 
     _configure_embed_python(EMBED_PYTHON_DIR)
-    return embed_python_exe()
+    return brand_embed_agent_python()
 
 
 def find_system_python(
@@ -442,14 +490,14 @@ def resolve_agent_python(workspace: str, *, auto_setup: bool = False) -> tuple[P
                     "请在「设置 → Python 环境」点击「初始化 Python 环境」。"
                 )
         else:
-            return venv_py, str(env_dir)
+            return resolve_agent_runner_exe(venv_py), str(env_dir)
 
     if not auto_setup:
         return None, f"工作区 Python 环境尚未初始化：{env_dir}"
 
     ok, msg = setup_agent_env(str(ws))
     if ok and venv_py.is_file():
-        return venv_py, msg
+        return resolve_agent_runner_exe(venv_py), msg
     return None, msg
 
 
@@ -667,7 +715,8 @@ def _install_requirements(venv_py: Path, req: Path, env_dir: Path) -> tuple[bool
         )
 
     _mark_packages_ok(env_dir)
-    return True, f"Python 环境已就绪：{venv_py} ({_python_version(venv_py)})"
+    runner = resolve_agent_runner_exe(venv_py)
+    return True, f"Python 环境已就绪：{runner} ({_python_version(venv_py)})"
 
 
 def setup_agent_env(workspace: str) -> tuple[bool, str]:
@@ -684,7 +733,8 @@ def setup_agent_env(workspace: str) -> tuple[bool, str]:
             shutil.rmtree(env_dir, ignore_errors=True)
             venv_py = _venv_python(env_dir)
         elif _has_core_packages(venv_py, env_dir):
-            return True, f"Python 环境已就绪：{venv_py} ({_python_version(venv_py)})"
+            runner = resolve_agent_runner_exe(venv_py)
+            return True, f"Python 环境已就绪：{runner} ({_python_version(venv_py)})"
 
     if not venv_py.is_file():
         _report("finding_python", 8, "正在查找 Python 3.11+ 解释器…")
@@ -711,6 +761,7 @@ def setup_agent_env(workspace: str) -> tuple[bool, str]:
         venv_py = _venv_python(env_dir)
         if not venv_py.is_file():
             return False, f"虚拟环境创建后未找到解释器：{venv_py}"
+        resolve_agent_runner_exe(venv_py)
 
     req = requirements_file()
     if not req.is_file():
@@ -750,10 +801,11 @@ def get_env_status(workspace: str) -> PythonEnvStatus:
 
     version = _python_version(venv_py)
     packages = _has_core_packages(venv_py, env_dir)
+    runner = resolve_agent_runner_exe(venv_py)
     return PythonEnvStatus(
         ready=packages,
         env_dir=str(env_dir).replace("\\", "/"),
-        python_exe=str(venv_py).replace("\\", "/"),
+        python_exe=str(runner).replace("\\", "/"),
         version=version,
         message="已就绪，可用于 run_python / run_python_script。" if packages else "环境存在但依赖未装全，请重新初始化。",
         packages_installed=packages,

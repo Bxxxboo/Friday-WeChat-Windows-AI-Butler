@@ -1,6 +1,38 @@
 {
   "entries": [
     {
+      "version": "1.3.0",
+      "date": "2026-06-11",
+      "title": "桌面进程身份、Windows 安装包与更新回滚",
+      "sections": [
+        {
+          "label": "新功能",
+          "items": [
+            "打包主进程 Friday.exe，任务管理器显示「星期五 - AI 电脑管家」",
+            "Agent 脚本子进程 FridayAgent.exe",
+            "Inno Setup 安装包 Friday-Setup，内置 Unblock 与安装后可选启动置顶",
+            "更新前 Friday.bak 备份与启动失败自动回滚",
+            "设置页关于：运行模式与进程路径说明"
+          ]
+        },
+        {
+          "label": "改进",
+          "items": [
+            "自启与更新重启统一启动 Friday.exe",
+            "生图测试 120 秒超时与慢中转重试",
+            "微信备用扫码链改为手动浏览器打开"
+          ]
+        },
+        {
+          "label": "分发",
+          "items": [
+            "Release 附 ZIP 与 Setup 安装包",
+            "INSTALL-LAYOUT 安装与用户数据目录说明"
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.2.5",
       "date": "2026-06-10",
       "title": "生成物存储管理、微信扫码体验、E2E 与插件生态",

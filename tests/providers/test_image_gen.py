@@ -413,6 +413,7 @@ def test_verify_image_gen_api_prefers_models_http(tmp_appdata, monkeypatch):
 
 def test_test_image_gen_connection_uses_strict_probe(tmp_appdata, monkeypatch):
     calls: list[dict[str, object]] = []
+    client_calls: list[object] = []
 
     def fake_verify(*_a, **kwargs):
         calls.append(dict(kwargs))
@@ -421,7 +422,7 @@ def test_test_image_gen_connection_uses_strict_probe(tmp_appdata, monkeypatch):
     monkeypatch.setattr("friday.image_gen.verify_image_gen_api", fake_verify)
     monkeypatch.setattr(
         "friday.image_gen._strict_test_via_images_client",
-        lambda *_a, **_k: (False, "client failed"),
+        lambda *_a, **_k: client_calls.append(True) or (False, "client failed"),
     )
 
     with patch("friday.image_gen.generate_image") as mock_generate:
@@ -430,7 +431,28 @@ def test_test_image_gen_connection_uses_strict_probe(tmp_appdata, monkeypatch):
         assert len(calls) == 1
         assert calls[0].get("strict")
         assert calls[0].get("primary_only")
+        assert client_calls == []
         mock_generate.assert_not_called()
+
+
+def test_test_image_gen_connection_retries_after_probe_timeout(tmp_appdata, monkeypatch):
+    client_calls: list[float] = []
+
+    monkeypatch.setattr(
+        "friday.image_gen.verify_image_gen_api",
+        lambda *_a, **_k: (False, "生图探测超时（端点响应较慢）"),
+    )
+    monkeypatch.setattr(
+        "friday.image_gen._strict_test_via_images_client",
+        lambda _settings, *, timeout: client_calls.append(timeout)
+        or (True, "生图测试通过，模型「gpt-image-2」可正常调用（探测尺寸 1024x1024）"),
+    )
+
+    ok, msg = image_gen_module.test_image_gen_connection(_settings())
+    assert ok
+    assert "可正常调用" in msg
+    assert client_calls
+    assert client_calls[0] >= 90
 
 
 def test_test_image_gen_connection_ark_uses_client_probe(tmp_appdata, monkeypatch):

@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Callable
 
 from friday.logging_config import get_logger
-from friday.paths import get_appdata_dir, is_frozen
+from friday.paths import get_appdata_dir, is_frozen, resolve_packaged_exe_in_dir
+from friday.update_rollback import backup_install_dir, install_backup_dir, mark_pending_update
 
 _log = get_logger("update_installer")
 
@@ -55,7 +56,7 @@ def request_app_quit(*, delay: float = 0.8) -> None:
 
 
 def app_install_dir() -> Path | None:
-    """当前 星期五.exe 所在目录（Friday 文件夹）。"""
+    """当前 Friday.exe 所在目录（Friday 文件夹）。"""
     if not is_frozen():
         return None
     exe = Path(sys.executable).resolve()
@@ -269,6 +270,12 @@ def _find_friday_app_dir(root: Path) -> Path | None:
             return folder
     for exe in root.rglob("*.exe"):
         parent = exe.parent
+        if parent.name.lower() != "friday":
+            continue
+        if exe.name.lower() == "friday.exe":
+            return parent
+    for exe in root.rglob("*.exe"):
+        parent = exe.parent
         if parent.name.lower() == "friday" or "星期五" in exe.name:
             return parent
     return None
@@ -295,7 +302,7 @@ def _extract_release(zip_path: Path, dest_dir: Path) -> Path:
     app_dir = _find_friday_app_dir(dest_dir)
     if app_dir is None:
         raise RuntimeError(
-            "更新包中未找到 Friday 程序文件夹（应含 星期五.exe）。"
+            "更新包中未找到 Friday 程序文件夹（应含 Friday.exe）。"
             "请确认下载的是 Friday-Windows.zip 官方安装包。"
         )
     return app_dir
@@ -320,10 +327,17 @@ Start-Sleep -Seconds 1
 if (-not (Test-Path -LiteralPath $SourceDir)) { exit 2 }
 if (-not (Test-Path -LiteralPath $TargetDir)) { New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null }
 
+$BackupDir = Join-Path (Split-Path -Parent $TargetDir) "Friday.bak"
 $robolog = Join-Path $env:TEMP ("friday-update-" + [guid]::NewGuid().ToString("n") + ".log")
 & robocopy $SourceDir $TargetDir /E /COPY:DAT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /LOG:$robolog | Out-Null
 $code = $LASTEXITCODE
-if ($code -ge 8) { exit $code }
+if ($code -ge 8) {
+    if (Test-Path -LiteralPath $BackupDir) {
+        $restoreLog = Join-Path $env:TEMP ("friday-restore-" + [guid]::NewGuid().ToString("n") + ".log")
+        & robocopy $BackupDir $TargetDir /E /COPY:DAT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /LOG:$restoreLog | Out-Null
+    }
+    exit $code
+}
 
 Get-ChildItem -LiteralPath $TargetDir -Recurse -ErrorAction SilentlyContinue |
     Unblock-File -ErrorAction SilentlyContinue
@@ -383,7 +397,9 @@ def _apply_worker(*, download_url: str, version: str) -> None:
         install_dir = app_install_dir()
         if install_dir is None:
             raise RuntimeError("无法定位安装目录。")
-        exe_path = Path(sys.executable).resolve()
+        exe_path = resolve_packaged_exe_in_dir(install_dir) or Path(sys.executable).resolve()
+        if not exe_path.is_file():
+            raise RuntimeError("无法定位 Friday.exe，请重新解压安装包。")
         if not _validate_download_url(download_url):
             raise RuntimeError("更新下载地址无效，请从设置页重新检查更新。")
 
@@ -397,12 +413,17 @@ def _apply_worker(*, download_url: str, version: str) -> None:
 
         _report("extracting", 65, "正在解压更新包…")
         new_app_dir = _extract_release(zip_path, stage_dir)
+        restart_exe = resolve_packaged_exe_in_dir(new_app_dir) or exe_path
+
+        _report("preparing", 82, "正在备份当前版本…", str(install_backup_dir(install_dir)))
+        backup_install_dir(install_dir)
+        mark_pending_update(version=version, install_dir=install_dir)
 
         _report("preparing", 88, "正在准备安装…", "即将自动重启并完成替换")
         _launch_updater(
             target_dir=install_dir,
             source_dir=new_app_dir,
-            exe_path=exe_path,
+            exe_path=restart_exe,
             cleanup_dir=work_dir,
         )
 

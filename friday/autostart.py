@@ -9,13 +9,40 @@ from pathlib import Path
 
 from friday.edition import autostart_task_name, autostart_vbs_name
 from friday.logging_config import get_logger
-from friday.paths import bundle_dir, get_appdata_dir, is_frozen
+from friday.paths import (
+    bundle_dir,
+    dist_packaged_exe,
+    get_appdata_dir,
+    is_frozen,
+    resolve_packaged_exe_in_dir,
+)
 
 _log = get_logger("autostart")
 
 _META_FILE = "autostart.json"
 
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+_DEV_LAUNCHER_NAMES = frozenset({"python.exe", "pythonw.exe", "python3.exe"})
+
+
+def _is_dev_python_exe(name: str) -> bool:
+    return name.lower() in _DEV_LAUNCHER_NAMES
+
+
+def _launch_command_points_to_dev(launch: str) -> bool:
+    lowered = launch.lower()
+    return "pythonw.exe" in lowered or "python.exe" in lowered or "run.py" in lowered
+
+
+def _launch_is_stale(recorded: str, current: str) -> bool:
+    if not recorded:
+        return False
+    if recorded != current:
+        return True
+    if _launch_command_points_to_dev(recorded) and not _launch_command_points_to_dev(current):
+        return True
+    return False
 
 
 def _startup_folder() -> Path:
@@ -45,10 +72,18 @@ def resolve_launch_spec() -> tuple[str, str, str, str]:
         return "", "", "", "仅 Windows 支持开机自启"
 
     if is_frozen():
-        exe = Path(sys.executable).resolve()
+        install_dir = Path(sys.executable).resolve().parent
+        packaged = resolve_packaged_exe_in_dir(install_dir)
+        exe = packaged or Path(sys.executable).resolve()
         if not exe.is_file():
             return "", "", "", "未找到星期五可执行文件"
+        if _is_dev_python_exe(exe.name):
+            return "", "", "", "打包版启动异常，请重新安装 Friday.exe"
         return str(exe), "", "exe", ""
+
+    packaged = dist_packaged_exe()
+    if packaged is not None:
+        return str(packaged), "", "exe", ""
 
     root = bundle_dir()
     run_py = (root / "run.py").resolve()
@@ -216,7 +251,7 @@ def autostart_status() -> dict[str, object]:
     stale = False
     if enabled and launch:
         recorded = _load_meta().get("launch") or _read_vbs_run_command(vbs_path)
-        if recorded and recorded != launch:
+        if _launch_is_stale(recorded, launch):
             stale = True
 
     detail = ""
@@ -243,7 +278,11 @@ def autostart_status() -> dict[str, object]:
     }
 
 
-def set_autostart_enabled(enabled: bool) -> dict[str, object]:
+def set_autostart_enabled(
+    enabled: bool,
+    *,
+    executable: str | None = None,
+) -> dict[str, object]:
     if sys.platform != "win32":
         return {
             "ok": False,
@@ -260,7 +299,27 @@ def set_autostart_enabled(enabled: bool) -> dict[str, object]:
         status["message"] = "已关闭开机自启"
         return status
 
-    exe, args, mode, err = resolve_launch_spec()
+    if executable:
+        exe_path = Path(executable).resolve()
+        if not exe_path.is_file():
+            return {
+                "ok": False,
+                "enabled": False,
+                "available": True,
+                "message": f"未找到可执行文件：{exe_path}",
+                "detail": str(exe_path),
+            }
+        if _is_dev_python_exe(exe_path.name):
+            return {
+                "ok": False,
+                "enabled": False,
+                "available": True,
+                "message": "打包版自启不能使用 pythonw/python，请指定 Friday.exe",
+                "detail": str(exe_path),
+            }
+        exe, args, mode, err = str(exe_path), "", "exe", ""
+    else:
+        exe, args, mode, err = resolve_launch_spec()
     if err:
         return {
             "ok": False,

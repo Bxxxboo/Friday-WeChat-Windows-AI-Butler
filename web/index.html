@@ -882,6 +882,12 @@
               </div>
               <div class="settings-result" id="updateResult"></div>
             </div>
+            <div class="settings-group about-runtime-group">
+              <h5>关于与运行模式</h5>
+              <p class="settings-hint">查看当前进程在任务管理器中的显示方式（主进程与 Agent 子进程）。</p>
+              <div class="python-env-status" id="runtimeAboutStatus">加载中…</div>
+              <p class="settings-hint hidden" id="runtimeAboutHint"></p>
+            </div>
             <div class="settings-group changelog-group">
               <h5 data-i18n="settings.app.changelog">更新公告</h5>
               <p class="settings-hint" data-i18n="settings.app.changelogHint">查看各版本的新功能、改进与修复说明。升级后首次启动会自动弹出未读公告。</p>
@@ -1054,10 +1060,10 @@
             </label>
             <div class="settings-result" id="openclawAutostartResult"></div>
             <div class="settings-actions weixin-setup-actions">
-              <button type="button" class="primary-btn" id="weixinSetupFullBtn">一键配置</button>
-              <button type="button" class="ghost-btn" id="weixinSetupRefreshBtn">刷新状态</button>
-              <button type="button" class="ghost-btn" id="weixinSetupLoginBtn">打开微信扫码登录</button>
-              <button type="button" class="ghost-btn" id="weixinSetupBrowserBtn">浏览器打开扫码页</button>
+              <button type="button" class="primary-btn" id="weixinSetupFullBtn" title="自动安装 OpenClaw、微信插件与桥接">一键配置</button>
+              <button type="button" class="ghost-btn" id="weixinSetupRefreshBtn" title="重新读取桥接状态">刷新状态</button>
+              <button type="button" class="ghost-btn" id="weixinSetupLoginBtn" title="打开终端扫码窗口">扫码登录</button>
+              <button type="button" class="ghost-btn" id="weixinSetupBrowserBtn" title="终端二维码扫不了时用浏览器打开">浏览器扫码</button>
             </div>
             <div class="settings-result weixin-setup-result" id="weixinSetupResult"></div>
             <ol class="weixin-setup-steps" id="weixinSetupSteps"></ol>

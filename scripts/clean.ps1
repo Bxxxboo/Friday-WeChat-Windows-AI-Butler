@@ -7,7 +7,7 @@ function Remove-TreeSafe([string]$Path) {
         Remove-Item $Path -Recurse -Force -ErrorAction Stop
         Write-Host "  removed $Path/" -ForegroundColor Green
     } catch {
-        Write-Host "  skipped $Path/ (files in use — close 星期五.exe and rerun)" -ForegroundColor Yellow
+        Write-Host "  skipped $Path/ (files in use — close Friday.exe and rerun)" -ForegroundColor Yellow
     }
 }
 

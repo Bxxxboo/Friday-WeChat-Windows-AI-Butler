@@ -44,11 +44,52 @@ def stable_icon_path() -> Path:
     return get_appdata_dir() / "friday.ico"
 
 
+_PACKAGED_EXE_NAMES = ("Friday.exe", "星期五.exe")
+
+
+def packaged_exe_names() -> tuple[str, ...]:
+    """打包版主程序文件名（新名优先，含旧中文名兼容）。"""
+    return _PACKAGED_EXE_NAMES
+
+
+def resolve_packaged_exe_in_dir(directory: Path) -> Path | None:
+    """在安装目录中解析 Friday 主程序 exe（Friday.exe 优先）。"""
+    for name in _PACKAGED_EXE_NAMES:
+        candidate = directory / name
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def dist_packaged_exe() -> Path | None:
+    """开发树 dist/Friday/ 下的打包 exe（存在则可用于自启/脚本）。"""
+    root = bundle_dir() if not is_frozen() else Path(sys.executable).resolve().parent
+    if is_frozen():
+        return resolve_packaged_exe_in_dir(root)
+    dist_dir = root / "dist" / "Friday"
+    if not dist_dir.is_dir():
+        legacy = root / "dist" / "星期五"
+        if legacy.is_dir():
+            dist_dir = legacy
+    return resolve_packaged_exe_in_dir(dist_dir)
+
+
+def default_install_dir() -> Path:
+    """推荐程序安装目录（Inno Setup 默认与用户无管理员权限安装）。
+
+    程序文件：%LOCALAPPDATA%/Programs/Friday/
+    用户数据仍在 get_appdata_dir()（%APPDATA%/Friday/），卸载程序目录时不删除。
+    """
+    local_app = os.getenv("LOCALAPPDATA")
+    if local_app:
+        return Path(local_app) / "Programs" / "Friday"
+    return Path.home() / "AppData" / "Local" / "Programs" / "Friday"
+
+
 def get_appdata_dir() -> Path:
     """获取应用数据根目录，不存在则自动创建。
 
-    正式版：%APPDATA%/Friday
-    用户数据：%APPDATA%/Friday
+    用户数据：%APPDATA%/Friday（与程序安装目录分离，见 docs/INSTALL-LAYOUT.md）
 
     用于统一存储：
     - 设置文件 (settings.json)
@@ -158,6 +199,10 @@ def resolve_folder_alias(text: str) -> str | None:
 __all__ = [
     "app_icon_path",
     "bundle_dir",
+    "dist_packaged_exe",
+    "packaged_exe_names",
+    "resolve_packaged_exe_in_dir",
+    "default_install_dir",
     "default_workspace",
     "default_workspace_path",
     "format_folders_for_prompt",

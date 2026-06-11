@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 from friday.logging_config import get_logger
-from friday.python_env import resolve_agent_python, setup_agent_env
+from friday.python_env import resolve_agent_python, setup_agent_env  # 返回 FridayAgent.exe（Windows）
 from friday.storage import load_settings, resolved_workspace
 from friday.tools._decorators import register_tool
 

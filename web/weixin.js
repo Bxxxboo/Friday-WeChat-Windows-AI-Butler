@@ -234,8 +234,18 @@
     }
   }
 
-  async function pollLoginUrlAndOpen() {
+  function setBrowserLoginBtnReady(ready) {
+    const btn = $("weixinSetupBrowserBtn");
+    if (!btn) return;
+    btn.disabled = !ready;
+    btn.title = ready
+      ? "终端二维码扫不了时，用浏览器打开备用扫码页"
+      : "请先打开扫码窗口，等待终端出现备用链接后再点";
+  }
+
+  async function pollLoginUrlReady() {
     stopLoginUrlPoll();
+    setBrowserLoginBtnReady(false);
     let attempts = 0;
     loginUrlPollTimer = setInterval(async () => {
       attempts += 1;
@@ -249,7 +259,7 @@
         const url = String(data?.url || "").trim();
         if (!url) return;
         stopLoginUrlPoll();
-        window.open(url, "_blank", "noopener");
+        setBrowserLoginBtnReady(true);
       } catch {
         /* ignore transient errors while login starts */
       }
@@ -266,7 +276,19 @@
     }
   }
 
+  async function refreshCachedLoginUrlState() {
+    try {
+      const res = await F.apiFetch("/api/weixin/setup/login-url");
+      const data = await res.json();
+      const url = String(data?.url || "").trim();
+      setBrowserLoginBtnReady(!!url);
+    } catch {
+      setBrowserLoginBtnReady(false);
+    }
+  }
+
   async function refreshWeixinSetup() {
+    stopLoginUrlPoll();
     setResult(null, "");
     const badge = $("weixinSetupBadge");
     if (badge) {
@@ -280,6 +302,7 @@
       updateBanner(data);
       const toggle = $("weixinBridgeEnabled");
       if (toggle) toggle.checked = data.bridge_enabled !== false;
+      void refreshCachedLoginUrlState();
       return data;
     } catch {
       if (badge) {
@@ -345,7 +368,7 @@
         data,
       );
       if (action === "login" || action === "full") {
-        pollLoginUrlAndOpen();
+        pollLoginUrlReady();
       }
       void refreshOpenclawAutostart();
     } catch (err) {
@@ -440,4 +463,5 @@
     void setOpenclawAutostart(!!e.target.checked);
   });
   void refreshOpenclawAutostart();
+  void refreshCachedLoginUrlState();
 })();

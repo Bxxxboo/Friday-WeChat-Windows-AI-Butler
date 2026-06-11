@@ -464,6 +464,27 @@ def main() -> None:
             icon_path=app_icon,
         )
 
+    def _wants_install_launch_focus() -> bool:
+        return os.environ.get("FRIDAY_INSTALL_LAUNCH") == "1" or "--install-launch" in sys.argv
+
+    def _bring_window_to_front() -> None:
+        if sys.platform != "win32":
+            return
+        try:
+            from friday.win32_chrome import find_app_window, focus_window
+
+            hwnd = find_app_window()
+            if hwnd:
+                focus_window(hwnd)
+        except (AttributeError, OSError, TypeError):
+            pass
+
+    def _schedule_foreground_focus() -> None:
+        if not _wants_install_launch_focus():
+            return
+        for delay in (0.0, 0.4, 0.9, 1.8, 3.5):
+            threading.Timer(delay, _bring_window_to_front).start()
+
     def _schedule_chrome_apply() -> None:
         for delay in (0.0, 0.05, 0.15, 0.35, 0.7, 1.2):
             threading.Timer(
@@ -475,6 +496,13 @@ def main() -> None:
         if window_visible["shown"]:
             return
         window_visible["shown"] = True
+        if getattr(sys, "frozen", False):
+            try:
+                from friday.update_rollback import clear_pending_update
+
+                clear_pending_update()
+            except Exception:
+                pass
         try:
             window.show()
         except Exception:
@@ -492,6 +520,8 @@ def main() -> None:
                         user32.ShowWindow(hwnd, 5)  # SW_SHOW
             except (AttributeError, OSError, TypeError):
                 pass
+        if _wants_install_launch_focus():
+            _bring_window_to_front()
         _schedule_chrome_apply()
 
     def _load_main_app() -> None:
@@ -567,6 +597,8 @@ def main() -> None:
             _apply_window_chrome(clip_thumbnail=False)
             if not window_visible["shown"]:
                 _force_show_window()
+            elif step == "main" and _wants_install_launch_focus():
+                _bring_window_to_front()
 
     def _on_restored() -> None:
         _apply_window_chrome()
@@ -616,6 +648,7 @@ def main() -> None:
     window.events.resized += lambda _w, _h: _apply_window_chrome(clip_thumbnail=False)
 
     def _on_gui_start() -> None:
+        _schedule_foreground_focus()
         if not window_visible["shown"]:
             threading.Timer(0.35, _force_show_window).start()
         threading.Timer(4.0, _force_show_window).start()

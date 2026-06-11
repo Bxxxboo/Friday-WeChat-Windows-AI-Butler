@@ -25,7 +25,26 @@ def test_validate_download_url():
 def test_find_friday_app_dir(tmp_path: Path):
     app = tmp_path / "Friday"
     app.mkdir()
-    (app / "星期五.exe").write_text("", encoding="utf-8")
+    (app / "Friday.exe").write_text("", encoding="utf-8")
+    assert _find_friday_app_dir(tmp_path) == app
+
+
+def test_resolve_packaged_exe_in_dir_prefers_friday(tmp_path: Path):
+    from friday.paths import resolve_packaged_exe_in_dir
+
+    app = tmp_path / "Friday"
+    app.mkdir()
+    legacy = "\u661f\u671f\u4e94.exe"
+    (app / legacy).write_text("", encoding="utf-8")
+    (app / "Friday.exe").write_text("", encoding="utf-8")
+    assert resolve_packaged_exe_in_dir(app).name == "Friday.exe"
+
+
+def test_find_friday_app_dir_legacy_chinese_exe(tmp_path: Path):
+    app = tmp_path / "Friday"
+    app.mkdir()
+    legacy = "\u661f\u671f\u4e94.exe"
+    (app / legacy).write_text("", encoding="utf-8")
     assert _find_friday_app_dir(tmp_path) == app
 
 
