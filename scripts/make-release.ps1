@@ -106,28 +106,10 @@ $UnblockScript = Join-Path $ReleaseRoot $UnblockName
 if (Test-Path $UnblockScript) {
     Copy-Item $UnblockScript $WindowsStageRoot -Force
 }
-# 兼容 1.2.x 应用内一键更新（旧版只拉 Friday-Windows.zip，须含 Friday\Friday.exe）
-if (-not $ReleaseRoot) { throw "ReleaseRoot is empty before portable stage (PWD=$PWD)" }
-$PortableStageDir = $ReleaseRoot + [System.IO.Path]::DirectorySeparatorChar + "stage-windows" + [System.IO.Path]::DirectorySeparatorChar + "Friday"
-Write-Host ("Staging portable app -> {0}" -f $PortableStageDir) -ForegroundColor Cyan
-New-Item -ItemType Directory -Path $PortableStageDir -Force | Out-Null
-$portableSrc = $DistApp
-$installerStage = [System.IO.Path]::Combine($PWD, "installer", "stage", "Friday")
-if (Test-Path -LiteralPath ([System.IO.Path]::Combine($installerStage, "Friday.exe"))) {
-    $portableSrc = $installerStage
-}
-Copy-Item -Path (Join-Path $portableSrc "*") -Destination $PortableStageDir -Recurse -Force
-Write-Host "Unblocking staged Windows zip files..." -ForegroundColor Cyan
-Get-ChildItem -LiteralPath $PortableStageDir -Recurse -ErrorAction SilentlyContinue |
-    Unblock-File -ErrorAction SilentlyContinue
-
-$portableExe = [System.IO.Path]::Combine($PortableStageDir, "Friday.exe")
-if (-not (Test-Path -LiteralPath $portableExe)) {
-    throw "Windows zip stage missing Friday.exe (src=$portableSrc). Re-run scripts\build.ps1 then make-release.ps1."
-}
-
+# 注意：Gitee Release 单附件约 100MB 上限，Windows ZIP 仅含 Setup（~64MB）。
+# 应用内一键更新请拉取 Friday-Update.zip（1.3+ 优先）；1.2.x 请手动解压后运行 Setup。
 Write-Host ""
-Write-Host "Packing $ZipName (Setup + portable for legacy updater)..." -ForegroundColor Cyan
+Write-Host "Packing $ZipName (Setup installer for download)..." -ForegroundColor Cyan
 Write-ReleaseZip -Stage $WindowsStageRoot -ZipPath (Join-Path $ReleaseRoot $ZipName)
 
 # --- Friday-Update：便携目录，供应用内「一键更新」覆盖安装 ---
