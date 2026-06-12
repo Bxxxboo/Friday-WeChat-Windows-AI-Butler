@@ -113,7 +113,9 @@
       F.connectWs();
       F.updateInputState();
       void F.checkOnboarding?.().catch((err) => console.warn("checkOnboarding", err)).finally(() => {
-        setTimeout(() => void F.checkReleaseNotes?.(), 400);
+        void F.checkStartupUpdate?.().catch((err) => console.warn("checkStartupUpdate", err)).finally(() => {
+          setTimeout(() => void F.checkReleaseNotes?.(), 400);
+        });
       });
     } catch (err) {
       console.error(err);

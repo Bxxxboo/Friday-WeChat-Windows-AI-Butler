@@ -87,6 +87,7 @@
 
   async function checkReleaseNotes() {
     if (onboardingVisible()) return;
+    if (F.isUpdatePromptVisible?.()) return;
     try {
       const res = await F.apiFetch("/api/changelog");
       const data = await res.json();

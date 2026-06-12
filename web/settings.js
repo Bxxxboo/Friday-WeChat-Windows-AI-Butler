@@ -1491,24 +1491,24 @@
     }, 800);
   }
 
-  async function applyUpdate() {
-    const info = lastUpdateInfo;
-    if (!info?.update_available || !info.download_url) {
-      await checkForUpdates();
-      return;
-    }
+  async function startApplyUpdate(info, options = {}) {
+    const requireConfirm = options.requireConfirm !== false;
+    if (!info?.update_available || !info.download_url) return false;
     if (!info.can_auto_update) {
       const resultEl = document.getElementById("updateResult");
       if (resultEl) {
         resultEl.className = "settings-result error";
         resultEl.textContent = info.auto_update_hint || "当前环境不支持一键更新，请使用手动下载。";
       }
-      return;
+      return false;
     }
-    const confirmed = window.confirm(
-      `即将下载并安装版本 ${info.latest}，完成后会自动重启星期五。\n\n更新过程中请勿关闭电脑，是否继续？`,
-    );
-    if (!confirmed) return;
+    if (requireConfirm) {
+      const confirmed = window.confirm(
+        `即将下载并安装版本 ${info.latest}，完成后会自动重启星期五。\n\n更新过程中请勿关闭电脑，是否继续？`,
+      );
+      if (!confirmed) return false;
+    }
+    lastUpdateInfo = info;
 
     const applyBtn = document.getElementById("applyUpdateBtn");
     const checkBtn = document.getElementById("checkUpdateBtn");
@@ -1545,7 +1545,7 @@
         document.getElementById("updateProgress")?.classList.add("hidden");
         if (applyBtn) applyBtn.disabled = false;
         if (checkBtn) checkBtn.disabled = false;
-        return;
+        return false;
       }
       if (data.already_running) {
         if (resultEl) resultEl.textContent = "更新已在进行中…";
@@ -1561,7 +1561,18 @@
       document.getElementById("updateProgress")?.classList.add("hidden");
       if (applyBtn) applyBtn.disabled = false;
       if (checkBtn) checkBtn.disabled = false;
+      return false;
     }
+    return true;
+  }
+
+  async function applyUpdate() {
+    const info = lastUpdateInfo;
+    if (!info?.update_available || !info.download_url) {
+      await checkForUpdates();
+      return;
+    }
+    await startApplyUpdate(info);
   }
 
   async function checkForUpdates() {
@@ -1628,6 +1639,9 @@
       }
     }
   }
+
+  F.checkForUpdates = checkForUpdates;
+  F.startApplyUpdate = startApplyUpdate;
 
   document.getElementById("checkUpdateBtn")?.addEventListener("click", checkForUpdates);
   document.getElementById("applyUpdateBtn")?.addEventListener("click", () => void applyUpdate());
