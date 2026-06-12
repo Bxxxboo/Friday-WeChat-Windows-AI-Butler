@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import urllib.error
@@ -15,7 +16,8 @@ from friday.paths import get_appdata_dir
 
 _log = get_logger("weixin.node")
 
-NODE_VERSION = "22.14.0"
+NODE_VERSION = "22.19.0"
+OPENCLAW_MIN_NODE = (22, 19, 0)
 NODE_ZIP_NAME = f"node-v{NODE_VERSION}-win-x64.zip"
 NODE_ROOT = get_appdata_dir() / "runtime" / "node"
 NODE_HOME = NODE_ROOT / f"node-v{NODE_VERSION}-win-x64"
@@ -32,6 +34,46 @@ NPM_REGISTRIES: tuple[str, ...] = (
 
 def _creationflags() -> int:
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
+def node_semver(exe: str) -> tuple[int, int, int] | None:
+    try:
+        proc = subprocess.run(
+            [exe, "-v"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=_creationflags(),
+        )
+        text = (proc.stdout or proc.stderr or "").strip()
+        match = re.search(r"v?(\d+)\.(\d+)\.(\d+)", text)
+        if not match:
+            return None
+        return int(match.group(1)), int(match.group(2)), int(match.group(3))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def node_meets_openclaw(exe: str) -> bool:
+    version = node_semver(exe)
+    return version is not None and version >= OPENCLAW_MIN_NODE
+
+
+def resolve_node_exe() -> str | None:
+    """优先使用满足 OpenClaw 最低版本 (22.19+) 的 Node。"""
+    portable = NODE_HOME / "node.exe"
+    system = shutil.which("node")
+    candidates: list[str] = []
+    if portable.is_file():
+        candidates.append(str(portable))
+    if system:
+        candidates.append(system)
+    for exe in candidates:
+        if node_meets_openclaw(exe):
+            return exe
+    return candidates[0] if candidates else None
 
 
 def _system_npm() -> str | None:
@@ -242,8 +284,14 @@ def _download_portable_node() -> bool:
 
 def ensure_node_npm() -> tuple[bool, str]:
     """确保本机可用 npm；必要时自动安装 Node（winget → 便携包）。"""
-    existing = npm_command()
-    if existing:
+    portable_node = NODE_HOME / "node.exe"
+    if portable_node.is_file() and node_meets_openclaw(str(portable_node)):
+        npm = _friday_npm()
+        if npm:
+            return True, f"便携 Node.js {NODE_VERSION} 已就绪"
+
+    system_node = shutil.which("node")
+    if system_node and node_meets_openclaw(system_node) and _system_npm():
         return True, "Node.js 已可用"
 
     if _try_winget_node():

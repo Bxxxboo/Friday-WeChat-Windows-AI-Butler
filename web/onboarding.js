@@ -112,6 +112,16 @@
     }
   }
 
+  function collectOnboardingLlmPayload() {
+    const key = $("onboardingApiKey")?.value.trim() || "";
+    const provider = $("onboardingLlmProvider")?.value || "deepseek";
+    return {
+      api_key: key,
+      llm_provider: provider,
+      switch_llm_profile: true,
+    };
+  }
+
   async function testOnboardingApi() {
     const result = $("onboardingApiResult");
     const key = $("onboardingApiKey")?.value.trim() || "";
@@ -130,7 +140,7 @@
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ api_key: key }),
+          body: JSON.stringify(collectOnboardingLlmPayload()),
         },
         60000
       );
@@ -179,7 +189,7 @@
     const res = await F.apiFetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: key }),
+      body: JSON.stringify(collectOnboardingLlmPayload()),
     });
     if (!res.ok) return false;
 

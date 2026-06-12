@@ -44,11 +44,22 @@
     await fetchSessions({ switchActive: false });
   }
 
+  function releaseComposerForSessionSwitch() {
+    F.detachChatUiForSessionSwitch?.();
+    F.setBusy(false);
+  }
+
   async function loadSessionDetail(sessionId, activate = true) {
+    let session = F.sessions.find((s) => s.id === sessionId);
+    F.activeSessionId = sessionId;
+    F.chatTitle.textContent = session?.title || (F.t?.("chat.title.loading") || "加载中…");
+    renderMessages(session?.messages || []);
+    renderSessionList();
+    F.updateInputState();
+
     const res = await F.apiFetchWithTimeout(`/api/sessions/${sessionId}`, {}, 15000);
     if (!res.ok) throw new Error(`加载会话详情失败 (${res.status})`);
     const data = await res.json();
-    let session = F.sessions.find((s) => s.id === sessionId);
     if (!session) {
       session = {
         id: data.id,
@@ -62,7 +73,6 @@
     session.title = data.title;
     session.updatedAt = data.updated_at;
     session.messages = F.toUiMessages(data.messages);
-    F.activeSessionId = sessionId;
     F.chatTitle.textContent = data.title;
     F.applySessionPlan?.(data);
     void F.loadSessionPlan?.(sessionId);
@@ -77,6 +87,7 @@
   }
 
   async function createSession(switchTo = true) {
+    if (F.busy) releaseComposerForSessionSwitch();
     const res = await F.apiFetchWithTimeout(
       "/api/sessions",
       {
@@ -288,8 +299,20 @@
 
   async function switchSession(sessionId) {
     if (sessionId === F.activeSessionId) return;
-    if (F.busy) return;
-    await loadSessionDetail(sessionId);
+    const previousId = F.activeSessionId;
+    if (F.busy) releaseComposerForSessionSwitch();
+    try {
+      await loadSessionDetail(sessionId);
+    } catch (err) {
+      console.warn("switchSession", err);
+      if (previousId && previousId !== sessionId) {
+        try {
+          await loadSessionDetail(previousId, false);
+        } catch {
+          /* 回退失败时保留乐观切换结果 */
+        }
+      }
+    }
   }
 
   async function deleteSession(sessionId) {

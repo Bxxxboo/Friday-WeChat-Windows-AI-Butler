@@ -607,6 +607,8 @@
     if (!data) return;
     fillProviderSelect("image_gen", data, data.image_gen_provider);
     lastProvider.image_gen = data.image_gen_provider || null;
+    const imageGenEnabled = document.getElementById("imageGenEnabled");
+    if (imageGenEnabled) imageGenEnabled.checked = !!data.image_gen_enabled;
     document.getElementById("imageGenApiKey").value = "";
     document.getElementById("imageGenBaseUrl").value = data.image_gen_base_url || "";
     const fallback = document.getElementById("imageGenFallbackUrls");
@@ -624,6 +626,8 @@
     if (!data) return;
     fillProviderSelect("vision", data, data.vision_provider);
     lastProvider.vision = data.vision_provider || null;
+    const visionEnabled = document.getElementById("visionEnabled");
+    if (visionEnabled) visionEnabled.checked = !!data.vision_enabled;
     document.getElementById("visionBaseUrl").value = data.vision_base_url || "";
     document.getElementById("visionApiKey").value = "";
     F.applyVisionKeyHint?.(data);

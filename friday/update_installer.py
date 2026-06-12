@@ -43,9 +43,11 @@ def register_quit_handler(handler: Callable[[], None] | None) -> None:
     _quit_handler = handler
 
 
-def request_app_quit(*, delay: float = 0.8) -> None:
+def request_app_quit(*, delay: float = 0.8, force: bool = False) -> None:
+    """退出进程。force=True 时跳过 UI destroy，避免非主线程 destroy 卡死导致无法重启。"""
+
     def _run() -> None:
-        if _quit_handler:
+        if not force and _quit_handler:
             try:
                 _quit_handler()
             except Exception:
@@ -370,7 +372,8 @@ Get-ChildItem -LiteralPath $TargetDir -Recurse -ErrorAction SilentlyContinue |
     Unblock-File -ErrorAction SilentlyContinue
 
 if (Test-Path -LiteralPath $ExePath) {
-    Start-Process -FilePath $ExePath -WorkingDirectory (Split-Path -Parent $ExePath)
+    $workDir = Split-Path -Parent $ExePath
+    Start-Process -FilePath $ExePath -ArgumentList "--install-launch" -WorkingDirectory $workDir
 }
 
 if ($CleanupDir -and (Test-Path -LiteralPath $CleanupDir)) {
@@ -446,7 +449,9 @@ def _apply_worker(*, download_url: str, version: str, expected_sha256: str = "")
 
         _report("extracting", 65, "正在解压更新包…")
         new_app_dir = _extract_release(zip_path, stage_dir)
-        restart_exe = resolve_packaged_exe_in_dir(new_app_dir) or exe_path
+        restart_exe = new_app_dir / exe_path.name
+        if not restart_exe.is_file():
+            restart_exe = resolve_packaged_exe_in_dir(new_app_dir) or exe_path
 
         _report("preparing", 82, "正在备份当前版本…", str(install_backup_dir(install_dir)))
         backup_install_dir(install_dir)
@@ -464,7 +469,7 @@ def _apply_worker(*, download_url: str, version: str, expected_sha256: str = "")
         ok = True
         message = "更新已开始，应用即将重启。"
         hint = ""
-        request_app_quit(delay=1.2)
+        request_app_quit(delay=0.5, force=True)
     except Exception as exc:
         _log.exception("一键更新失败")
         detail, hint = _format_update_error(exc)

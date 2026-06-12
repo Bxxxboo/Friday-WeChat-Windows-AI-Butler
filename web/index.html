@@ -339,7 +339,7 @@
         <span class="status-text" id="statusImageGenText" data-i18n="status.imageGen.checking">生图 检测中</span>
         <span class="status-divider" aria-hidden="true"></span>
         <span class="status-dot" id="statusGatewayDot" data-state="disabled" aria-hidden="true"></span>
-        <span class="status-text" id="statusGatewayText" data-i18n="status.gateway.disabled">微信 关</span>
+        <span class="status-text" id="statusGatewayText">微信 关</span>
       </div>
       <div class="status-group" data-i18n-title="status.tokenUsage" title="当前会话 Token 用量">
         <svg class="status-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.2a5.8 5.8 0 1 1 0 11.6A5.8 5.8 0 0 1 8 2.2Zm-.3 2.5h.6v3.4l2.8 1.6-.3.5-3.1-1.8V4.7Z"/></svg>
@@ -430,11 +430,18 @@
 
       <section class="onboarding-step" data-step="1">
         <h2>连接 AI 服务</h2>
-        <p class="onboarding-desc">填写大模型 API Key（默认 DeepSeek，也支持 OpenAI 兼容服务）。</p>
+        <p class="onboarding-desc">选择大模型服务商并填写 API Key（支持 DeepSeek、小米 MiMo 等 OpenAI 兼容服务）。</p>
+        <label class="onboarding-field">
+          <span>大模型服务商</span>
+          <select id="onboardingLlmProvider">
+            <option value="deepseek">DeepSeek</option>
+            <option value="mimo">小米 MiMo</option>
+          </select>
+        </label>
         <label class="onboarding-field">
           <span>API Key</span>
           <input type="password" id="onboardingApiKey" placeholder="sk-..." autocomplete="off" />
-          <small>还没有 Key？前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">DeepSeek 官网</a> 免费申请</small>
+          <small>还没有 Key？前往 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">DeepSeek 官网</a> 或对应服务商控制台申请</small>
         </label>
         <div class="onboarding-actions">
           <button type="button" class="ghost-btn" id="onboardingBackBtn1">上一步</button>
@@ -1236,11 +1243,11 @@
 
   <script defer src="/static/vendor/marked.min.js"></script>
   <script defer src="/static/vendor/purify.min.js"></script>
-  <script defer src="/static/i18n.js?v=8"></script>
-  <script defer src="/static/utils.js?v=67"></script>
+  <script defer src="/static/i18n.js?v=9"></script>
+  <script defer src="/static/utils.js?v=68"></script>
   <script defer src="/static/errorHints.js?v=2"></script>
   <script defer src="/static/providers.js?v=14"></script>
-  <script defer src="/static/sessions.js?v=57"></script>
+  <script defer src="/static/sessions.js?v=58"></script>
   <script defer src="/static/settings.js?v=75"></script>
   <script defer src="/static/settings-python-env.js?v=1"></script>
   <script defer src="/static/weixin.js?v=6"></script>
@@ -1251,11 +1258,11 @@
   <script defer src="/static/history.js?v=51"></script>
   <script defer src="/static/schedules.js?v=51"></script>
   <script defer src="/static/mode.js?v=54"></script>
-  <script defer src="/static/statusbar.js?v=55"></script>
+  <script defer src="/static/statusbar.js?v=56"></script>
   <script defer src="/static/plan.js?v=9"></script>
   <script defer src="/static/vendor/gsap.min.js"></script>
   <script defer src="/static/motion.js?v=1"></script>
-  <script defer src="/static/chat.js?v=65"></script>
+  <script defer src="/static/chat.js?v=66"></script>
   <script defer src="/static/app.js?v=62"></script>
 </body>
 </html>

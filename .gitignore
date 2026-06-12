@@ -17,6 +17,7 @@ dist/
 *.spec.bak
 
 _qa_tmp_appdata/
+_qa_docx_media/
 
 .pytest_cache/
 .mypy_cache/

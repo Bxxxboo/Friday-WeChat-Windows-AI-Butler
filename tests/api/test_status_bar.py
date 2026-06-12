@@ -139,6 +139,28 @@ def test_status_bar_gateway_offline_when_bridge_on(tmp_appdata, monkeypatch):
     assert "Gateway" in str(data["gateway_reach_detail"])
 
 
+def test_status_bar_cached_only_without_cache_skips_checking(tmp_appdata):
+    ws = tmp_appdata / "ws-no-cache"
+    ws.mkdir()
+    settings = UserSettings(
+        api_key="sk-fake-key-for-testing1234567890",
+        model="deepseek-chat",
+        workspace=str(ws),
+        vision_enabled=True,
+        vision_api_key="sk-vision-key-12345678",
+        vision_model="gpt-4o-mini",
+        image_gen_enabled=True,
+        image_gen_api_key="ark-test-key-12345678",
+        image_gen_model="ep-test",
+    )
+    save_settings(settings)
+
+    data = asyncio.run(get_status_bar(cached_only=True))
+    assert data["api_checking"] is False
+    assert data["vision_checking"] is False
+    assert data["image_gen_checking"] is False
+
+
 def test_status_bar_session_tokens(tmp_appdata):
     ws = tmp_appdata / "ws2"
     ws.mkdir()

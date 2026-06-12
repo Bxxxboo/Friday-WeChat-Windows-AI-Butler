@@ -160,6 +160,8 @@ def _merge_profile_entry(new_entry: dict[str, Any], old_entry: dict[str, Any]) -
             old_val = old_entry.get(field, "")
             if isinstance(old_val, str) and old_val.strip():
                 merged[field] = old_val
+    if "enabled" not in merged and "enabled" in old_entry:
+        merged["enabled"] = old_entry["enabled"]
     return merged
 
 

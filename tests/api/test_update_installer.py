@@ -138,3 +138,19 @@ def test_request_app_quit_exits_even_when_handler_succeeds(monkeypatch):
     request_app_quit(delay=0.01)
     time.sleep(0.2)
     assert exits == [0]
+
+
+def test_request_app_quit_force_skips_handler(monkeypatch):
+    """一键更新须 force 退出，避免非主线程 destroy 卡死。"""
+    exits: list[int] = []
+    called: list[bool] = []
+
+    def _fake_exit(code: int) -> None:
+        exits.append(code)
+
+    monkeypatch.setattr("friday.update_installer.os._exit", _fake_exit)
+    register_quit_handler(lambda: called.append(True))
+    request_app_quit(delay=0.01, force=True)
+    time.sleep(0.2)
+    assert exits == [0]
+    assert called == []

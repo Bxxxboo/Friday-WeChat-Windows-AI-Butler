@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from friday.weixin.approval import parse_approval_text
+from friday.weixin.approval import format_approval_prompt_weixin, parse_approval_text
 
 
 def test_parse_approval_approve():
@@ -18,3 +18,11 @@ def test_parse_approval_reject():
 def test_parse_approval_unknown():
     assert parse_approval_text("帮我整理桌面") is None
     assert parse_approval_text("") is None
+
+
+def test_format_approval_prompt_weixin_compact():
+    text = format_approval_prompt_weixin("创建 Word 文档：文档")
+    assert "【需你确认】" in text
+    assert "同意" in text
+    assert "拒绝" in text
+    assert "▸" not in text

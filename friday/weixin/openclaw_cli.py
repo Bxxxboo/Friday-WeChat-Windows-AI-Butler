@@ -63,13 +63,9 @@ def find_openclaw_cmd() -> Path | None:
 
 
 def resolve_node_exe() -> str | None:
-    from friday.weixin.node_runtime import NODE_HOME
+    from friday.weixin.node_runtime import resolve_node_exe as _resolve
 
-    node = shutil.which("node")
-    if node:
-        return node
-    portable = NODE_HOME / "node.exe"
-    return str(portable) if portable.is_file() else None
+    return _resolve()
 
 
 def resolve_openclaw_command() -> list[str]:

@@ -23,6 +23,31 @@
     imageGen: false,
   };
 
+  const GATEWAY_LABELS = {
+    zh: {
+      disabled: "微信 关",
+      unconfigured: "微信 未配置",
+      online: "微信 在线",
+      offline: "微信 离线",
+      checking: "微信 检测中",
+      checkingHint: "正在检测微信桥接…",
+    },
+    en: {
+      disabled: "WeChat off",
+      unconfigured: "WeChat not set up",
+      online: "WeChat online",
+      offline: "WeChat offline",
+      checking: "WeChat checking",
+      checkingHint: "Checking WeChat bridge…",
+    },
+  };
+
+  function gatewayLabel(key) {
+    const lang = window.FridayI18n?.getLanguage?.() === "en" ? "en" : "zh";
+    const table = GATEWAY_LABELS[lang] || GATEWAY_LABELS.zh;
+    return table[key] || GATEWAY_LABELS.zh[key] || "";
+  }
+
   const SERVICE_LABELS = {
     api: {
       unconfigured: () => F.t?.("status.api.unconfigured") || "API 未配置",
@@ -49,12 +74,12 @@
       checkingHint: () => F.t?.("status.imageGen.checkingHint") || "正在检测生图 API…",
     },
     gateway: {
-      disabled: () => F.t?.("status.gateway.disabled") || "微信 关",
-      unconfigured: () => F.t?.("status.gateway.unconfigured") || "微信 未配置",
-      online: () => F.t?.("status.gateway.on") || "Gateway 在线",
-      offline: () => F.t?.("status.gateway.off") || "Gateway 离线",
-      checking: () => F.t?.("status.gateway.checking") || "Gateway 检测中",
-      checkingHint: () => F.t?.("status.gateway.checkingHint") || "正在检测 OpenClaw Gateway…",
+      disabled: () => gatewayLabel("disabled"),
+      unconfigured: () => gatewayLabel("unconfigured"),
+      online: () => gatewayLabel("online"),
+      offline: () => gatewayLabel("offline"),
+      checking: () => gatewayLabel("checking"),
+      checkingHint: () => gatewayLabel("checkingHint"),
     },
   };
 
@@ -544,6 +569,7 @@
     if (refreshInFlight && !options.force) return refreshInFlight;
     refreshInFlight = (async () => {
       const sessionId = F.activeSessionId || "";
+      const pollOnly = Boolean(options.pollOnly);
       const baseQs = statusBarQuery(sessionId);
       const skipServices = shouldSkipServiceRefresh();
 
@@ -563,7 +589,7 @@
           // 保留已有状态
         }
       }
-      if (skipServices) return;
+      if (skipServices || pollOnly) return;
       try {
         const res = await F.apiFetchWithTimeout(`/api/status-bar${baseQs}`, {}, REFRESH_TIMEOUT_MS);
         if (!res.ok) return;
@@ -581,7 +607,7 @@
 
   function startPolling() {
     if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(() => void refreshStatusBar(), POLL_MS);
+    pollTimer = setInterval(() => void refreshStatusBar({ pollOnly: true }), POLL_MS);
   }
 
   F.applyStatusFromSettings = applyFromSettings;

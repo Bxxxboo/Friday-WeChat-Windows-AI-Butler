@@ -98,12 +98,9 @@ def resolve_gateway_launch(*, port: int | None = None) -> tuple[list[str], dict[
 
 
 def _resolve_node_exe() -> str | None:
-    from friday.weixin.node_runtime import NODE_HOME
+    from friday.weixin.node_runtime import resolve_node_exe
 
-    node = shutil.which("node")
-    if not node and (NODE_HOME / "node.exe").is_file():
-        node = str(NODE_HOME / "node.exe")
-    return node
+    return resolve_node_exe()
 
 
 def _resolve_openclaw_script() -> Path | None:

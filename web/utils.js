@@ -420,8 +420,9 @@
     syncComposerInputHeight();
 
     if (stopBtn) {
-      stopBtn.classList.toggle("hidden", !busy);
-      stopBtn.disabled = !busy;
+      const showStop = busy || Boolean(friday?.hasBackgroundChatTurn?.());
+      stopBtn.classList.toggle("hidden", !showStop);
+      stopBtn.disabled = !showStop;
     }
     if (sendBtn) {
       sendBtn.disabled = !canSend;
@@ -429,7 +430,7 @@
     if (chatInput) {
       chatInput.disabled = !canInteract;
       chatInput.classList.toggle("composer-idle", !canSend);
-      chatInput.classList.toggle("composer-busy", busy);
+      chatInput.classList.toggle("composer-busy", busy && !friday?.hasBackgroundChatTurn?.());
     }
     document.querySelectorAll(".chip").forEach((chip) => {
       chip.classList.toggle("chip-muted", !canInteract);

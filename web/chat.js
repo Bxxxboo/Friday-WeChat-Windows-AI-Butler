@@ -265,7 +265,66 @@
 
   /* ── 事件分发 ── */
 
+  const runningChatSessions = new Set();
+
+  const BACKGROUND_CHAT_EVENTS = new Set([
+    "assistant_start",
+    "assistant_delta",
+    "assistant_clear",
+    "agent_step",
+    "reasoning_delta",
+    "progress",
+    "tool_start",
+    "image_generated",
+    "approval_request",
+    "approval_summary_update",
+    "approval_wait",
+    "approval_auto",
+    "status",
+  ]);
+
+  function hasBackgroundChatTurn() {
+    return [...runningChatSessions].some((id) => id !== F.activeSessionId);
+  }
+
+  function isBackgroundChatEvent() {
+    return hasBackgroundChatTurn();
+  }
+
+  function detachChatUiForSessionSwitch() {
+    removeProgress();
+    F.removeThinking();
+    clearStreamingMessage(false);
+    if (pendingApprovalNode) {
+      pendingApprovalNode.remove();
+      pendingApprovalNode = null;
+    }
+  }
+
+  async function syncBackgroundSessionMessages(sessionId) {
+    if (!sessionId) return;
+    try {
+      const res = await F.apiFetch(`/api/sessions/${sessionId}`);
+      if (!res.ok) return;
+      const detail = await res.json();
+      const session = F.sessions.find((s) => s.id === sessionId);
+      if (session) {
+        session.title = detail.title;
+        session.updatedAt = detail.updated_at;
+        session.messages = F.toUiMessages(detail.messages);
+      }
+      F.renderSessionList?.();
+    } catch {
+      /* 后台完成时拉取失败可忽略 */
+    }
+  }
+
   function handleEvent(data) {
+    const background = isBackgroundChatEvent();
+    if (background && BACKGROUND_CHAT_EVENTS.has(data.type)) {
+      return;
+    }
+
     switch (data.type) {
       case "assistant_start":
         startStreamingMessage();
@@ -276,7 +335,15 @@
       case "assistant_clear":
         clearStreamingMessage();
         break;
-      case "assistant":
+      case "assistant": {
+        const doneSessionId = data.session?.id;
+        if (doneSessionId) runningChatSessions.delete(doneSessionId);
+        if (background) {
+          void syncBackgroundSessionMessages(doneSessionId);
+          if (data.usage) F.applyStatusUsage?.(data.usage);
+          F.refreshStatusBar?.();
+          return;
+        }
         removeProgress();
         F.removeThinking();
         finalizeStreamingMessage(data.content || "");
@@ -294,6 +361,7 @@
         }
         flushQueue();
         break;
+      }
       case "busy":
         removeProgress();
         F.removeThinking();
@@ -304,10 +372,18 @@
         }
         break;
       case "error":
+        if (background) {
+          if (runningChatSessions.size === 1) {
+            runningChatSessions.clear();
+          }
+          F.refreshStatusBar?.();
+          return;
+        }
         removeProgress();
         clearStreamingMessage(false);
         F.removeThinking();
         appendMessage("error", data.message, false);
+        runningChatSessions.delete(F.activeSessionId);
         F.setBusy(false);
         F.setConnectionStatus("就绪", true);
         F.refreshStatusBar?.();
@@ -814,6 +890,11 @@
       return;
     }
 
+    if (hasBackgroundChatTurn() && !fromQueue) {
+      F.setConnectionStatus("另一会话仍在处理，请稍候…", false);
+      return;
+    }
+
     if (F.busy && !fromQueue) {
       enqueueChat({ text, imagePaths, previewUrls });
       clearPendingImages(true);
@@ -869,6 +950,7 @@
       /* 保存失败不阻断对话 */
     }
 
+    runningChatSessions.add(F.activeSessionId);
     F.ws.send(
       JSON.stringify({
         type: "chat",
@@ -1064,7 +1146,9 @@
       await F.apiFetch("/api/chat/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: F.activeSessionId || "" }),
+        body: JSON.stringify({
+          session_id: [...runningChatSessions][runningChatSessions.size - 1] || F.activeSessionId || "",
+        }),
       });
     } catch {
       // 忽略网络错误，UI 由助手返回的结果恢复
@@ -1075,6 +1159,8 @@
   /* ── 挂载 ── */
 
   F.connectWs = connectWs;
+  F.detachChatUiForSessionSwitch = detachChatUiForSessionSwitch;
+  F.hasBackgroundChatTurn = hasBackgroundChatTurn;
   F.handleEvent = handleEvent;
   F.appendMessage = appendMessage;
   F.flushQueue = flushQueue;

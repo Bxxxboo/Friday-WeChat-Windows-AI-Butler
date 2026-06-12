@@ -206,6 +206,72 @@ def test_load_settings_restores_vision_model_from_credentials_profile(tmp_appdat
     assert loaded.vision_model == "ep-20260611011923-jdgm5"
     assert loaded.image_gen_model == "flux-schnell"
     assert loaded.vision_profiles["ark"]["model"] == "ep-20260611011923-jdgm5"
+    assert loaded.vision_enabled is True
+    assert loaded.image_gen_enabled is True
+
+
+def test_load_settings_restores_enabled_from_profile_flag(tmp_appdata):
+    import json
+
+    from friday.io_utils import load_json
+
+    settings = UserSettings(
+        vision_enabled=True,
+        vision_provider="ark",
+        vision_api_key="ark-secret-key-123456",
+        vision_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        vision_model="ep-20260611011923-jdgm5",
+        vision_profiles={
+            "ark": {
+                "api_key": "ark-secret-key-123456",
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "model": "ep-20260611011923-jdgm5",
+                "enabled": True,
+            }
+        },
+        image_gen_enabled=True,
+        image_gen_provider="openai_compat",
+        image_gen_api_key="sk-zhima-key-12345678",
+        image_gen_base_url="https://next.zhima.world",
+        image_gen_model="flux-schnell",
+        image_gen_profiles={
+            "openai_compat": {
+                "api_key": "sk-zhima-key-12345678",
+                "base_url": "https://next.zhima.world",
+                "model": "flux-schnell",
+                "enabled": True,
+            }
+        },
+    )
+    save_settings(settings)
+    raw = load_json(tmp_appdata / "settings.json")
+    raw["vision_enabled"] = False
+    raw["image_gen_enabled"] = False
+    (tmp_appdata / "settings.json").write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = load_settings()
+    assert loaded.vision_enabled is True
+    assert loaded.image_gen_enabled is True
+
+
+def test_save_persists_category_enabled_in_profile(tmp_appdata):
+    from friday.category_profiles import persist_category_profile
+
+    settings = UserSettings(
+        vision_enabled=True,
+        vision_provider="ark",
+        vision_api_key="ark-secret-key-123456",
+        vision_base_url="https://ark.cn-beijing.volces.com/api/v3",
+        vision_model="ep-20260611011923-jdgm5",
+    )
+    save_settings(persist_category_profile(settings, "vision"))
+    loaded = load_settings()
+    assert loaded.vision_profiles["ark"]["enabled"] is True
+
+    save_settings(persist_category_profile(loaded.merge({"vision_enabled": False}), "vision"))
+    disabled = load_settings()
+    assert disabled.vision_enabled is False
+    assert disabled.vision_profiles["ark"]["enabled"] is False
 
 
 def test_load_settings_preserves_vision_relay_after_restart(tmp_appdata):

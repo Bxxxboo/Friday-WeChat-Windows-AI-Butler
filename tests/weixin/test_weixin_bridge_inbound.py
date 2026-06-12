@@ -372,6 +372,59 @@ def test_handle_inbound_reports_orphan_approval(tmp_appdata, monkeypatch):
     assert sent == ["当前没有待审批的操作。"]
 
 
+def test_weixin_approval_gate_stops_followup_prompts(tmp_appdata, monkeypatch):
+    from concurrent.futures import Future
+    from threading import Thread
+
+    import friday.weixin.bridge as bridge
+    from friday.safety import PendingAction
+    from friday.weixin.bridge import _make_weixin_approval_bridge
+
+    monkeypatch.setattr(
+        "friday.weixin.bridge.load_settings",
+        lambda: UserSettings(
+            api_key="sk-test-key-12345678",
+            weixin_bridge_enabled=True,
+        ),
+    )
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "friday.weixin.bridge.send_peer_text",
+        lambda *_a, text, **_k: sent.append(text),
+    )
+    cancelled: list[bool] = []
+
+    gate: dict[str, bool] = {"stop_prompts": False, "user_declined": False, "timed_out": False}
+    approval = _make_weixin_approval_bridge(
+        peer_id="peer-gate",
+        account=_account(),
+        approval_gate=gate,
+        cancel_hook=lambda: cancelled.append(True),
+    )
+    action = PendingAction(
+        tool_name="create_docx",
+        arguments={"path": "文档.docx"},
+        summary="创建 Word 文档",
+        risk="medium",
+    )
+
+    worker = Thread(target=lambda: approval(action))
+    worker.start()
+    assert bridge._approval_waiters.get("peer-gate") is not None
+    bridge._approval_waiters["peer-gate"].set_result(False)
+    worker.join(timeout=2)
+
+    assert gate["stop_prompts"] is True
+    assert gate["user_declined"] is True
+    assert cancelled == [True]
+    assert len(sent) == 1
+    assert "【需你确认】" in sent[0]
+
+    second = approval(action)
+    assert second is False
+    assert len(sent) == 1
+
+
 def test_handle_inbound_orphan_approval_hint_after_silent_window(tmp_appdata, monkeypatch):
     import time
 

@@ -27,6 +27,31 @@ def test_run_npm_retries_on_network_error(monkeypatch):
     assert len(calls) == len(nr.NPM_REGISTRIES)
 
 
+def test_node_meets_openclaw_minimum():
+    assert nr.OPENCLAW_MIN_NODE == (22, 19, 0)
+    assert nr.NODE_VERSION == "22.19.0"
+
+
+def test_resolve_node_exe_prefers_openclaw_compatible(monkeypatch, tmp_path):
+    portable = nr.NODE_HOME
+    monkeypatch.setattr(nr, "NODE_HOME", tmp_path / "node-v22.19.0-win-x64")
+    portable = nr.NODE_HOME
+    portable.mkdir(parents=True)
+    (portable / "node.exe").write_text("", encoding="utf-8")
+
+    def fake_semver(exe: str):
+        if "22.19" in exe.replace("\\", "/"):
+            return (22, 19, 0)
+        return (22, 14, 0)
+
+    monkeypatch.setattr(nr, "node_semver", fake_semver)
+    monkeypatch.setattr(nr.shutil, "which", lambda _name: "C:/Program Files/nodejs/node.exe")
+
+    resolved = nr.resolve_node_exe()
+    assert resolved is not None
+    assert "22.19" in resolved.replace("\\", "/")
+
+
 def test_run_npm_stops_on_non_network_error(monkeypatch):
     calls: list[str] = []
 

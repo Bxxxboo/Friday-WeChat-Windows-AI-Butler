@@ -51,7 +51,7 @@ async def build_status_bar_snapshot(
             cached = read_cached_service_status("llm", cfg)
             if cached is not None:
                 return cached[0], cached[1], False
-            return False, "正在检测连接…", True
+            return False, "", False
         cached = read_cached_service_status("llm", cfg)
         if cached is not None:
             return cached[0], cached[1], False
@@ -68,7 +68,7 @@ async def build_status_bar_snapshot(
             cached = read_cached_service_status("vision", cfg)
             if cached is not None:
                 return cached[0], cached[1], False
-            return False, "正在检测视觉 API…", True
+            return False, "", False
         cached = read_cached_service_status("vision", cfg)
         if cached is not None:
             return cached[0], cached[1], False
@@ -88,7 +88,7 @@ async def build_status_bar_snapshot(
             cached = read_cached_service_status("image_gen", cfg)
             if cached is not None:
                 return cached[0], cached[1], False
-            return False, "正在检测生图 API…", True
+            return False, "", False
         cached = read_cached_service_status("image_gen", cfg)
         if cached is not None:
             return cached[0], cached[1], False

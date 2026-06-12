@@ -48,6 +48,8 @@ def normalize_category_profiles(
             "base_url": str(entry.get("base_url") or "").strip(),
             "model": str(entry.get("model") or "").strip(),
         }
+        if "enabled" in entry:
+            normalized["enabled"] = bool(entry["enabled"])
         if category == "image_gen":
             normalized["fallback_urls"] = str(entry.get("fallback_urls") or "").strip()
             normalized["default_size"] = str(entry.get("default_size") or "").strip()
@@ -67,10 +69,12 @@ def snapshot_category_profile(
         return normalize_category_profiles(settings, category, profiles)
     store = deepcopy(profiles if profiles is not None else normalize_category_profiles(settings, category))
     snap = snapshot_from_active(settings, category)
+    enabled_field = "vision_enabled" if category == "vision" else "image_gen_enabled"
     entry = {
         "api_key": snap["api_key"],
         "base_url": snap["base_url"],
         "model": snap["model"],
+        "enabled": bool(getattr(settings, enabled_field)),
     }
     if category == "image_gen":
         entry["fallback_urls"] = snap.get("fallback_urls", "")
@@ -365,8 +369,27 @@ def repair_isolated_category_settings(settings: UserSettings) -> UserSettings:
     return updated
 
 
+def _category_profile_complete(settings: UserSettings, category: Category, *, profiles: dict | None = None) -> bool:
+    """当前服务商 profile 是否已具备可用配置（Key + 模型等）。"""
+    provider = active_provider_id(settings, category)
+    if is_custom_provider_id(provider):
+        return False
+    store = profiles if profiles is not None else normalize_category_profiles(settings, category)
+    saved = store.get(provider) or {}
+    cfg = _cfg(category)
+    key = str(saved.get("api_key") or getattr(settings, cfg["api_key"]) or "").strip()
+    model = str(saved.get("model") or getattr(settings, cfg["model"]) or "").strip()
+    if not key or key in {"ark-your-key-here", "sk-your-key-here"}:
+        return False
+    if category == "vision" and provider == "ark":
+        return model.startswith("ep-")
+    if category == "image_gen" and provider == "ark":
+        return model.startswith("ep-")
+    return bool(model)
+
+
 def align_category_active_from_profile(settings: UserSettings, category: Category) -> UserSettings:
-    """顶层活跃字段为空时，从当前服务商 profile 回填 Key / URL / 模型。"""
+    """顶层活跃字段为空时，从当前服务商 profile 回填 Key / URL / 模型 / 启用开关。"""
     provider = active_provider_id(settings, category)
     if is_custom_provider_id(provider):
         return settings
@@ -376,6 +399,7 @@ def align_category_active_from_profile(settings: UserSettings, category: Categor
         return settings
 
     cfg = _cfg(category)
+    enabled_field = "vision_enabled" if category == "vision" else "image_gen_enabled"
     patch: dict[str, Any] = {}
     for field, prof_key in (
         (cfg["api_key"], "api_key"),
@@ -395,6 +419,12 @@ def align_category_active_from_profile(settings: UserSettings, category: Categor
             ds = str(saved.get("default_size") or "").strip()
             if ds:
                 patch["image_gen_default_size"] = ds
+    if not getattr(settings, enabled_field):
+        if saved.get("enabled") is True:
+            patch[enabled_field] = True
+        elif saved.get("enabled") is None and _category_profile_complete(settings, category, profiles=profiles):
+            # 旧版 profile 无 enabled 字段：配置完整则恢复启用（避免更新后只剩 Key）
+            patch[enabled_field] = True
     if not patch:
         return settings
     return settings.merge(patch)

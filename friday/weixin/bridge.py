@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from friday.logging_config import get_logger
-from friday.approval_narration import build_approval_user_copy, enrich_approval_summary_async
+from friday.approval_narration import build_approval_user_copy
 from friday.safety import (
     PendingAction,
     TurnApprovalState,
@@ -18,7 +18,7 @@ from friday.safety import (
 from friday.safety import ToolDecision
 from friday.sessions import save_agent_state
 from friday.storage import UserSettings, load_settings
-from friday.weixin.approval import format_approval_prompt, parse_approval_text
+from friday.weixin.approval import format_approval_prompt_weixin, parse_approval_text
 from friday.weixin.client import (
     WeixinAccount,
     resolve_account,
@@ -262,9 +262,26 @@ def _make_weixin_approval_bridge(
     *,
     peer_id: str,
     account: WeixinAccount,
+    approval_gate: dict[str, bool],
+    cancel_hook: Any | None = None,
 ) -> Any:
+    def _stop_turn(*, declined: bool = False, timed_out: bool = False) -> None:
+        approval_gate["stop_prompts"] = True
+        if declined:
+            approval_gate["user_declined"] = True
+        if timed_out:
+            approval_gate["timed_out"] = True
+        if cancel_hook is not None:
+            try:
+                cancel_hook()
+            except Exception:
+                _log.exception("微信审批后取消 Agent 失败 | peer=%s", peer_id)
+
     def approval_bridge(action: PendingAction) -> bool:
         from friday.interaction_modes import normalize_mode, tool_allowed_in_mode
+
+        if approval_gate.get("stop_prompts"):
+            return False
 
         settings = load_settings()
         mode = normalize_mode(getattr(settings, "interaction_mode", "agent"))
@@ -282,11 +299,12 @@ def _make_weixin_approval_bridge(
             return True
 
         plain, preview = build_approval_user_copy(action, settings=settings)
-        prompt = format_approval_prompt(plain, preview=preview)
+        prompt = format_approval_prompt_weixin(plain, preview=preview)
         try:
             send_peer_text(account, peer_id=peer_id, text=prompt)
         except RuntimeError as exc:
             _log.warning("审批消息 iLink 发送失败 | peer=%s err=%s", peer_id, exc)
+            _stop_turn(declined=True)
             return False
 
         future: Future[bool] = Future()
@@ -295,23 +313,6 @@ def _make_weixin_approval_bridge(
             "account_id": account.account_id,
         }
 
-        def _on_narrated(summary: str) -> None:
-            if future.done():
-                return
-            try:
-                send_peer_text(
-                    account,
-                    peer_id=peer_id,
-                    text=f"▸ 准备做什么\n{summary}\n\n（说明已更新，仍请回复「同意」或「拒绝」）",
-                )
-            except RuntimeError as exc:
-                _log.warning("审批说明更新 iLink 发送失败 | peer=%s err=%s", peer_id, exc)
-
-        enrich_approval_summary_async(
-            action,
-            settings=settings,
-            on_narrated=_on_narrated,
-        )
         _log.info(
             "等待微信审批 | peer=%s summary=%s",
             peer_id,
@@ -329,14 +330,18 @@ def _make_weixin_approval_bridge(
                 )
             except RuntimeError:
                 pass
+            _stop_turn(timed_out=True)
             return False
         finally:
             _approval_waiters.pop(peer_id, None)
             _approval_meta.pop(peer_id, None)
 
-        if approved:
-            mark_turn_approved(state, pseudo)
-        return approved
+        if not approved:
+            _stop_turn(declined=True)
+            return False
+
+        mark_turn_approved(state, pseudo)
+        return True
 
     return approval_bridge
 
@@ -349,20 +354,34 @@ def _run_agent(
     account: WeixinAccount,
     context_token: str,
 ) -> str:
-    from friday.agent import FridayAgent
+    from friday.agent import CANCELLED_MESSAGE, FridayAgent
     from friday.sessions import get_session
 
     settings = load_settings()
     if not settings.api_ready:
         return "请先在星期五桌面版「设置 → API 连接」中配置并保存大模型 API Key。"
 
+    approval_gate: dict[str, bool] = {
+        "stop_prompts": False,
+        "user_declined": False,
+        "timed_out": False,
+    }
+    agent_holder: list[Any] = []
+
+    def _cancel_agent() -> None:
+        if agent_holder:
+            agent_holder[0].cancel()
+
     approval_bridge = _make_weixin_approval_bridge(
         peer_id=peer_id,
         account=account,
+        approval_gate=approval_gate,
+        cancel_hook=_cancel_agent,
     )
     session = get_session(session_id)
     try:
         agent = FridayAgent(settings, approval_bridge)
+        agent_holder.append(agent)
     except Exception as exc:  # noqa: BLE001
         _log.exception("微信 Agent 初始化失败 | peer=%s session=%s", peer_id, session_id)
         return _format_weixin_agent_error(exc)
@@ -381,6 +400,10 @@ def _run_agent(
         _log.exception("微信 Agent 执行失败 | peer=%s session=%s", peer_id, session_id)
         return _format_weixin_agent_error(exc)
     _save_weixin_agent_state(session_id, agent, user_message=user_message)
+    if approval_gate.get("user_declined") or approval_gate.get("timed_out"):
+        return ""
+    if (result or "").strip() in {"", CANCELLED_MESSAGE} or "已停止" in (result or ""):
+        return ""
     return _truncate_reply(result)
 
 

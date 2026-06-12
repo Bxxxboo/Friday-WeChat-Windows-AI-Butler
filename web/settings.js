@@ -1454,6 +1454,13 @@
             resultEl.className = "settings-result ok";
             resultEl.textContent = data.result_message || data.message || "更新完成，正在重启…";
           }
+          window.setTimeout(() => {
+            try {
+              window.pywebview?.api?.close_window?.();
+            } catch {
+              /* 后端 force exit 为主；此处仅作 UI 兜底 */
+            }
+          }, 400);
           return false;
         }
         if (data.ok === false && resultEl) {
