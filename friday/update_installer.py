@@ -394,6 +394,14 @@ function Stop-FridayInstallProcesses([string]$InstallDir) {
             } catch {}
         }
     }
+    Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $path = $_.ExecutablePath
+            if ($path -and $path.ToLowerInvariant().StartsWith($root)) {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+        } catch {}
+    }
 }
 
 Write-ApplyResult $false 0 "updater_started"
@@ -408,7 +416,9 @@ if (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) {
     Start-Sleep -Seconds 2
 }
 Stop-FridayInstallProcesses $TargetDir
-Start-Sleep -Seconds 1
+Start-Sleep -Seconds 3
+
+$exeLeaf = Split-Path -Leaf $ExePath
 
 if (-not (Test-Path -LiteralPath $SourceDir)) {
     Write-ApplyResult $false 2 "source_missing"
@@ -419,12 +429,12 @@ if (-not (Test-Path -LiteralPath $TargetDir)) { New-Item -ItemType Directory -Pa
 $BackupDir = Join-Path (Split-Path -Parent $TargetDir) "Friday.bak"
 $robolog = Join-Path $env:APPDATA ("Friday\updates\robocopy-" + [guid]::NewGuid().ToString("n") + ".log")
 New-Item -ItemType Directory -Force -Path (Split-Path $robolog) | Out-Null
-& robocopy $SourceDir $TargetDir /E /COPY:DAT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /LOG:$robolog | Out-Null
+& robocopy $SourceDir $TargetDir /E /COPY:DAT /IS /IT /R:3 /W:3 /NFL /NDL /NJH /NJS /NP /LOG:$robolog | Out-Null
 $code = $LASTEXITCODE
 if ($code -ge 8) {
     Stop-FridayInstallProcesses $TargetDir
-    Start-Sleep -Seconds 1
-    & robocopy $SourceDir $TargetDir /E /COPY:DAT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /LOG:$robolog | Out-Null
+    Start-Sleep -Seconds 2
+    & robocopy $SourceDir $TargetDir /E /COPY:DAT /IS /IT /R:3 /W:3 /NFL /NDL /NJH /NJS /NP /LOG:$robolog | Out-Null
     $code = $LASTEXITCODE
 }
 if ($code -ge 8) {
@@ -436,10 +446,34 @@ if ($code -ge 8) {
     exit $code
 }
 
+$srcExe = Join-Path $SourceDir $exeLeaf
+$dstExe = Join-Path $TargetDir $exeLeaf
+if (-not (Test-Path -LiteralPath $srcExe)) {
+    $srcFallback = Get-ChildItem -LiteralPath $SourceDir -Filter "Friday.exe" -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($srcFallback) { $srcExe = $srcFallback.FullName }
+}
+if (-not (Test-Path -LiteralPath $dstExe)) {
+    $dstFallback = Get-ChildItem -LiteralPath $TargetDir -Filter "Friday.exe" -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($dstFallback) { $dstExe = $dstFallback.FullName }
+}
+if ((Test-Path -LiteralPath $srcExe) -and (Test-Path -LiteralPath $dstExe)) {
+    $srcHash = (Get-FileHash -LiteralPath $srcExe -Algorithm SHA256).Hash
+    $dstHash = (Get-FileHash -LiteralPath $dstExe -Algorithm SHA256).Hash
+    if ($srcHash -ne $dstHash) {
+        if (Test-Path -LiteralPath $BackupDir) {
+            $restoreLog = Join-Path $env:APPDATA ("Friday\updates\restore-" + [guid]::NewGuid().ToString("n") + ".log")
+            & robocopy $BackupDir $TargetDir /E /COPY:DAT /IS /IT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /LOG:$restoreLog | Out-Null
+        }
+        Write-ApplyResult $false 5 ("files_not_replaced log=" + $robolog)
+        exit 5
+    }
+}
+
 Get-ChildItem -LiteralPath $TargetDir -Recurse -ErrorAction SilentlyContinue |
     Unblock-File -ErrorAction SilentlyContinue
 
-$exeLeaf = Split-Path -Leaf $ExePath
 $installedExe = Join-Path $TargetDir $exeLeaf
 if (-not (Test-Path -LiteralPath $installedExe)) {
     $fallback = Get-ChildItem -LiteralPath $TargetDir -Filter "Friday.exe" -File -ErrorAction SilentlyContinue |
@@ -482,6 +516,11 @@ def format_last_apply_failure(*, current: str) -> str:
             f"上次自动更新 v{target or '新版本'} 未能完成（安装目录文件被占用或复制失败）。"
             "请先完全退出星期五（任务管理器确认无 Friday.exe）后重试，"
             f"或从 Gitee Releases 手动安装 Friday-Setup-{target}.exe。"
+        )
+    if "files_not_replaced" in detail:
+        return (
+            f"上次自动更新 v{target or '新版本'} 未能替换程序文件（Friday.exe 可能被占用）。"
+            "请完全退出星期五后重试一键更新，或手动下载安装包覆盖安装。"
         )
     if "restart_exe_missing" in detail:
         return (

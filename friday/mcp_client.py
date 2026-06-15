@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
+import sys
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -78,7 +81,68 @@ class MCPServerConfig:
         }
 
     def resolved_command(self) -> str:
-        return expand_config_path(self.command)
+        return resolve_mcp_command(self.command)
+
+
+def mcp_enriched_path() -> str:
+    """为 MCP 子进程扩充 PATH（打包版通常无系统 npx/npm）。"""
+    parts: list[str] = []
+    try:
+        from friday.weixin.node_runtime import NODE_HOME, NPM_GLOBAL
+
+        if NODE_HOME.is_dir():
+            parts.append(str(NODE_HOME))
+        if NPM_GLOBAL.is_dir():
+            parts.append(str(NPM_GLOBAL))
+    except ImportError:
+        pass
+    if getattr(sys, "frozen", False):
+        install = Path(sys.executable).resolve().parent
+        parts.append(str(install))
+        internal = install / "_internal"
+        if internal.is_dir():
+            parts.append(str(internal))
+    existing = os.environ.get("PATH", "")
+    if parts:
+        return os.pathsep.join(parts + ([existing] if existing else []))
+    return existing
+
+
+def resolve_npx_command() -> str | None:
+    for name in ("npx.cmd", "npx"):
+        found = shutil.which(name)
+        if found:
+            return found
+    try:
+        from friday.weixin.node_runtime import NODE_HOME
+
+        candidate = NODE_HOME / "npx.cmd"
+        if candidate.is_file():
+            return str(candidate)
+    except ImportError:
+        pass
+    return None
+
+
+def resolve_mcp_command(raw: str) -> str:
+    bare_raw = (raw or "").strip()
+    lower_raw = bare_raw.lower()
+    if lower_raw in ("npx", "npx.cmd"):
+        return resolve_npx_command() or bare_raw
+    expanded = expand_config_path(raw)
+    if not expanded:
+        return ""
+    bare = expanded.strip()
+    path_env = mcp_enriched_path()
+    found = shutil.which(bare, path=path_env)
+    if found:
+        return found
+    if os.name == "nt" and not Path(bare).suffix:
+        for suffix in (".cmd", ".exe", ".bat"):
+            hit = shutil.which(bare + suffix, path=path_env)
+            if hit:
+                return hit
+    return bare
 
 
 class MCPStdioClient:
@@ -97,10 +161,15 @@ class MCPStdioClient:
         cmd = self.config.resolved_command()
         if not cmd:
             raise RuntimeError("MCP command 为空")
+        path_env = mcp_enriched_path()
+        if not Path(cmd).is_file() and shutil.which(cmd, path=path_env) is None:
+            raise FileNotFoundError(
+                f"找不到 MCP 命令「{self.config.command}」（打包版请确认已安装或改用内置 Node 的 npx）"
+            )
         args = [cmd, *self.config.args]
         cwd = expand_config_path(self.config.cwd) if self.config.cwd else None
         cwd_path = Path(cwd) if cwd else None
-        env = {**dict(**__import__("os").environ), **self.config.env}
+        env = {**dict(os.environ), "PATH": path_env, **self.config.env}
         self._proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,

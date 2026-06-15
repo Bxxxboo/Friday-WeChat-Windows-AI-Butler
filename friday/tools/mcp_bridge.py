@@ -15,6 +15,7 @@ _TOOL_PREFIX = "mcp_"
 _MCP_TOOLS_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _MCP_CACHE_TTL_OK = 300.0
 _MCP_CACHE_TTL_FAIL = 60.0
+_MCP_WARNED_SERVERS: set[str] = set()
 
 
 def _safe_suffix(server_id: str, tool_name: str) -> str:
@@ -38,7 +39,11 @@ def _list_server_tools(server) -> list[dict[str, Any]]:
     try:
         tools = client.list_tools()
     except Exception as exc:  # noqa: BLE001
-        _log.warning("MCP 列举工具失败 | server=%s | %s", server.name, exc)
+        if server.id in _MCP_WARNED_SERVERS:
+            _log.debug("MCP 列举工具失败 | server=%s | %s", server.name, exc)
+        else:
+            _MCP_WARNED_SERVERS.add(server.id)
+            _log.warning("MCP 列举工具失败 | server=%s | %s", server.name, exc)
         _MCP_TOOLS_CACHE[server.id] = (now, [])
         return []
     out = [t for t in tools if isinstance(t, dict)]

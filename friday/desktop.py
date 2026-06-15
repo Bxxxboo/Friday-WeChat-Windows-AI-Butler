@@ -571,6 +571,13 @@ def main() -> None:
         main_url = f"http://127.0.0.1:{port}/?desktop=1&boot={boot_theme}&ui={__version__}"
         boot_phase["main_url"] = main_url
         _log.info("后端就绪 port=%d，准备加载主界面", port)
+        if getattr(sys, "frozen", False):
+            try:
+                from friday.update_rollback import confirm_startup_success
+
+                confirm_startup_success()
+            except Exception:
+                pass
         _splash_status("正在加载界面…")
         boot_phase["step"] = "main"
         try:

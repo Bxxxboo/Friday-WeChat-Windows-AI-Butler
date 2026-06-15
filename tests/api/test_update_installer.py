@@ -176,7 +176,20 @@ def test_updater_script_restarts_from_install_dir(tmp_path, monkeypatch):
     assert "Join-Path $TargetDir $exeLeaf" in text
     assert "Start-Process -FilePath $installedExe" in text
     assert "restart_exe_missing" in text
+    assert "files_not_replaced" in text
+    assert "Get-CimInstance Win32_Process" in text
     assert "Start-Process -FilePath $ExePath" not in text
+
+
+def test_format_last_apply_failure_files_not_replaced(tmp_path, monkeypatch):
+    monkeypatch.setattr("friday.update_installer._updates_dir", lambda: tmp_path)
+    last_apply_result_path().write_text(
+        '{"ok": false, "version": "1.4.4", "detail": "files_not_replaced log=x"}',
+        encoding="utf-8",
+    )
+    hint = format_last_apply_failure(current="1.4.2")
+    assert "1.4.4" in hint
+    assert "占用" in hint or "替换" in hint
 
 
 def test_request_app_quit_force_skips_handler(monkeypatch):
