@@ -261,8 +261,12 @@ def list_turn_deliverable_candidates(
     found: dict[str, tuple[float, Path]] = {}
 
     def _consider(candidate: Path, *, force_unsent_delivered: bool) -> None:
+        from friday.artifacts import is_weixin_sent
+
         key = str(candidate.resolve())
         if key in already_sent:
+            return
+        if is_weixin_sent(candidate, settings=settings):
             return
         if file_generated_kind_for_path(candidate) is None:
             return

@@ -477,6 +477,12 @@ def register_plugins_routes(app: FastAPI) -> None:
 
         info = await asyncio.to_thread(check_for_updates)
         auto_ok, auto_hint = can_auto_update()
+        if info.update_available and info.download_url and not (info.download_sha256 or "").strip():
+            auto_ok = False
+            auto_hint = (
+                "无法获取更新包校验信息（SHA256），暂不能一键更新。"
+                "请检查网络后重新「检查更新」，或从 Gitee Releases 手动下载 Friday-Update.zip。"
+            )
         from friday.update_installer import format_last_apply_failure
 
         last_hint = format_last_apply_failure(current=info.current)

@@ -132,6 +132,36 @@ def _vision_auth_hint() -> ErrorHint:
     )
 
 
+def is_likely_timeout_error(raw: Any) -> bool:
+    """可恢复的响应/连接超时（非 DNS、非 connection refused）。"""
+    text = str(raw or "").strip().lower()
+    if not text and raw is not None:
+        text = type(raw).__name__.lower()
+    if not text:
+        return False
+    if any(
+        token in text
+        for token in (
+            "readtimeout",
+            "read timeout",
+            "read timed out",
+            "response timed out",
+            "waiting for response",
+            "apitimeouterror",
+            "connecttimeout",
+            "connect timeout",
+            "connection timed out",
+            "request timed out",
+        )
+    ):
+        return True
+    if "timeout" in text or "timed out" in text:
+        if "refused" in text or "getaddrinfo" in text:
+            return False
+        return True
+    return False
+
+
 def _llm_auth_hint(text: str, lower: str) -> ErrorHint:
     hint = "请在 设置 → 大模型 检查当前服务商与 Key 是否匹配（MiMo / DeepSeek 等需分别配置）"
     if "xiaomimimo.com/v1" in lower and "token-plan" not in lower:
@@ -253,17 +283,7 @@ def classify_error(raw: Any = "", *, context: str = "") -> ErrorHint:
             hint = "请核对生图 model ID、Key 与 Base URL 是否与服务商一致"
         return ErrorHint("api_bad_request", detail, hint)
 
-    if any(
-        k in lower
-        for k in (
-            "readtimeout",
-            "read timeout",
-            "read timed out",
-            "response timed out",
-            "waiting for response",
-            "apitimeouterror",
-        )
-    ):
+    if is_likely_timeout_error(text):
         detail = "API 响应超时"
         hint = "服务器可能繁忙或网络较慢，请稍后重试；若仅偶发可忽略，反复出现请点「网络诊断」"
         if ctx == "image_gen" or "生图" in text:
@@ -278,7 +298,7 @@ def classify_error(raw: Any = "", *, context: str = "") -> ErrorHint:
             "请稍等 1–2 分钟后重试；若持续出现，请检查当前服务商的配额/并发限制，或降低对话频率",
         )
 
-    if any(k in lower for k in ("connection", "timeout", "timed out", "network", "connect", "refused", "unreachable")):
+    if any(k in lower for k in ("connection", "network", "connect", "refused", "unreachable")):
         if "proxy" in lower or "407" in lower:
             return ErrorHint(
                 "api_proxy",

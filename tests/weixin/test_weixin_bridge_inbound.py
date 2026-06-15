@@ -209,6 +209,16 @@ def test_format_weixin_agent_error_api_message():
     assert msg != "执行出错，请稍后重试，或在星期五桌面版查看日志。"
 
 
+def test_format_weixin_agent_error_timeout_includes_retry_hint():
+    from friday.weixin.bridge import _format_weixin_agent_error
+
+    msg = _format_weixin_agent_error(RuntimeError("Connection error: timed out"))
+    assert "执行出错" in msg
+    assert "超时" in msg
+    assert "无法连接 API 服务器" not in msg
+    assert "稍后重试" in msg
+
+
 def test_handle_inbound_surfaces_agent_error(tmp_appdata, monkeypatch):
     import time
 
@@ -242,7 +252,7 @@ def test_handle_inbound_surfaces_agent_error(tmp_appdata, monkeypatch):
     assert len(sent) == 2
     assert sent[0] == WEIXIN_TASK_ACK
     assert sent[1].startswith("执行出错")
-    assert "timed out" in sent[1] or "连接" in sent[1]
+    assert "超时" in sent[1]
 
 
 def test_handle_inbound_ignores_duplicate_text(tmp_appdata, monkeypatch):

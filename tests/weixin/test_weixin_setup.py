@@ -186,6 +186,39 @@ def test_weixin_channel_requires_installed_plugin_not_config_only(tmp_path, monk
     assert _weixin_channel_available()
 
 
+def test_install_weixin_plugin_repairs_missing_runtime_deps(tmp_path, monkeypatch):
+    ext = tmp_path / "extensions" / "openclaw-weixin"
+    (ext / "dist").mkdir(parents=True)
+    (ext / "dist" / "index.js").write_text("// ok", encoding="utf-8")
+    (ext / "openclaw.plugin.json").write_text('{"id":"openclaw-weixin"}', encoding="utf-8")
+    (ext / "package.json").write_text(
+        '{"dependencies":{"zod":"^4.3.6","qrcode-terminal":"0.12.0"}}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("friday.weixin.setup.openclaw_state_dir", lambda: tmp_path)
+    monkeypatch.setattr("friday.weixin.setup._plugin_extension_dir", lambda _pid: ext)
+
+    calls: list[str] = []
+
+    def fake_ensure_deps(plugin_dir):
+        calls.append(str(plugin_dir))
+        nm = plugin_dir / "node_modules" / "zod"
+        nm.mkdir(parents=True)
+        (nm / "package.json").write_text("{}", encoding="utf-8")
+        (plugin_dir / "node_modules" / "qrcode-terminal").mkdir(parents=True)
+        return True, "微信插件运行时依赖已安装"
+
+    monkeypatch.setattr("friday.weixin.setup._ensure_plugin_runtime_deps", fake_ensure_deps)
+    monkeypatch.setattr("friday.weixin.setup.configure_openclaw_plugins", lambda: (True, "ok"))
+    monkeypatch.setattr("friday.weixin.setup._run_openclaw_doctor_repair", lambda: None)
+    monkeypatch.setattr("friday.weixin.setup._install_weixin_via_npm", lambda: (False, "should not run"))
+
+    ok, msg = install_weixin_plugin()
+    assert ok
+    assert calls == [str(ext)]
+    assert "依赖" in msg
+
+
 def test_configure_openclaw_plugins_idempotent(tmp_path, monkeypatch):
     cfg = tmp_path / "openclaw.json"
     cfg.write_text("{}", encoding="utf-8")

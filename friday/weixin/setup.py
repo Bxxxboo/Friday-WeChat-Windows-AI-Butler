@@ -32,7 +32,7 @@ _log = get_logger("weixin.setup")
 
 WEIXIN_PLUGIN_ID = "openclaw-weixin"
 BRIDGE_PLUGIN_ID = "friday-weixin-bridge"
-WEIXIN_NPM_SPEC = "@tencent-weixin/openclaw-weixin@2.4.3"
+WEIXIN_NPM_SPEC = "@tencent-weixin/openclaw-weixin@2.4.4"
 DEFAULT_WEIXIN_BOT_AGENT = f"Friday/{__version__}"
 # OpenClaw Gateway 校验 plugins.entries.*.hooks.timeoutMs 上限为 600000
 OPENCLAW_HOOK_TIMEOUT_MS_MAX = 600_000
@@ -210,6 +210,69 @@ def _config_plugins_ready() -> tuple[bool, str]:
     return True, "OpenClaw 插件白名单与通道配置已就绪"
 
 
+def _plugin_runtime_deps_ok(root: Path) -> bool:
+    """插件目录是否已具备 package.json 声明的运行时依赖（如 openclaw-weixin 的 zod）。"""
+    pkg = root / "package.json"
+    if not pkg.is_file():
+        return True
+    try:
+        data = json.loads(pkg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    deps = data.get("dependencies")
+    if not isinstance(deps, dict) or not deps:
+        return True
+    nm = root / "node_modules"
+    if not nm.is_dir():
+        return False
+    for name in deps:
+        if name.startswith("@"):
+            parts = name.split("/", 1)
+            if len(parts) != 2:
+                return False
+            candidate = nm / parts[0] / parts[1]
+        else:
+            candidate = nm / name
+        if not candidate.exists():
+            return False
+    return True
+
+
+def _ensure_plugin_runtime_deps(plugin_dir: Path) -> tuple[bool, str]:
+    """在插件扩展目录执行 npm install --omit=dev，补齐复制后缺失的 node_modules。"""
+    pkg = plugin_dir / "package.json"
+    if not pkg.is_file():
+        return True, ""
+    try:
+        data = json.loads(pkg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, f"读取插件 package.json 失败：{exc}"
+    deps = data.get("dependencies")
+    if not isinstance(deps, dict) or not deps:
+        return True, ""
+    if _plugin_runtime_deps_ok(plugin_dir):
+        return True, ""
+
+    from friday.weixin.node_runtime import run_npm
+
+    if not npm_command():
+        return False, "npm 不可用，无法安装微信插件依赖（如 zod）"
+    try:
+        proc = run_npm(
+            ["install", "--omit=dev", "--no-audit", "--no-fund"],
+            timeout=600,
+            prefix=plugin_dir,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return False, f"安装微信插件依赖异常：{exc}"
+    detail = (proc.stderr or proc.stdout or "").strip()[-400:]
+    if proc.returncode != 0:
+        return False, f"安装微信插件依赖失败：{detail or proc.returncode}"
+    if not _plugin_runtime_deps_ok(plugin_dir):
+        return False, "微信插件依赖安装后仍不完整，请检查网络或重试"
+    return True, "微信插件运行时依赖已安装"
+
+
 def _copy_plugin_tree(source: Path, plugin_id: str) -> tuple[bool, str]:
     if not source.is_dir():
         return False, f"插件源目录不存在：{source}"
@@ -286,14 +349,29 @@ def _install_weixin_via_npm() -> tuple[bool, str]:
         detail = (proc.stderr or proc.stdout or "").strip()[-400:]
         if proc.returncode != 0:
             return False, f"npm 安装微信插件失败：{detail or proc.returncode}"
-        candidates = list(tmp.glob("node_modules/**/openclaw.plugin.json"))
-        if not candidates:
-            candidates = list(tmp.glob("node_modules/**/package.json"))
-        for marker in candidates:
-            pkg_root = marker.parent
-            if (pkg_root / "index.js").is_file() or any(pkg_root.glob("**/index.js")):
-                return _copy_plugin_tree(pkg_root, WEIXIN_PLUGIN_ID)
-        return False, "npm 已执行但未找到 openclaw-weixin 包内容"
+        scoped = tmp / "node_modules" / "@tencent-weixin" / "openclaw-weixin"
+        if scoped.is_dir() and (scoped / "openclaw.plugin.json").is_file():
+            pkg_root = scoped
+        else:
+            candidates = list(tmp.glob("node_modules/**/openclaw.plugin.json"))
+            pkg_root = None
+            for marker in candidates:
+                parent = marker.parent
+                if (parent / "index.js").is_file() or any(parent.glob("**/index.js")):
+                    pkg_root = parent
+                    break
+            if pkg_root is None:
+                return False, "npm 已执行但未找到 openclaw-weixin 包内容"
+        ok, msg = _copy_plugin_tree(pkg_root, WEIXIN_PLUGIN_ID)
+        if not ok:
+            return False, msg
+        dest = _plugin_extension_dir(WEIXIN_PLUGIN_ID)
+        deps_ok, deps_msg = _ensure_plugin_runtime_deps(dest)
+        if not deps_ok:
+            return False, deps_msg
+        if deps_msg:
+            msg = f"{msg}；{deps_msg}"
+        return True, msg
     except (subprocess.TimeoutExpired, OSError) as exc:
         return False, f"npm 安装微信插件异常：{exc}"
     finally:
@@ -528,15 +606,24 @@ def ensure_bridge_plugin_for_gateway() -> bool:
 
 
 def install_weixin_plugin() -> tuple[bool, str]:
+    ext = _plugin_extension_dir(WEIXIN_PLUGIN_ID)
     if _plugin_installed(WEIXIN_PLUGIN_ID):
-        configure_openclaw_plugins()
-        _run_openclaw_doctor_repair()
-        return True, "微信通道插件已安装"
+        deps_ok, deps_msg = _ensure_plugin_runtime_deps(ext)
+        if deps_ok:
+            configure_openclaw_plugins()
+            _run_openclaw_doctor_repair()
+            return True, "微信通道插件已安装" + (f"（{deps_msg}）" if deps_msg else "")
+        _log.warning("openclaw-weixin 已复制但依赖缺失，尝试重新安装 | %s", deps_msg)
 
     source = _weixin_plugin_source()
     if source and source.is_dir():
         ok, msg = _copy_plugin_tree(source, WEIXIN_PLUGIN_ID)
         if ok:
+            deps_ok, deps_msg = _ensure_plugin_runtime_deps(ext)
+            if not deps_ok:
+                return False, deps_msg
+            if deps_msg:
+                msg = f"{msg}；{deps_msg}"
             configure_openclaw_plugins()
             _run_openclaw_doctor_repair()
             return True, msg

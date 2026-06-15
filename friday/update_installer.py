@@ -620,6 +620,17 @@ def start_apply_update(*, download_url: str, version: str, expected_sha256: str 
             "hint": "请从设置页重新「检查更新」，勿使用第三方链接。",
         }
 
+    try:
+        resolve_update_digest(url, (expected_sha256 or "").strip())
+    except RuntimeError as exc:
+        raw = str(exc).strip()
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        return {
+            "started": False,
+            "message": lines[0] if lines else raw,
+            "hint": lines[1] if len(lines) > 1 else "请重新「检查更新」，或从 Gitee Releases 手动下载安装包。",
+        }
+
     with _apply_lock:
         if _apply_state.get("running"):
             return {"started": True, "already_running": True}

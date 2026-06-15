@@ -10,6 +10,9 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
+. (Join-Path $Root "scripts\ensure-github-network.ps1")
+Enable-FridayGithubNetwork | Out-Null
+
 function Resolve-GitHubToken {
     param([string]$Explicit)
     if ($Explicit) { return $Explicit.Trim() }

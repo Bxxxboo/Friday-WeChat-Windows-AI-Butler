@@ -241,6 +241,25 @@ def _should_skip_gc_item(item: dict[str, Any]) -> bool:
     return False
 
 
+def is_weixin_sent(path: str | Path, *, settings: UserSettings | None = None) -> bool:
+    """该路径是否已在微信发送过且仍在 weixin_sent TTL 内。"""
+    cfg = settings or load_settings()
+    normalized = normalize_path(path, settings=cfg)
+    now = time.time()
+    for item in _load_index(cfg):
+        if str(item.get("path", "")).replace("\\", "/") != normalized:
+            continue
+        if item.get("status") != STATUS_ACTIVE:
+            return False
+        if not item.get("weixin_sent_at"):
+            return False
+        expires = item.get("expires_at")
+        if expires is not None and now > float(expires):
+            return False
+        return True
+    return False
+
+
 def mark_weixin_sent(path: str | Path, *, settings: UserSettings | None = None) -> None:
     """微信附件发送成功后登记，7 天后由 run_gc 移入 trash。"""
     cfg = settings or load_settings()

@@ -64,6 +64,31 @@ def test_pick_download_sha256_from_sums_asset():
     ) == digest
 
 
+def test_pick_download_sha256_from_gitee_sums_asset_url(monkeypatch):
+    digest = "d" * 64
+    sums_url = "https://gitee.com/o/r/releases/download/v1.2.4/SHA256SUMS.txt"
+    download_url = "https://gitee.com/o/r/releases/download/v1.2.4/Friday-Update-1.2.4.zip"
+    captured: dict[str, str] = {}
+
+    def fake_expected(download_url: str, *, sums_map=None, sums_url=None):
+        captured["url"] = download_url
+        captured["sums_url"] = sums_url or ""
+        return digest
+
+    monkeypatch.setattr("friday.release_hashes.expected_sha256_for_download", fake_expected)
+    found = _pick_download_sha256(
+        {
+            "assets": [
+                {"name": "Friday-Update-1.2.4.zip", "browser_download_url": download_url},
+                {"name": "SHA256SUMS.txt", "browser_download_url": sums_url},
+            ],
+        },
+        download_url,
+    )
+    assert found == digest
+    assert captured["sums_url"] == sums_url
+
+
 def test_pick_download_prefers_windows_zip():
     url = _pick_download_url(
         {

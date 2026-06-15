@@ -220,6 +220,29 @@ def test_turn_deliverable_candidates_includes_unsent_delivered_before_snapshot(
     assert [p.name for p in found] == ["第三节辅导课.docx"]
 
 
+def test_turn_deliverable_candidates_skips_weixin_sent_delivered(tmp_path, monkeypatch):
+    from friday.artifacts import mark_weixin_sent
+
+    ws = tmp_path / "ws"
+    delivered = ws / ".friday" / "delivered"
+    delivered.mkdir(parents=True)
+    doc = delivered / "exam.docx"
+    pdf = delivered / "slides.pdf"
+    doc.write_bytes(b"doc")
+    pdf.write_bytes(b"pdf")
+    settings = UserSettings(workspace=str(ws))
+    monkeypatch.setattr("friday.artifacts.resolved_workspace", lambda _s: str(ws))
+    mark_weixin_sent(doc, settings=settings)
+    mark_weixin_sent(pdf, settings=settings)
+    found = list_turn_deliverable_candidates(
+        settings,
+        min_mtime=0,
+        before_path_keys=set(),
+        already_sent=set(),
+    )
+    assert found == []
+
+
 def test_deliver_turn_new_attachments_emits_all_unsent(tmp_path, monkeypatch):
     import os
     import time

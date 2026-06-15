@@ -57,6 +57,8 @@ if (-not $SkipGithubRelease) {
 
     Write-Host ""
     Write-Host "=== 3/3 GitHub Release (备用) ===" -ForegroundColor Cyan
+    . (Join-Path $Root "scripts\ensure-github-network.ps1")
+    Enable-FridayGithubNetwork | Out-Null
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         if ($githubToken) {
             Write-Host "gh not found; using GitHub API with GITHUB_TOKEN ..." -ForegroundColor Yellow

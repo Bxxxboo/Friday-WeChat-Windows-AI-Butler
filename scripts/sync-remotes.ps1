@@ -12,6 +12,8 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
+. (Join-Path $Root "scripts\ensure-github-network.ps1")
+
 $Git = "C:\Program Files\Git\bin\git.exe"
 if (-not (Test-Path $Git)) {
     $Git = (Get-Command git -ErrorAction SilentlyContinue).Source
@@ -65,11 +67,16 @@ if ($status) {
     Write-Host "Working tree clean (skip commit)." -ForegroundColor Yellow
 }
 
-Write-Host "Pushing GitHub: $RepoOwner/$GitHubRepoName ..." -ForegroundColor Cyan
-& $Git push -u origin main
-
 Write-Host "Pushing Gitee:  $GiteeUser/$GiteeRepoName ..." -ForegroundColor Cyan
 & $Git push -u gitee main
+if ($LASTEXITCODE -ne 0) { throw "git push gitee main failed (exit $LASTEXITCODE)" }
+
+Enable-FridayGithubNetwork | Out-Null
+Write-Host "Pushing GitHub: $RepoOwner/$GitHubRepoName ..." -ForegroundColor Cyan
+& $Git push -u origin main
+if ($LASTEXITCODE -ne 0) { throw "git push origin main failed (exit $LASTEXITCODE)" }
+
+Assert-FridayRemotesAligned -Git $Git -Branch main
 
 Write-Host ""
 Write-Host "Git sync done." -ForegroundColor Green

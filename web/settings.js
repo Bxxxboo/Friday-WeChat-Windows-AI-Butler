@@ -1746,9 +1746,19 @@
   }
 
   async function applyUpdate() {
-    const info = lastUpdateInfo;
-    if (!info?.update_available || !info.download_url) {
+    let info = lastUpdateInfo;
+    if (!info?.update_available || !info.download_url || !info.download_sha256) {
       await checkForUpdates();
+      info = lastUpdateInfo;
+    }
+    if (!info?.update_available || !info.download_url) return;
+    if (!info.download_sha256) {
+      const resultEl = document.getElementById("updateResult");
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = info.auto_update_hint
+          || "无法获取更新包校验信息（SHA256）。请检查网络后重新「检查更新」，或手动下载安装包。";
+      }
       return;
     }
     await startApplyUpdate(info);
@@ -1785,7 +1795,7 @@
             : (data.auto_update_hint || "请下载 zip 后覆盖解压。");
           resultEl.textContent = `${t("updates.found", { latest: data.latest, current: data.current })}\n${hint}`;
         }
-        if (applyBtn && data.can_auto_update && data.download_url) {
+        if (applyBtn && data.can_auto_update && data.download_url && data.download_sha256) {
           applyBtn.classList.remove("hidden");
         }
         if (downloadLink && data.download_url) {

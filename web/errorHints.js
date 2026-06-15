@@ -104,7 +104,16 @@
       lower.includes("readtimeout")
       || lower.includes("read timeout")
       || lower.includes("read timed out")
+      || lower.includes("response timed out")
+      || lower.includes("waiting for response")
       || lower.includes("apitimeouterror")
+      || lower.includes("connecttimeout")
+      || lower.includes("connect timeout")
+      || lower.includes("connection timed out")
+      || lower.includes("request timed out")
+      || ((lower.includes("timeout") || lower.includes("timed out"))
+        && !lower.includes("refused")
+        && !lower.includes("getaddrinfo"))
     ) {
       const imageGen = ctx === "image_gen" || text.includes("生图");
       return {
@@ -124,7 +133,6 @@
     }
     if (
       lower.includes("connection")
-      || lower.includes("timed out")
       || lower.includes("network")
       || lower.includes("connect")
       || lower.includes("refused")

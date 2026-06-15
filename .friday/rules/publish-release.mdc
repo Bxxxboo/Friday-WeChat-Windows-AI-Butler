@@ -21,9 +21,11 @@ alwaysApply: false
 1. **写更新公告 + 版本号** — 见下节「更新公告」；`assets/changelog.json` 与 `CHANGELOG.md` 已含目标版本条目；`friday/version.py`（`__version__` + `__dev_version__` = `{版本}-dev`）、`scripts/version_info.py` 已 bump  
 2. **先 commit + 双端 push** — `publish-full-release.ps1` 第 3 步调用 `sync-remotes.ps1`（`git add -A` → commit → `origin` + `gitee`）  
 3. **再打包发布** — `make-release` → Gitee Release（必做）→ GitHub Release  
-4. **部署官网** — Vercel production + alias `fridayaiagent.vercel.app`
+4. **部署官网（必做）** — `sync-website-download.ps1` → Vercel production + alias `fridayaiagent.vercel.app` → Gitee Pages（`deploy-gitee-pages.cmd`，分支 `pages`）
 
-Agent 在用户授权发版时：**先写/核对更新公告，再 bump，再确认工作区已含公告+版本改动，最后执行一键脚本**；不要跳过 commit 直接打 Release。
+**`publish-release.cmd` ≠ 发版完成**：该脚本**不含**步骤 4。若用了它，必须在同一轮发版内执行下节「官网补部署」，并在汇报中贴 Vercel `download.json` 版本号。
+
+Agent 在用户授权发版时：**先写/核对更新公告，再 bump，再确认工作区已含公告+版本改动，最后执行 `publish-full-release`（推荐）或 `publish-release` + 官网补部署**；不要跳过 commit 直接打 Release，也不要只打 Release 不部署官网。
 
 ## 更新公告（强制）
 
@@ -97,12 +99,19 @@ Select-String -Path CHANGELOG.md -Pattern '^## ' | Select-Object -First 1
 | **更新公告** | `assets/changelog.json` 已插入目标版本 `entries[0]`（含 title + sections）；`CHANGELOG.md` 已同步；见上节「更新公告」 |
 | `assets/changelog.json` | 顶层 `entries[0].version` 须为目标版本；**无条目不得发版** |
 | `GITEE_TOKEN` | **用户已在系统环境变量定义时无需再设**；脚本从 User/Machine 读取（会话 `$env:` 可能为空） |
-| `GITHUB_TOKEN` | 同上；或本机已登录 `gh` |
+| `GITHUB_TOKEN` | 同上；或本机已登录 `gh`；API 401 时用 Git 凭据管理器 PAT，勿用过期环境变量 |
+| **GitHub 网络** | 国内常需代理；`sync-remotes` / `publish-github-release` 自动调用 `ensure-github-network.ps1`；非 7897 端口设 `$env:FRIDAY_HTTPS_PROXY` |
 | Inno Setup 6 | 否则 `Friday-Setup-*.exe` 打不出来 |
 | 临时目录 | 勿提交 `_qa_tmp_appdata/` 等（应在 `.gitignore`） |
 | 根目录产物 | 勿提交 `Friday-Setup-*.exe`、`VERSION.txt`（`git add -A` 会误入库）；发版前 `git status` 确认 |
 
 ## 一键命令（推荐）
+
+发版前若 Clash 等代理端口不是 7897，先设（可选）：
+
+```powershell
+$env:FRIDAY_HTTPS_PROXY = "http://127.0.0.1:7897"
+```
 
 目标版本为**显式 semver**（如 `1.3.2`）：
 
@@ -116,6 +125,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-full-release
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-full-release.ps1 -Bump patch
 ```
 
+**不要用 `publish-release.cmd` 代替完整发版**（除非紧接着执行「官网补部署」）。对比：
+
+| 脚本 | Git 双端 | Release | Vercel 官网 | Gitee Pages |
+|------|----------|---------|-------------|-------------|
+| `publish-full-release.cmd` | ✓ | ✓ | ✓ | ✓ |
+| `publish-release.cmd` | ✓ | ✓ | ✗ | ✗ |
+
+## 官网补部署（`publish-release` 之后必做）
+
+```powershell
+scripts\sync-website-download.ps1
+Set-Location website
+npx vercel deploy --prod --yes
+# 必做：将本次 deployment 绑到生产域名（否则 fridayaiagent 仍指向旧 deployment）
+npx vercel alias set <本次输出的 https://website-....vercel.app> fridayaiagent.vercel.app
+Set-Location ..
+scripts\deploy-gitee-pages.cmd
+```
+
+Gitee Pages 首次启用：https://gitee.com/Bxxxboo/friday/pages → 分支 **`pages`** → 保存 → 更新。
+
 ## 脚本内步骤顺序（Agent 须跑通并汇报）
 
 1. **更新公告** — 补 `assets/changelog.json` + `CHANGELOG.md`（`publish-full-release` **不会**代写；若 Agent 发版，须在 bump 前完成）
@@ -124,21 +154,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-full-release
 3. **官网元数据** — `scripts\sync-website-download.ps1`  
    生成 `website/download.json`、`website/changelog.json`
 4. **Git 双端** — `scripts\sync-remotes.ps1`（**不传** `-Bump`）  
-   commit + `git push origin main` + `git push gitee main`
+   顺序：**先 push Gitee** → **启用 GitHub 代理** → **push origin** → **`Assert-FridayRemotesAligned`**（两端 `main` SHA 须一致）
 5. **Gitee Release**（国内更新源，必做）— `scripts\publish-gitee-release.ps1`  
    构建并上传三附件：
    - `Friday-Windows-{v}.zip` — **仅** `Friday-Setup-{v}.exe` + `VERSION.txt`（安装包 ZIP，无教程/脚本）
    - `Friday-Update-{v}.zip` — 便携 `Friday/`（应用内更新）
    - `Friday-Setup-{v}.exe`
-6. **GitHub Release**（推荐；无 `gh` / `GITHUB_TOKEN` 时 `publish-full-release.ps1` 会跳过，须在汇报说明）— `scripts\publish-github-release.ps1`（`publish-full-release.ps1` 第 5/5 步）  
-   仓库名：`Friday-WeChat-Windows-AI-Butler`
-7. **官网部署** — `Set-Location website; npx vercel deploy --prod --yes`  
+6. **GitHub Release**（必做；失败须开代理重试 `publish-github-release.cmd -SkipBuild`，不得在汇报中默认跳过）— `scripts\publish-github-release.ps1`（`publish-full-release.ps1` 第 5/5 步）  
+   仓库名：`Friday-WeChat-Windows-AI-Butler`；脚本开头自动 `Enable-FridayGithubNetwork`
+7. **官网 Vercel**（必做）— `Set-Location website; npx vercel deploy --prod --yes`  
    生产域名：`https://fridayaiagent.vercel.app`（`friday/version.py` → `WEBSITE_HOME`）  
    **部署后必须绑定别名**（否则 `fridayaiagent.vercel.app` 可能仍指向旧 deployment）：
    ```powershell
-   $dep = (npx vercel ls website --prod 2>&1 | Select-String 'https://website-\S+\.vercel\.app' | Select-Object -First 1).Matches[0].Value
-   npx vercel alias set $dep fridayaiagent.vercel.app
+   npx vercel alias set <本次 deployment URL> fridayaiagent.vercel.app
    ```
+8. **官网 Gitee Pages**（必做，国内「官网（国内）」链接）— `scripts\deploy-gitee-pages.cmd`  
+   推 `website/` 到 `gitee:pages` 并触发构建；站点：`https://bxxxboo.gitee.io/friday`  
+   若 API 404：在 https://gitee.com/Bxxxboo/friday/pages 手动启用 Pages、分支 `pages`
 
 ## Token 读取（Cursor 会话常丢失环境变量）
 
@@ -154,15 +186,32 @@ if (-not $env:GITHUB_TOKEN) {
 ## 发版后验证（必须执行并贴结果）
 
 ```powershell
-# 官网版本
-Invoke-WebRequest -Uri "https://fridayaiagent.vercel.app/download.json" -UseBasicParsing | Select-Object -Expand Content
+# 双端 main 须同一提交（防 GitHub 脱节）
+git ls-remote origin refs/heads/main
+git ls-remote gitee refs/heads/main
+
+# 官网版本（须与 friday/version.py 一致）
+$v = (Select-String friday\version.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+(Invoke-WebRequest -Uri "https://fridayaiagent.vercel.app/download.json" -UseBasicParsing).Content
+curl.exe -sL "https://bxxxboo.gitee.io/friday/download.json"
+# 两行 JSON 中 "version" 均应等于 $v（Gitee Pages 未启用时可能 404，须在汇报说明）
 
 # 本地版本与产物
 Select-String -Path friday\version.py -Pattern '__version__|__dev_version__'
 Get-ChildItem release\Friday-*-$((Select-String friday\version.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value).*
 ```
 
-预期：官网 `version` 与 `friday/version.py` 一致；Gitee/GitHub Release 含上述三附件。
+预期：`origin` 与 `gitee` 的 `refs/heads/main` **SHA 相同**；**Vercel** `download.json` 的 `version` = `__version__`；Gitee/GitHub Release 含三附件 + `SHA256SUMS.txt`；**Gitee Pages** 已部署或汇报中说明未启用原因。
+
+## 官网与应用内更新（勿混淆）
+
+| 用户看到的 | 实际数据源 |
+|------------|------------|
+| 设置页「官网（国内）」链接 | Gitee Pages `bxxxboo.gitee.io/friday` |
+| 检查更新 / 一键更新 | Gitee **Releases API**（与官网是否部署无关） |
+| 官网页「当前版本」 | `website/download.json`（须 Vercel / Gitee Pages 部署后才更新） |
+
+发版三项须齐：**Release 附件** + **官网 download.json 上线** + **git 双端 push**。
 
 ## Gitee 附件配额
 
@@ -188,7 +237,8 @@ python scripts/prune_gitee_releases.py --keep 3
 
 - 用户未明确发版时 bump / push / Release / Vercel
 - 只推 GitHub 不推 Gitee
-- 只改 `download.json` 不部署 Vercel（线上会仍显示旧版本）
+- **`publish-release` 后未部署官网**（未跑 Vercel alias + Gitee Pages）
+- 只改 `website/download.json` 不 `vercel deploy` + `alias`（线上会仍显示旧版本）
 - bump / 发 Release **未**先写 `assets/changelog.json` + `CHANGELOG.md` 目标版本条目
 - Windows ZIP 里塞 `安装教程.txt`、`解除锁定.ps1` 等冗长文件
 - 擅自 `git commit`（**本规则触发的发版除外**——用户已明确授权整条流水线）
@@ -198,6 +248,7 @@ python scripts/prune_gitee_releases.py --keep 3
 - 目标版本 / 上一版本
 - 已核对 `__version__` 与 `__dev_version__`（`X.Y.Z` / `X.Y.Z-dev`）
 - 更新公告：`assets/changelog.json` `entries[0]` 版本 + title；`CHANGELOG.md` 首条 `##` 已同步
-- 已上传附件列表（Gitee + GitHub URL；GitHub 若跳过须说明原因）
-- 官网 `download.json` 验证结果
+- 已上传附件列表（Gitee + GitHub URL；**GitHub 若未对齐 origin SHA 须标红补推**）
+- `git ls-remote origin` 与 `gitee` 的 `main` SHA（须一致）
+- 官网：`fridayaiagent.vercel.app/download.json` 的 `version`；`bxxxboo.gitee.io/friday/download.json`（或说明 Pages 未启用）
 - 未改动范围 / 若某步跳过须说明原因

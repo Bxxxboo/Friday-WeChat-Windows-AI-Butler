@@ -15,6 +15,13 @@ from friday.release_hashes import (
 )
 
 
+def test_parse_sums_text_strips_utf8_bom():
+    digest = "a" * 64
+    text = f"\ufeff# comment\n{digest}  Friday-Update-1.3.1.zip\n"
+    parsed = parse_sums_text(text)
+    assert parsed["friday-update-1.3.1.zip"] == digest
+
+
 def test_parse_sums_text():
     digest = "a" * 64
     text = f"""

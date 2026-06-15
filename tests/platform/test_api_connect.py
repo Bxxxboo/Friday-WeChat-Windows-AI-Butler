@@ -298,6 +298,7 @@ def test_verify_image_gen_api_ark_quick_probe_when_models_inconclusive(tmp_appda
 
 def test_is_transient_api_error():
     assert is_transient_api_error("httpx.ReadTimeout: read operation timed out") is True
+    assert is_transient_api_error("Connection timed out") is True
     assert is_transient_api_error("Connection refused") is False
     assert is_transient_api_error("429 Too Many Requests") is True
 

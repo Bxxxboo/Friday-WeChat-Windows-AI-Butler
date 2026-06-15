@@ -240,11 +240,15 @@ def _truncate_reply(text: str) -> str:
 
 def _format_weixin_agent_error(exc: BaseException) -> str:
     from friday.api_connect import format_api_error
+    from friday.error_hints import format_error_hint, format_user_message
 
     text = str(exc or "").strip()
     if isinstance(exc, ValueError) and "会话不存在" in text:
         return "会话数据异常，请在桌面版侧边栏打开「我的微信」后重试。"
-    detail = format_api_error(exc, context="api_test", service="大模型 API").split("\n")[0].strip()
+    hint = format_error_hint(exc, context="llm", service="大模型 API")
+    if hint.code == "api_timeout":
+        return f"执行出错：{format_user_message(hint)}"
+    detail = format_api_error(exc, context="llm", service="大模型 API").split("\n")[0].strip()
     if not detail:
         detail = text[:200] if text else ""
     if detail:

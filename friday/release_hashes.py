@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -58,14 +59,28 @@ def derive_sums_download_url(download_url: str) -> str | None:
     return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, new_path, "", "", ""))
 
 
-def fetch_sums_map(sums_url: str, *, timeout: float = 30.0) -> dict[str, str]:
-    request = urllib.request.Request(
-        sums_url,
-        headers={"User-Agent": "Friday-Desktop"},
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as resp:
-        text = resp.read().decode("utf-8", errors="replace")
-    return parse_sums_text(text)
+def fetch_sums_map(sums_url: str, *, timeout: float = 30.0, retries: int = 3) -> dict[str, str]:
+    url = (sums_url or "").strip()
+    if not url:
+        return {}
+    last_err: Exception | None = None
+    for attempt in range(1, max(1, retries) + 1):
+        request = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Friday-Desktop"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as resp:
+                text = resp.read().decode("utf-8-sig", errors="replace")
+            return parse_sums_text(text)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            last_err = exc
+            if attempt >= retries:
+                break
+            time.sleep(0.6 * attempt)
+    if last_err:
+        raise last_err
+    return {}
 
 
 def expected_sha256_for_download(

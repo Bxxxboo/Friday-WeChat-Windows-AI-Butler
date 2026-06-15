@@ -30,8 +30,19 @@ def test_classify_multipart():
 
 
 def test_classify_api_network():
-    hint = classify_error("Connection timed out", context="api_test")
+    hint = classify_error("Connection refused", context="api_test")
     assert hint.code == "api_network"
+
+
+def test_classify_connection_timed_out_is_timeout_not_network():
+    hint = classify_error("Connection timed out", context="api_test")
+    assert hint.code == "api_timeout"
+    assert "无法连接" not in hint.detail
+
+
+def test_classify_request_timed_out_is_timeout():
+    hint = classify_error("Request timed out.", context="llm")
+    assert hint.code == "api_timeout"
 
 
 def test_classify_api_read_timeout():

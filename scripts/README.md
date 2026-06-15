@@ -30,7 +30,8 @@
 | 脚本 | 用途 |
 |------|------|
 | `bump-version.ps1` | 递增 `friday/version.py`（`__version__` + `__dev_version__`）+ `version_info.py` |
-| `sync-remotes.ps1` | push GitHub + Gitee |
+| `ensure-github-network.ps1` | 发版前探测 GitHub；不可达时自动设代理；`Assert-FridayRemotesAligned` 校验双端 |
+| `sync-remotes.ps1` | push Gitee + GitHub（先 Gitee，GitHub 走代理，末尾校验 SHA） |
 | `publish-release.ps1` | bump + 双端 push + 双端 Release |
 | `publish-*-release.ps1` / `publish_*_release.py` | 单平台 Release |
 | `release-notes.ps1` / `render_release_notes.py` | 从 changelog 生成说明 |

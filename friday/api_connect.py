@@ -621,8 +621,10 @@ def is_transient_api_error(raw: Any) -> bool:
     )
     if any(token in text for token in transient_tokens):
         return True
-    if "timeout" in text or "timed out" in text:
-        return "connect" not in text and "connection refused" not in text
+    from friday.error_hints import is_likely_timeout_error
+
+    if is_likely_timeout_error(text):
+        return True
     return False
 
 
