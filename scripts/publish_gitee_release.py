@@ -89,20 +89,36 @@ def _asset_content_type(path: Path) -> str:
     return "application/octet-stream"
 
 
+def delete_release(repo: str, release_id: int, token: str) -> None:
+    req = urllib.request.Request(
+        f"{API}/repos/{repo}/releases/{release_id}?access_token={token}",
+        method="DELETE",
+    )
+    with urllib.request.urlopen(req, timeout=120):
+        pass
+
+
 def upload_asset(repo: str, release_id: int, token: str, zip_path: Path) -> None:
     release = _get_json(f"{API}/repos/{repo}/releases/{release_id}?access_token={token}")
+    removed = 0
     for asset in release.get("assets") or []:
-        if asset.get("name") == zip_path.name:
-            aid = asset.get("id")
-            if aid is None:
-                continue
-            print(f"Removing existing asset {zip_path.name} (id {aid}) ...")
-            req = urllib.request.Request(
-                f"{API}/repos/{repo}/releases/assets/{aid}?access_token={token}",
-                method="DELETE",
-            )
-            with urllib.request.urlopen(req, timeout=60):
-                pass
+        if asset.get("name") != zip_path.name:
+            continue
+        aid = asset.get("id")
+        if aid is None:
+            continue
+        print(f"Removing existing asset {zip_path.name} (id {aid}) ...")
+        req = urllib.request.Request(
+            f"{API}/repos/{repo}/releases/assets/{aid}?access_token={token}",
+            method="DELETE",
+        )
+        with urllib.request.urlopen(req, timeout=60):
+            pass
+        removed += 1
+    if removed == 0:
+        names = [a.get("name") for a in (release.get("assets") or []) if a.get("name") == zip_path.name]
+        if names:
+            print(f"Warning: Gitee asset {zip_path.name} has no id; upload may fail if duplicate exists.")
 
     print(f"Uploading {zip_path.name} ({zip_path.stat().st_size // (1024 * 1024)} MB) ...")
     body, boundary = _multipart(
@@ -138,6 +154,12 @@ def main() -> int:
     title = f"星期五 v{args.version}"
 
     existing = find_release(repo, tag, token)
+    if existing and not args.skip_upload:
+        release_id = int(existing["id"])
+        print(f"Recreating Gitee release {tag} (id {release_id}) for clean hotpatch upload ...")
+        delete_release(repo, release_id, token)
+        existing = None
+
     if existing:
         release_id = int(existing["id"])
         print(f"Updating Gitee release {tag} (id {release_id}) ...")
