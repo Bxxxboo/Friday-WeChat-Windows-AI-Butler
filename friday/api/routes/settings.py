@@ -20,6 +20,7 @@ from friday.api.schemas import (
     SettingsPayload,
     SettingsResponse,
     TestResponse,
+    UserMemoryTextPayload,
     WorkspaceMemoryPayload,
 )
 from friday.api.settings_helpers import merge_settings_payload, settings_to_response
@@ -92,8 +93,32 @@ def register_settings_routes(app: FastAPI) -> None:
         from friday.workspace_memory import save_memory
 
         workspace = resolved_workspace(load_settings())
-        save_memory(workspace, payload.content)
+        save_memory(workspace, payload.content, via="settings")
         return {"ok": True, "message": "工作区记忆已保存"}
+
+    @app.get("/api/user-memory")
+    async def get_user_memory_api() -> dict[str, Any]:
+        from friday.user_memory import load_facts
+
+        return {"ok": True, "facts": load_facts()}
+
+    @app.post("/api/user-memory")
+    async def post_user_memory_api(payload: UserMemoryTextPayload) -> dict[str, Any]:
+        from friday.user_memory import remember_fact
+
+        return remember_fact(payload.text)
+
+    @app.put("/api/user-memory/{fact_id}")
+    async def put_user_memory_api(fact_id: str, payload: UserMemoryTextPayload) -> dict[str, Any]:
+        from friday.user_memory import update_fact_by_id
+
+        return update_fact_by_id(fact_id, payload.text)
+
+    @app.delete("/api/user-memory/{fact_id}")
+    async def delete_user_memory_api(fact_id: str) -> dict[str, Any]:
+        from friday.user_memory import delete_fact_by_id
+
+        return delete_fact_by_id(fact_id)
 
     @app.get("/api/mcp/servers")
     async def get_mcp_servers() -> dict[str, Any]:

@@ -167,6 +167,18 @@ def test_format_last_apply_failure_clears_when_already_updated(tmp_path, monkeyp
     assert format_last_apply_failure(current="1.3.5") == ""
 
 
+def test_updater_script_restarts_from_install_dir(tmp_path, monkeypatch):
+    """robocopy 后须从 TargetDir 启动，不能从临时解压目录（随后会被删除）。"""
+    monkeypatch.setattr("friday.update_installer._updates_dir", lambda: tmp_path)
+    from friday.update_installer import _write_updater_script
+
+    text = _write_updater_script().read_text(encoding="utf-8")
+    assert "Join-Path $TargetDir $exeLeaf" in text
+    assert "Start-Process -FilePath $installedExe" in text
+    assert "restart_exe_missing" in text
+    assert "Start-Process -FilePath $ExePath" not in text
+
+
 def test_request_app_quit_force_skips_handler(monkeypatch):
     """一键更新须 force 退出，避免非主线程 destroy 卡死。"""
     exits: list[int] = []

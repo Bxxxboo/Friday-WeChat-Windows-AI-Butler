@@ -2,6 +2,30 @@
 
 版本说明与 `assets/changelog.json` 同步；应用内「更新公告」亦读取该文件。
 
+## 1.4.3（2026-06-11）
+
+**M6.3 无向量记忆增强与一键更新修复**
+
+### 新功能
+
+- Agent 工具 `search_past_conversations`：跨会话 FTS 检索历史对话
+- Agent 工具 `search_saved_memory`：搜索用户偏好与工作区 MEMORY
+- 设置页：用户长期记忆 CRUD、历史对话全文搜索
+- 记忆变更审计链 `memory_events.jsonl`
+- 场景化记忆注入预算（桌面 / 微信 / 长任务 / 闲聊）
+- Dream 蒸馏支持 LLM 合并（opt-in，写前 `.bak` 备份）
+
+### 修复
+
+- 一键更新：从安装目录启动 `Friday.exe`，避免临时目录删除后无法重启
+- 设置页工作区记忆加载未解析 JSON 的问题
+
+### 改进
+
+- 发布流程默认包含官网 Vercel + Gitee Pages 部署
+
+---
+
 ## 1.4.2（2026-06-11）
 
 **微信桥接加固、重复发文件与 API 超时误报修复**

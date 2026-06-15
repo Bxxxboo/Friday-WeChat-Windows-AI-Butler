@@ -54,6 +54,40 @@ def _dedupe_lines(text: str) -> str:
     return "\n".join(unique)
 
 
+def _distill_with_llm(before: str, settings: UserSettings) -> str | None:
+    """LLM 合并相近条目；无 Key 或失败时返回 None。"""
+    if not before.strip():
+        return None
+    if not settings.api_key or str(settings.api_key).startswith("sk-test"):
+        return None
+    try:
+        from friday.brain import DeepSeekBrain
+
+        brain = DeepSeekBrain(settings)
+        brain.record_api_call()
+        response = brain.client.chat.completions.create(
+            model=settings.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "你是工作区记忆整理助手。将 MEMORY.md 内容合并去重："
+                        "合并语义相近的条目，删除重复，保留具体路径与数字。"
+                        "输出仍为 Markdown，保留标题与列表结构，使用中文。"
+                    ),
+                },
+                {"role": "user", "content": before[:12000]},
+            ],
+            max_tokens=1200,
+            temperature=0.1,
+        )
+        merged = str(response.choices[0].message.content or "").strip()
+        return merged or None
+    except Exception:
+        _log.debug("Dream LLM 蒸馏失败，回退规则去重", exc_info=True)
+        return None
+
+
 def run_dream_if_due(*, settings: UserSettings | None = None, force: bool = False) -> dict[str, Any]:
     cfg = settings or load_settings()
     if not force and not _should_run(cfg):
@@ -66,14 +100,28 @@ def run_dream_if_due(*, settings: UserSettings | None = None, force: bool = Fals
 
     backup = memory_path(workspace).with_suffix(".md.bak")
     atomic_write_text(backup, before + "\n")
-    merged = _dedupe_lines(before)
-    save_memory(workspace, merged)
+    llm_result = _distill_with_llm(before, cfg)
+    used_llm = llm_result is not None
+    merged = llm_result if used_llm else _dedupe_lines(before)
+    save_memory(workspace, merged, via="dream")
     _mark_ran()
-    _log.info("Dream 蒸馏完成 | workspace=%s", workspace)
+    try:
+        from friday.memory_events import log_memory_event
+
+        log_memory_event(
+            "dream",
+            memory_path(workspace).parent.name,
+            detail=f"before={len(before.splitlines())} after={len(merged.splitlines())}",
+            extra={"llm": used_llm, "backup": str(backup)},
+        )
+    except Exception:
+        pass
+    _log.info("Dream 蒸馏完成 | workspace=%s llm=%s", workspace, used_llm)
     return {
         "ok": True,
         "ran": True,
         "backup": str(backup),
         "before_lines": len(before.splitlines()),
         "after_lines": len(merged.splitlines()),
+        "llm": used_llm,
     }

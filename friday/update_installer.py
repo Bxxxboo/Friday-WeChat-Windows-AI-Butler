@@ -439,10 +439,18 @@ if ($code -ge 8) {
 Get-ChildItem -LiteralPath $TargetDir -Recurse -ErrorAction SilentlyContinue |
     Unblock-File -ErrorAction SilentlyContinue
 
-if (Test-Path -LiteralPath $ExePath) {
-    $workDir = Split-Path -Parent $ExePath
-    Start-Process -FilePath $ExePath -ArgumentList "--install-launch" -WorkingDirectory $workDir
+$exeLeaf = Split-Path -Leaf $ExePath
+$installedExe = Join-Path $TargetDir $exeLeaf
+if (-not (Test-Path -LiteralPath $installedExe)) {
+    $fallback = Get-ChildItem -LiteralPath $TargetDir -Filter "Friday.exe" -File -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($fallback) { $installedExe = $fallback.FullName }
 }
+if (-not (Test-Path -LiteralPath $installedExe)) {
+    Write-ApplyResult $false 3 "restart_exe_missing target=$TargetDir leaf=$exeLeaf"
+    exit 3
+}
+Start-Process -FilePath $installedExe -ArgumentList "--install-launch" -WorkingDirectory $TargetDir
 
 Write-ApplyResult $true 0 "ok"
 
@@ -474,6 +482,11 @@ def format_last_apply_failure(*, current: str) -> str:
             f"上次自动更新 v{target or '新版本'} 未能完成（安装目录文件被占用或复制失败）。"
             "请先完全退出星期五（任务管理器确认无 Friday.exe）后重试，"
             f"或从 Gitee Releases 手动安装 Friday-Setup-{target}.exe。"
+        )
+    if "restart_exe_missing" in detail:
+        return (
+            f"上次自动更新 v{target or '新版本'} 文件已复制但未能启动新版本。"
+            "请从 Gitee Releases 手动运行 Friday-Setup 安装，或安装含本修复的新版本后重试一键更新。"
         )
     return (
         f"上次自动更新 v{target or '新版本'} 未完成。"

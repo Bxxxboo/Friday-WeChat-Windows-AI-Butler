@@ -3563,6 +3563,56 @@ html[data-theme="light"] .settings-nav-item:hover:not(.disabled):not(:disabled) 
   color: var(--danger) !important;
 }
 
+.user-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.user-memory-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.user-memory-item input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.history-search-hit {
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.history-search-hit-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.user-memory-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.user-memory-add-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 .provider-select-row {
   display: flex;
   gap: 8px;

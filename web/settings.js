@@ -239,6 +239,7 @@
     fillArtifactForm(data);
     fillContextSmartForm(data);
     void loadWorkspaceMemoryEditor();
+    void loadUserMemoryList();
     applyUiSettings(data);
     F.updateApiStatus(data.api_ready);
     F.bootSettingsSnapshot = data;
@@ -1173,9 +1174,193 @@
     if (!editor) return;
     try {
       const res = await F.apiFetch("/api/workspace-memory");
-      editor.value = res.content || "";
+      const data = await res.json();
+      editor.value = data.content || "";
     } catch {
       editor.value = "";
+    }
+  }
+
+  function renderUserMemoryList(facts) {
+    const list = document.getElementById("userMemoryList");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!facts?.length) {
+      const empty = document.createElement("p");
+      empty.className = "settings-hint";
+      empty.textContent = "暂无长期记忆。";
+      list.appendChild(empty);
+      return;
+    }
+    facts.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "user-memory-item";
+      row.dataset.id = item.id || "";
+
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 240;
+      input.value = item.text || "";
+      input.dataset.id = item.id || "";
+
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.className = "ghost-btn";
+      saveBtn.textContent = "保存";
+      saveBtn.addEventListener("click", () => void saveUserMemoryItem(item.id, input.value));
+
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "ghost-btn";
+      delBtn.textContent = "删除";
+      delBtn.addEventListener("click", () => void deleteUserMemoryItem(item.id));
+
+      row.appendChild(input);
+      row.appendChild(saveBtn);
+      row.appendChild(delBtn);
+      list.appendChild(row);
+    });
+  }
+
+  async function loadUserMemoryList() {
+    const resultEl = document.getElementById("userMemoryResult");
+    try {
+      const res = await F.apiFetch("/api/user-memory");
+      const data = await res.json();
+      renderUserMemoryList(data.facts || []);
+    } catch {
+      renderUserMemoryList([]);
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = "加载用户记忆失败。";
+      }
+    }
+  }
+
+  async function addUserMemoryItem() {
+    const input = document.getElementById("userMemoryNewText");
+    const resultEl = document.getElementById("userMemoryResult");
+    const text = (input?.value || "").trim();
+    if (!text) return;
+    if (resultEl) resultEl.textContent = "保存中…";
+    try {
+      const res = await F.apiFetch("/api/user-memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || "add failed");
+      if (input) input.value = "";
+      await loadUserMemoryList();
+      if (resultEl) {
+        resultEl.className = "settings-result ok";
+        resultEl.textContent = data.message || "已添加。";
+      }
+    } catch (err) {
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = err?.message || "添加失败。";
+      }
+    }
+  }
+
+  async function saveUserMemoryItem(id, text) {
+    const resultEl = document.getElementById("userMemoryResult");
+    const cleaned = String(text || "").trim();
+    if (!id || !cleaned) return;
+    try {
+      const res = await F.apiFetch(`/api/user-memory/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: cleaned }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || "save failed");
+      if (resultEl) {
+        resultEl.className = "settings-result ok";
+        resultEl.textContent = "已更新。";
+      }
+    } catch (err) {
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = err?.message || "保存失败。";
+      }
+    }
+  }
+
+  async function deleteUserMemoryItem(id) {
+    const resultEl = document.getElementById("userMemoryResult");
+    if (!id) return;
+    try {
+      const res = await F.apiFetch(`/api/user-memory/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || "delete failed");
+      await loadUserMemoryList();
+      if (resultEl) {
+        resultEl.className = "settings-result ok";
+        resultEl.textContent = "已删除。";
+      }
+    } catch (err) {
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = err?.message || "删除失败。";
+      }
+    }
+  }
+
+  function renderHistorySearchHits(hits, query) {
+    const box = document.getElementById("historySearchResults");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!hits?.length) {
+      const empty = document.createElement("p");
+      empty.className = "settings-hint";
+      empty.textContent = query ? `未找到与「${query}」相关的历史消息。` : "请输入关键词。";
+      box.appendChild(empty);
+      return;
+    }
+    hits.forEach((hit) => {
+      const item = document.createElement("div");
+      item.className = "history-search-hit";
+      const meta = document.createElement("div");
+      meta.className = "history-search-hit-meta";
+      const sid = String(hit.session_id || "").slice(0, 12);
+      meta.textContent = `${hit.role || "msg"} · 会话 ${sid}…`;
+      const body = document.createElement("div");
+      const content = String(hit.content || "").trim();
+      body.textContent = content.length > 220 ? `${content.slice(0, 217)}…` : content;
+      item.appendChild(meta);
+      item.appendChild(body);
+      box.appendChild(item);
+    });
+  }
+
+  async function runHistorySearch() {
+    const input = document.getElementById("historySearchQuery");
+    const resultEl = document.getElementById("historySearchResult");
+    const query = (input?.value || "").trim();
+    if (!query) {
+      renderHistorySearchHits([], "");
+      return;
+    }
+    if (resultEl) resultEl.textContent = "搜索中…";
+    try {
+      const res = await F.apiFetch(`/api/history/search?q=${encodeURIComponent(query)}&limit=20`);
+      const data = await res.json();
+      renderHistorySearchHits(data.hits || [], query);
+      if (resultEl) {
+        resultEl.className = "settings-result ok";
+        resultEl.textContent = `找到 ${(data.hits || []).length} 条。`;
+      }
+    } catch {
+      renderHistorySearchHits([], query);
+      if (resultEl) {
+        resultEl.className = "settings-result error";
+        resultEl.textContent = "搜索失败。";
+      }
     }
   }
 
@@ -1234,6 +1419,18 @@
   });
   document.getElementById("workspaceMemorySaveBtn")?.addEventListener("click", () => {
     void saveWorkspaceMemory();
+  });
+  document.getElementById("userMemoryAddBtn")?.addEventListener("click", () => {
+    void addUserMemoryItem();
+  });
+  document.getElementById("userMemoryNewText")?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") void addUserMemoryItem();
+  });
+  document.getElementById("historySearchBtn")?.addEventListener("click", () => {
+    void runHistorySearch();
+  });
+  document.getElementById("historySearchQuery")?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") void runHistorySearch();
   });
   ["contextSmartEnabled", "goalVerifierEnabled", "dreamMemoryEnabled"].forEach((id) => {
     document.getElementById(id)?.addEventListener("change", () => {

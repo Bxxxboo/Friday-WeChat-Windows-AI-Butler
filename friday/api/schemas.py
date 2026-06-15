@@ -542,3 +542,7 @@ class WeixinBridgeTogglePayload(BaseModel):
 
 class WorkspaceMemoryPayload(BaseModel):
     content: str = Field(default="", max_length=65536)
+
+
+class UserMemoryTextPayload(BaseModel):
+    text: str = Field(default="", max_length=240)

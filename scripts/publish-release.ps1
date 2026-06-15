@@ -8,6 +8,8 @@ param(
     [switch]$SkipBuild,
     [switch]$SkipGithubRelease,
     [switch]$SkipGiteeRelease,
+    [switch]$SkipVercel,
+    [switch]$SkipGiteePages,
     [switch]$GitOnly
 )
 
@@ -109,7 +111,17 @@ if (-not $SkipGithubRelease) {
     Write-Host "Skip GitHub release." -ForegroundColor Yellow
 }
 
+if (-not $GitOnly) {
+    Write-Host ""
+    Write-Host "=== 4/4 Deploy website ===" -ForegroundColor Cyan
+    $webArgs = @{ GiteeUser = $GiteeUser; GiteeRepoName = $GiteeRepoName }
+    if ($SkipVercel) { $webArgs.SkipVercel = $true }
+    if ($SkipGiteePages) { $webArgs.SkipGiteePages = $true }
+    & (Join-Path $Root "scripts\deploy-website.ps1") @webArgs
+}
+
 Write-Host ""
 Write-Host "=== Publish complete ===" -ForegroundColor Green
 Write-Host "  Gitee:  https://gitee.com/$GiteeUser/$GiteeRepoName/releases"
 Write-Host "  GitHub: https://github.com/$RepoOwner/$(if ($GitHubRepoName) { $GitHubRepoName } else { 'friday' })/releases"
+Write-Host "  Website: https://fridayaiagent.vercel.app/download.json"

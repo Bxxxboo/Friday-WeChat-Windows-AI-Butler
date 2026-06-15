@@ -87,3 +87,78 @@ def append_work_note(note: str) -> str:
         return "笔记内容不能为空。"
     append_session_note(session_id, cleaned)
     return "已写入工作笔记，将在下次检查点归档。"
+
+
+@register_tool(
+    name="search_past_conversations",
+    description="按关键词搜索历史对话（跨会话 FTS）。用户问「之前说过/做过什么」时使用。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "搜索关键词，如项目名、文件名、操作主题",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "最多返回条数，默认 5",
+            },
+        },
+        "required": ["query"],
+    },
+)
+def search_past_conversations(query: str, limit: int = 5) -> str:
+    from friday.history_index import search_messages
+
+    cleaned = str(query or "").strip()
+    if not cleaned:
+        return "请提供搜索关键词。"
+    cap = max(1, min(int(limit or 5), 20))
+    hits = search_messages(cleaned, limit=cap)
+    if not hits:
+        return f"未找到与「{cleaned}」相关的历史对话。"
+    lines = [f"共 {len(hits)} 条与「{cleaned}」相关的历史片段："]
+    for idx, hit in enumerate(hits, 1):
+        role = str(hit.get("role", ""))
+        sid = str(hit.get("session_id", ""))[:12]
+        content = str(hit.get("content", "")).strip().replace("\n", " ")
+        if len(content) > 200:
+            content = content[:197] + "..."
+        lines.append(f"{idx}. [{role}] 会话 {sid}… — {content}")
+    return "\n".join(lines)
+
+
+@register_tool(
+    name="search_saved_memory",
+    description="搜索已保存的长期记忆（用户偏好 + 工作区 MEMORY.md）。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "搜索关键词",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "最多返回条数，默认 10",
+            },
+        },
+        "required": ["query"],
+    },
+)
+def search_saved_memory(query: str, limit: int = 10) -> str:
+    from friday.memory_search import search_saved_memory as _search
+
+    cleaned = str(query or "").strip()
+    if not cleaned:
+        return "请提供搜索关键词。"
+    cap = max(1, min(int(limit or 10), 30))
+    hits = _search(cleaned, limit=cap)
+    if not hits:
+        return f"未找到与「{cleaned}」相关的已保存记忆。"
+    lines = [f"共 {len(hits)} 条与「{cleaned}」相关的记忆："]
+    for idx, hit in enumerate(hits, 1):
+        source = "用户偏好" if hit.get("source") == "user_memory" else "工作区 MEMORY"
+        text = str(hit.get("text", "")).strip()
+        lines.append(f"{idx}. [{source}] {text}")
+    return "\n".join(lines)

@@ -947,6 +947,26 @@
               </div>
               <div class="settings-result" id="workspaceMemoryResult"></div>
             </div>
+            <div class="settings-group user-memory-group">
+              <h5>用户长期记忆</h5>
+              <p class="settings-hint">跨会话的用户偏好与习惯（最多 25 条）。Agent 也会通过 remember_user_fact 自动写入。</p>
+              <div id="userMemoryList" class="user-memory-list" aria-live="polite"></div>
+              <div class="settings-row user-memory-add-row">
+                <input type="text" id="userMemoryNewText" maxlength="240" placeholder="例如：下载软件默认保存到 E:\软件" />
+                <button type="button" class="primary-btn" id="userMemoryAddBtn">添加</button>
+              </div>
+              <div class="settings-result" id="userMemoryResult"></div>
+            </div>
+            <div class="settings-group history-search-group">
+              <h5>历史对话搜索</h5>
+              <p class="settings-hint">跨会话全文检索已索引的消息（需会话曾保存过）。</p>
+              <div class="settings-row">
+                <input type="search" id="historySearchQuery" placeholder="关键词，如项目名、文件路径" />
+                <button type="button" class="primary-btn" id="historySearchBtn">搜索</button>
+              </div>
+              <div id="historySearchResults" class="history-search-results" aria-live="polite"></div>
+              <div class="settings-result" id="historySearchResult"></div>
+            </div>
             <div class="settings-group context-smart-group">
               <h5>上下文智能</h5>
               <label class="settings-check">

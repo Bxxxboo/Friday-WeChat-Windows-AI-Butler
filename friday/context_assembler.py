@@ -18,6 +18,59 @@ LAYER_CAPS_CHARS = {
     "user_memory": 900,
 }
 
+MEMORY_PROFILE_CAPS: dict[str, dict[str, int]] = {
+    "desktop": dict(LAYER_CAPS_CHARS),
+    "weixin": {
+        "plan": 800,
+        "checkpoint": 1400,
+        "recent_user": 600,
+        "workspace_memory": 600,
+        "user_memory": 1200,
+    },
+    "long_task": {
+        "plan": 2800,
+        "checkpoint": 4000,
+        "recent_user": 1200,
+        "workspace_memory": 1400,
+        "user_memory": 600,
+    },
+    "chat": {
+        "plan": 1200,
+        "checkpoint": 1800,
+        "recent_user": 2000,
+        "workspace_memory": 900,
+        "user_memory": 700,
+    },
+}
+
+
+def resolve_memory_profile(session_id: str, messages: list[dict[str, Any]]) -> str:
+    """按会话来源与任务形态选择注入预算 profile。"""
+    if session_id:
+        try:
+            from friday.weixin.sessions import is_weixin_session
+
+            if is_weixin_session(session_id):
+                return "weixin"
+        except Exception:
+            _log.debug("weixin profile 检测跳过", exc_info=True)
+
+        from friday.prefix_cache import is_plan_anchor_message
+        from friday.sessions import get_session
+
+        session = get_session(session_id)
+        has_plan = any(is_plan_anchor_message(m) for m in messages)
+        if session and (session.plan_markdown.strip() or session.todos or has_plan):
+            return "long_task"
+
+    if len(messages) < 24:
+        return "chat"
+    return "desktop"
+
+
+def layer_caps_for_profile(profile: str) -> dict[str, int]:
+    return dict(MEMORY_PROFILE_CAPS.get(profile, LAYER_CAPS_CHARS))
+
 
 def _truncate(text: str, cap: int) -> str:
     cleaned = str(text or "").strip()
@@ -50,9 +103,12 @@ def assemble_injection_blocks(
     messages: list[dict[str, Any]],
     *,
     settings: UserSettings | None = None,
+    memory_profile: str | None = None,
 ) -> list[dict[str, Any]]:
     """返回应置于 system 之后的前缀 user 消息块（不含 tail）。"""
     cfg = settings or load_settings()
+    profile = memory_profile or resolve_memory_profile(session_id, messages)
+    caps = layer_caps_for_profile(profile)
     blocks: list[dict[str, Any]] = []
 
     if session_id:
@@ -67,16 +123,16 @@ def assemble_injection_blocks(
             if plan_block:
                 blocks.append({
                     "role": "user",
-                    "content": _truncate(plan_block, LAYER_CAPS_CHARS["plan"]),
+                    "content": _truncate(plan_block, caps["plan"]),
                 })
 
         from friday.checkpoint_writer import format_checkpoint_for_prompt
 
-        ck = format_checkpoint_for_prompt(session_id, max_chars=LAYER_CAPS_CHARS["checkpoint"])
+        ck = format_checkpoint_for_prompt(session_id, max_chars=caps["checkpoint"])
         if ck:
             blocks.append({"role": "user", "content": ck})
 
-    recent = _recent_user_text(messages, cap=LAYER_CAPS_CHARS["recent_user"])
+    recent = _recent_user_text(messages, cap=caps["recent_user"])
     if recent:
         blocks.append({
             "role": "user",
@@ -86,11 +142,11 @@ def assemble_injection_blocks(
     try:
         from friday.workspace_memory import format_for_prompt as ws_memory_prompt
 
-        ws_block = ws_memory_prompt(resolved_workspace(cfg))
+        ws_block = ws_memory_prompt(resolved_workspace(cfg), max_chars=caps["workspace_memory"])
         if ws_block:
             blocks.append({
                 "role": "user",
-                "content": _truncate(ws_block, LAYER_CAPS_CHARS["workspace_memory"]),
+                "content": _truncate(ws_block, caps["workspace_memory"]),
             })
     except Exception:
         _log.debug("workspace memory 注入跳过", exc_info=True)
@@ -101,7 +157,7 @@ def assemble_injection_blocks(
     if mem:
         blocks.append({
             "role": "user",
-            "content": _truncate(mem, LAYER_CAPS_CHARS["user_memory"]),
+            "content": _truncate(mem, caps["user_memory"]),
         })
 
     return blocks

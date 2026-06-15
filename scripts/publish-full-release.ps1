@@ -108,41 +108,19 @@ if (-not $SkipGithubRelease) {
     Write-Host "Skip GitHub release." -ForegroundColor Yellow
 }
 
-if (-not $SkipVercel) {
+if (-not $SkipVercel -or -not $SkipGiteePages) {
     Write-Host ""
-    Write-Host "=== Deploy website (Vercel production) ===" -ForegroundColor Cyan
-    $websiteDir = Join-Path $Root "website"
-    Push-Location $websiteDir
-    try {
-        $deployOut = npx vercel deploy --prod --yes 2>&1 | Out-String
-        if ($LASTEXITCODE -ne 0) { throw "vercel deploy failed (exit $LASTEXITCODE)" }
-        Write-Host $deployOut
-        # fridayaiagent.vercel.app 须显式 alias 到本次 deployment，否则可能仍指向旧版
-        if ($deployOut -match '(https://website-[a-z0-9]+-bxxxboo-s-projects\.vercel\.app)') {
-            $depUrl = $Matches[1]
-            Write-Host "Aliasing fridayaiagent.vercel.app -> $depUrl" -ForegroundColor Cyan
-            npx vercel alias set $depUrl fridayaiagent.vercel.app
-            if ($LASTEXITCODE -ne 0) { throw "vercel alias failed (exit $LASTEXITCODE)" }
-        } else {
-            Write-Host "Could not parse deployment URL; run: npx vercel alias set <url> fridayaiagent.vercel.app" -ForegroundColor Yellow
-        }
-    } finally {
-        Pop-Location
+    Write-Host "=== Deploy website ===" -ForegroundColor Cyan
+    $webArgs = @{
+        GiteeUser     = $GiteeUser
+        GiteeRepoName = $GiteeRepoName
+        SkipWebsiteSync = $true
     }
+    if ($SkipVercel) { $webArgs.SkipVercel = $true }
+    if ($SkipGiteePages) { $webArgs.SkipGiteePages = $true }
+    & (Join-Path $Root "scripts\deploy-website.ps1") @webArgs
 } else {
-    Write-Host "Skip Vercel deploy." -ForegroundColor Yellow
-}
-
-if (-not $SkipGiteePages) {
-    Write-Host ""
-    Write-Host "=== Deploy website (Gitee Pages mirror) ===" -ForegroundColor Cyan
-    if (-not $env:GITEE_TOKEN) {
-        Write-Host "GITEE_TOKEN not set; skip Gitee Pages deploy." -ForegroundColor Yellow
-    } else {
-        & (Join-Path $Root "scripts\deploy-gitee-pages.ps1") -GiteeUser $GiteeUser -RepoName $GiteeRepoName
-    }
-} else {
-    Write-Host "Skip Gitee Pages deploy." -ForegroundColor Yellow
+    Write-Host "Skip website deploy (Vercel + Gitee Pages)." -ForegroundColor Yellow
 }
 
 Write-Host ""

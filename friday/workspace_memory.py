@@ -43,11 +43,22 @@ def load_memory(workspace: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def save_memory(workspace: str, content: str) -> None:
+def save_memory(workspace: str, content: str, *, via: str = "agent") -> None:
     body = str(content or "").strip()
     if not body.startswith(_MEMORY_MARKER):
         body = f"{_MEMORY_MARKER}\n\n{body}"
     atomic_write_text(memory_path(workspace), body + "\n")
+    try:
+        from friday.memory_events import log_memory_event
+
+        log_memory_event(
+            "workspace_save",
+            _workspace_hash(workspace),
+            detail=f"lines={len(body.splitlines())}",
+            extra={"via": via},
+        )
+    except Exception:
+        pass
 
 
 def format_for_prompt(workspace: str, *, max_chars: int = 1800) -> str:
@@ -104,4 +115,16 @@ def maybe_promote_from_checkpoint(session_id: str, fields: Any) -> list[str]:
     _save_promotion_tracker(workspace, tracker)
     if promoted:
         _log.info("MEMORY 晋升 | workspace=%s count=%d", _workspace_hash(workspace), len(promoted))
+        try:
+            from friday.memory_events import log_memory_event
+
+            for fact in promoted:
+                log_memory_event(
+                    "promote",
+                    _workspace_hash(workspace),
+                    detail=fact[:240],
+                    session_id=session_id,
+                )
+        except Exception:
+            pass
     return promoted
