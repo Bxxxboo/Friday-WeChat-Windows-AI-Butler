@@ -197,13 +197,27 @@ def main() -> int:
         update_path = ROOT / "release" / release_update_zip_name(args.version)
         if update_path.is_file():
             print(f"Uploading update zip: {update_path.name} ...")
-            upload_asset(repo, release_id, token, update_path)
+            try:
+                upload_asset(repo, release_id, token, update_path)
+            except urllib.error.HTTPError as exc:
+                print(
+                    f"Warning: update zip upload failed (HTTP {exc.code}); "
+                    "Gitee may reject large attach_files. Main zip still published.",
+                    file=sys.stderr,
+                )
         else:
             print(f"Update zip not found (optional): {update_path}")
         setup_path = ROOT / "release" / release_setup_name(args.version)
         if setup_path.is_file():
             print(f"Uploading setup: {setup_path.name} ...")
-            upload_asset(repo, release_id, token, setup_path)
+            try:
+                upload_asset(repo, release_id, token, setup_path)
+            except urllib.error.HTTPError as exc:
+                print(
+                    f"Warning: setup upload failed (HTTP {exc.code}); "
+                    "Friday-Windows.zip already includes the installer.",
+                    file=sys.stderr,
+                )
         else:
             print(f"Setup not found (optional): {setup_path}")
         sums_path = ROOT / "release" / "SHA256SUMS.txt"
