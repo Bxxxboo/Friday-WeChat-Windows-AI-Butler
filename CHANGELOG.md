@@ -2,6 +2,22 @@
 
 版本说明与 `assets/changelog.json` 同步；应用内「更新公告」亦读取该文件。
 
+## 1.4.6（2026-06-11）
+
+**打包修复与一键更新稳定性**
+
+### 修复
+
+- 打包：补全 PyInstaller hiddenimports（`weixin_send` / `ui_send`），消除启动时 `ModuleNotFoundError` 警告
+- 一键更新：Gitee Release 资产缺失或配额限制时仍能正确检测 `Friday-Update` 包
+- 一键更新：`SHA256SUMS` 解析与下载 URL 规范化，避免校验失败
+
+### 改进
+
+- 新增 `test_packaging_spec` 回归：确保 `friday.spec` 始终包含微信发送工具模块
+
+---
+
 ## 1.4.5（2026-06-11）
 
 **内置 PPT Master：专业演示文稿工作流**

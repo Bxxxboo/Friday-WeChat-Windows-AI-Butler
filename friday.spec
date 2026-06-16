@@ -104,6 +104,8 @@ a = Analysis(
         "friday.tools.plan_tools",
         "friday.tools.memory_tools",
         "friday.tools.mcp_bridge",
+        "friday.tools.weixin_send",
+        "friday.weixin.ui_send",
         "friday.image_gen",
         "friday.plan",
         "friday.user_memory",
