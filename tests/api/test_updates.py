@@ -68,25 +68,24 @@ def test_pick_download_sha256_from_gitee_sums_asset_url(monkeypatch):
     digest = "d" * 64
     sums_url = "https://gitee.com/o/r/releases/download/v1.2.4/SHA256SUMS.txt"
     download_url = "https://gitee.com/o/r/releases/download/v1.2.4/Friday-Update-1.2.4.zip"
-    captured: dict[str, str] = {}
 
-    def fake_expected(download_url: str, *, sums_map=None, sums_url=None):
-        captured["url"] = download_url
-        captured["sums_url"] = sums_url or ""
-        return digest
-
-    monkeypatch.setattr("friday.release_hashes.expected_sha256_for_download", fake_expected)
+    monkeypatch.setattr(
+        "friday.release_hashes.fetch_sums_map",
+        lambda url, **kwargs: {"friday-update-1.2.4.zip": digest} if url == sums_url else {},
+    )
     found = _pick_download_sha256(
         {
+            "tag_name": "v1.2.4",
             "assets": [
                 {"name": "Friday-Update-1.2.4.zip", "browser_download_url": download_url},
                 {"name": "SHA256SUMS.txt", "browser_download_url": sums_url},
             ],
         },
         download_url,
+        repo="o/r",
+        source_kind="gitee",
     )
     assert found == digest
-    assert captured["sums_url"] == sums_url
 
 
 def test_pick_download_prefers_windows_zip():
@@ -101,6 +100,63 @@ def test_pick_download_prefers_windows_zip():
         }
     )
     assert url == "https://x/win.zip"
+
+
+def test_pick_download_ignores_gitee_source_archive():
+    url = _pick_download_url(
+        {
+            "tag_name": "v1.4.5",
+            "html_url": "https://gitee.com/o/r/releases/tag/v1.4.5",
+            "assets": [
+                {
+                    "name": "v1.4.5.zip",
+                    "browser_download_url": "https://gitee.com/o/r/archive/refs/tags/v1.4.5.zip",
+                },
+                {
+                    "name": "SHA256SUMS.txt",
+                    "browser_download_url": "https://gitee.com/o/r/releases/download/v1.4.5/SHA256SUMS.txt",
+                },
+            ],
+        },
+        repo="o/r",
+        source_kind="gitee",
+    )
+    assert url == "https://gitee.com/o/r/releases/download/v1.4.5/Friday-Update-1.4.5.zip"
+
+
+def test_pick_download_sha256_from_sums_when_only_source_archive(monkeypatch):
+    digest = "a" * 64
+    sums_url = "https://gitee.com/o/r/releases/download/v1.4.5/SHA256SUMS.txt"
+
+    def fake_fetch(url, **kwargs):
+        assert url == sums_url
+        return {"friday-update-1.4.5.zip": digest}
+
+    monkeypatch.setattr("friday.release_hashes.fetch_sums_map", fake_fetch)
+    url = _pick_download_url(
+        {
+            "tag_name": "v1.4.5",
+            "assets": [
+                {
+                    "name": "v1.4.5.zip",
+                    "browser_download_url": "https://gitee.com/o/r/archive/refs/tags/v1.4.5.zip",
+                },
+                {"name": "SHA256SUMS.txt", "browser_download_url": sums_url},
+            ],
+        },
+        repo="o/r",
+        source_kind="gitee",
+    )
+    found = _pick_download_sha256(
+        {
+            "tag_name": "v1.4.5",
+            "assets": [{"name": "SHA256SUMS.txt", "browser_download_url": sums_url}],
+        },
+        url,
+        repo="o/r",
+        source_kind="gitee",
+    )
+    assert found == digest
 
 
 def test_check_updates_github_only(monkeypatch):

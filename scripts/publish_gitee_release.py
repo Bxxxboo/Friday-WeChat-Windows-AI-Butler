@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from friday.version import __version__, release_setup_name, release_update_zip_name, release_zip_name
+from friday.release_hashes import SUMS_FILENAME
 
 API = "https://gitee.com/api/v5"
 
@@ -131,8 +132,26 @@ def upload_asset(repo: str, release_id: int, token: str, zip_path: Path) -> None
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=600):
-        pass
+    with urllib.request.urlopen(req, timeout=600) as resp:
+        raw = resp.read().decode("utf-8", errors="replace").strip()
+        if raw:
+            print(f"  attach_files response: {raw[:240]}")
+
+
+def verify_asset_downloadable(repo: str, tag: str, filename: str, *, token: str = "") -> bool:
+    """确认 Release 附件可通过 releases/download 直链访问。"""
+    owner, name = repo.split("/", 1)
+    ver = tag.lstrip("vV")
+    url = f"https://gitee.com/{owner}/{name}/releases/download/v{ver}/{filename}"
+    q = f"?access_token={token}" if token else ""
+    req = urllib.request.Request(f"{url}{q}", method="HEAD", headers={"User-Agent": "Friday-Desktop"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError:
+        return False
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
 
 
 def main() -> int:
@@ -154,11 +173,6 @@ def main() -> int:
     title = f"星期五 v{args.version}"
 
     existing = find_release(repo, tag, token)
-    if existing and not args.skip_upload:
-        release_id = int(existing["id"])
-        print(f"Recreating Gitee release {tag} (id {release_id}) for clean hotpatch upload ...")
-        delete_release(repo, release_id, token)
-        existing = None
 
     if existing:
         release_id = int(existing["id"])
@@ -233,6 +247,20 @@ def main() -> int:
             upload_asset(repo, release_id, token, sums_path)
         else:
             print(f"SHA256SUMS.txt not found (run make-release.ps1 first): {sums_path}")
+
+        tag = f"v{args.version}"
+        for artifact in (
+            zip_path.name,
+            release_update_zip_name(args.version),
+            release_setup_name(args.version),
+            SUMS_FILENAME,
+        ):
+            ok = verify_asset_downloadable(repo, tag, artifact, token=token)
+            status = "OK" if ok else "MISSING"
+            print(f"Verify {artifact}: {status}")
+            if artifact == zip_path.name and not ok:
+                print("ERROR: main release zip not downloadable from Gitee.", file=sys.stderr)
+                return 1
     else:
         print("Skip upload.")
 
