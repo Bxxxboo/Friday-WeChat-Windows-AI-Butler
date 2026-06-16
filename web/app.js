@@ -241,18 +241,26 @@
   /* ── 桌面窗（frameless） ── */
 
   let windowMaximized = false;
+  let maximizeTransitioning = false;
   let framelessReady = false;
   let framelessAttempts = 0;
+
+  function applyMaximizeUi(maximized) {
+    windowMaximized = Boolean(maximized);
+    const btn = document.getElementById("winMaximize");
+    btn?.classList.toggle("is-maximized", windowMaximized);
+    document.documentElement.classList.toggle("window-maximized", windowMaximized);
+  }
 
   function syncMaximizeButton() {
     const btn = document.getElementById("winMaximize");
     if (!btn || !window.pywebview?.api?.is_maximized) return;
     window.pywebview.api.is_maximized().then((maximized) => {
-      windowMaximized = Boolean(maximized);
-      btn.classList.toggle("is-maximized", windowMaximized);
-      document.documentElement.classList.toggle("window-maximized", windowMaximized);
+      applyMaximizeUi(maximized);
     });
   }
+
+  window.__fridaySyncMaximize = syncMaximizeButton;
 
   function refreshDesktopSurface() {
     const root = document.documentElement;
@@ -390,15 +398,23 @@
     });
 
     bindTitlebarBtn("winMaximize", () => {
-      if (windowMaximized) {
-        window.pywebview.api.restore_window();
-        windowMaximized = false;
-      } else {
-        window.pywebview.api.maximize_window();
-        windowMaximized = true;
-      }
-      document.getElementById("winMaximize")?.classList.toggle("is-maximized", windowMaximized);
-      document.documentElement.classList.toggle("window-maximized", windowMaximized);
+      const api = window.pywebview.api;
+      if (!api?.is_maximized || maximizeTransitioning) return;
+      const btn = document.getElementById("winMaximize");
+      maximizeTransitioning = true;
+      if (btn) btn.disabled = true;
+      Promise.resolve(api.is_maximized())
+        .then((maximized) => {
+          if (maximized) return Promise.resolve(api.restore_window());
+          return Promise.resolve(api.maximize_window());
+        })
+        .finally(() => {
+          setTimeout(() => {
+            syncMaximizeButton();
+            maximizeTransitioning = false;
+            if (btn) btn.disabled = false;
+          }, 150);
+        });
     });
 
     bindTitlebarBtn("winClose", () => {

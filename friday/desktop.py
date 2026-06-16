@@ -166,6 +166,15 @@ class WindowApi:
         return True
 
     def is_maximized(self) -> bool:
+        if sys.platform == "win32":
+            hwnd = self._resolve_hwnd()
+            if hwnd:
+                try:
+                    import ctypes
+
+                    return bool(ctypes.windll.user32.IsZoomed(hwnd))
+                except (AttributeError, OSError):
+                    pass
         if self._window:
             return bool(self._window.maximized)
         return False
@@ -623,7 +632,8 @@ def main() -> None:
                     "requestAnimationFrame(function(){"
                     "document.documentElement.style.willChange='transform';"
                     "requestAnimationFrame(function(){"
-                    "document.documentElement.style.willChange='';});});",
+                    "document.documentElement.style.willChange='';});});"
+                    "typeof window.__fridaySyncMaximize==='function'&&window.__fridaySyncMaximize();",
                     False,
                 )
             except Exception:

@@ -469,6 +469,8 @@ def _make_weixin_progress_handler(
 
     def on_event(event_type: str, payload: dict[str, Any]) -> None:
         if event_type in {"image_generated", "file_generated"}:
+            if sent.get("suppress_attachments"):
+                return
             if not _weixin_deliver_files_enabled(settings):
                 return
             raw_path = str(payload.get("path") or "").strip()
@@ -535,6 +537,23 @@ _AGENT_FALSE_SEND_LINE_RE = re.compile(
     re.I,
 )
 
+_USER_CONTACT_SEND_INTENT_RE = re.compile(
+    r"给.{1,24}发(?:消息|微信|条|一段|个|句话)?|发给.{1,24}|发微信给|跟.{1,24}说|"
+    r"发(?:这)?句话到.{0,16}微信|发到.{1,24}(?:的)?微信",
+    re.I,
+)
+
+_AGENT_CONTACT_SEND_CLAIM_RE = re.compile(
+    r"已经?给.{1,24}发(?:了|过去|好了|啦)|发给.{1,24}了|"
+    r"发过去了|发好了|已经发|发过去啦|消息已发|已经发送",
+    re.I,
+)
+
+_VERIFIED_CONTACT_SEND_RE = re.compile(
+    r"✅\s*已发送给|微信已发送给",
+    re.I,
+)
+
 
 def _weixin_file_delivery_miss_hint() -> str:
     return (
@@ -548,8 +567,50 @@ def _strip_false_send_claims(text: str) -> str:
         ln
         for ln in (text or "").splitlines()
         if not _AGENT_FALSE_SEND_LINE_RE.search(ln)
+        and not _AGENT_CONTACT_SEND_CLAIM_RE.search(ln)
     ]
     return "\n".join(lines).strip()
+
+
+def _user_requests_contact_send(text: str) -> bool:
+    return bool(_USER_CONTACT_SEND_INTENT_RE.search(text or ""))
+
+
+def _contact_send_text_only(text: str) -> bool:
+    """用户只要给联系人发文字，未要求发附件。"""
+    if not _user_requests_contact_send(text):
+        return False
+    from friday.weixin.deliverables import (
+        extract_requested_filename,
+        user_requests_weixin_file_delivery,
+    )
+
+    if extract_requested_filename(text) or user_requests_weixin_file_delivery(text):
+        return False
+    return True
+
+
+def _agent_claims_contact_sent(text: str) -> bool:
+    return bool(_AGENT_CONTACT_SEND_CLAIM_RE.search(text or ""))
+
+
+def _verified_contact_send_in_messages(messages: list[dict[str, Any]] | None) -> bool:
+    if not messages:
+        return False
+    for msg in messages:
+        if msg.get("role") != "tool":
+            continue
+        content = str(msg.get("content") or "")
+        if _VERIFIED_CONTACT_SEND_RE.search(content):
+            return True
+    return False
+
+
+def _weixin_contact_send_miss_hint() -> str:
+    return (
+        "未能确认消息已发送到指定联系人。"
+        "请打开微信核对，或说明联系人昵称后让我重试。"
+    )
 
 
 def _run_agent(
@@ -592,6 +653,8 @@ def _run_agent(
     )
     session = get_session(session_id)
     deliver_state = {"file": False, "image": False, "paths": set()}
+    if _contact_send_text_only(text):
+        deliver_state["suppress_attachments"] = True
     progress_handler = _make_weixin_progress_handler(
         peer_id=peer_id,
         account=account,
@@ -633,45 +696,62 @@ def _run_agent(
         user_requests_weixin_file_delivery,
     )
 
-    flushed = deliver_turn_new_attachments(
-        settings=settings,
-        on_event=progress_handler,
-        min_mtime=turn_started_at - 1.0,
-        already_sent=deliver_state.get("paths", set()),
-        before_path_keys=turn_deliver_snapshot,
-    )
-    if flushed:
-        _log.info("微信补发本轮产出物 | peer=%s count=%d", peer_id, flushed)
+    flushed = 0
+    if not deliver_state.get("suppress_attachments"):
+        flushed = deliver_turn_new_attachments(
+            settings=settings,
+            on_event=progress_handler,
+            min_mtime=turn_started_at - 1.0,
+            already_sent=deliver_state.get("paths", set()),
+            before_path_keys=turn_deliver_snapshot,
+        )
+        if flushed:
+            _log.info("微信补发本轮产出物 | peer=%s count=%d", peer_id, flushed)
 
-    if try_deliver_existing_weixin_file(
-        text,
-        settings=settings,
-        on_event=progress_handler,
-        skip_if_sent=deliver_state,
-    ):
-        _log.info("微信补发已有附件 | peer=%s", peer_id)
-    elif (
-        not deliver_state.get("file")
-        and user_requests_weixin_file_delivery(text)
-        and find_deliverable_for_weixin_request(text, settings) is None
-    ):
-        _log.warning("微信补发附件未找到文件 | peer=%s preview=%s", peer_id, text[:40])
-        hint = _weixin_file_delivery_miss_hint()
-        body = (result or "").strip()
-        if body and _AGENT_FALSE_SEND_LINE_RE.search(body):
-            body = _strip_false_send_claims(body)
-        result = f"{body}\n\n{hint}".strip() if body else hint
-    elif (
-        not deliver_state.get("paths")
-        and (result or "")
-        and _AGENT_FALSE_SEND_LINE_RE.search(result)
+        if try_deliver_existing_weixin_file(
+            text,
+            settings=settings,
+            on_event=progress_handler,
+            skip_if_sent=deliver_state,
+        ):
+            _log.info("微信补发已有附件 | peer=%s", peer_id)
+        elif (
+            not deliver_state.get("file")
+            and user_requests_weixin_file_delivery(text)
+            and find_deliverable_for_weixin_request(text, settings) is None
+        ):
+            _log.warning("微信补发附件未找到文件 | peer=%s preview=%s", peer_id, text[:40])
+            hint = _weixin_file_delivery_miss_hint()
+            body = (result or "").strip()
+            if body and _AGENT_FALSE_SEND_LINE_RE.search(body):
+                body = _strip_false_send_claims(body)
+            result = f"{body}\n\n{hint}".strip() if body else hint
+        elif (
+            not deliver_state.get("paths")
+            and (result or "")
+            and _AGENT_FALSE_SEND_LINE_RE.search(result)
+        ):
+            _log.warning(
+                "微信助手声称已发送附件但本轮未实际推送 | peer=%s preview=%s",
+                peer_id,
+                (result or "")[:80],
+            )
+            hint = _weixin_file_delivery_miss_hint()
+            body = _strip_false_send_claims(result)
+            result = f"{body}\n\n{hint}".strip() if body else hint
+    elif deliver_state.get("suppress_attachments"):
+        _log.info("微信联系人纯文字任务，跳过附件补发 | peer=%s", peer_id)
+    if (
+        _user_requests_contact_send(text)
+        and not _verified_contact_send_in_messages(agent.messages)
+        and _agent_claims_contact_sent(result or "")
     ):
         _log.warning(
-            "微信助手声称已发送附件但本轮未实际推送 | peer=%s preview=%s",
+            "微信助手声称已给联系人发消息但工具未确认 | peer=%s preview=%s",
             peer_id,
             (result or "")[:80],
         )
-        hint = _weixin_file_delivery_miss_hint()
+        hint = _weixin_contact_send_miss_hint()
         body = _strip_false_send_claims(result)
         result = f"{body}\n\n{hint}".strip() if body else hint
     _save_weixin_agent_state(session_id, agent, user_message=user_message)

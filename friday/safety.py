@@ -169,6 +169,7 @@ def classify_tool(tool_name: str) -> RiskLevel:
         "run_python_script",
         "open_url",
         "open_app",
+        "send_weixin_contact_message",
         "install_friday_plugin",
         "uninstall_friday_plugin",
     }

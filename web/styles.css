@@ -4931,8 +4931,9 @@ html.desktop .session-rename-input {
 }
 
 @media (max-width: 860px) {
-  .app-shell { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
+  /* 桌面壳用物理像素换算后的 CSS 宽度，默认 980px 在 125% DPI 下约 784px，会误触此断点 */
+  html:not(.desktop) .app-shell { grid-template-columns: 1fr; }
+  html:not(.desktop) .sidebar { display: none; }
   .welcome-suggestions { column-count: 1; }
   .chip-group:nth-child(3n + 2) { transform: none; }
   .welcome-panel { padding: 20px 16px 24px; }

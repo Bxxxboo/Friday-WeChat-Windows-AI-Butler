@@ -52,6 +52,7 @@ _EAGER_MODULES = (
     "image_gen",
     "plan_tools",
     "memory_tools",
+    "weixin_send",
 )
 _LAZY_MODULES = ("documents", "media", "web")
 _IMPORTED: set[str] = set()
@@ -305,6 +306,7 @@ _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "get_file_info": "查看文件详情",
     "open_url": "打开网页",
     "open_app": "启动应用",
+    "send_weixin_contact_message": "微信发消息",
     "screenshot": "截屏",
     "clipboard_read": "读剪贴板",
     "clipboard_write": "写剪贴板",

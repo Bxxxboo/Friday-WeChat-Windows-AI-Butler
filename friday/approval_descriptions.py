@@ -25,6 +25,7 @@ _TOOL_NAME_LABELS: dict[str, str] = {
     "browse_webpage": "浏览网页",
     "open_url": "打开网页",
     "open_app": "启动程序",
+    "send_weixin_contact_message": "通过微信给联系人发消息",
     "clipboard_write": "写入剪贴板",
     "create_docx": "创建 Word 文档",
     "create_pptx": "创建 PPT",
@@ -444,6 +445,12 @@ def describe_approval_plain(tool_name: str, arguments: dict) -> str:
         return f"用浏览器打开网页：{str(args.get('url', ''))[:60]}"
     if tool_name == "open_app":
         return f"启动程序：{str(args.get('name', '') or args.get('path', ''))[:60]}"
+    if tool_name == "send_weixin_contact_message":
+        contact = str(args.get("contact", "")).strip() or "联系人"
+        preview = str(args.get("message", "")).strip()
+        if len(preview) > 36:
+            preview = preview[:33] + "…"
+        return f"用微信给「{contact}」发消息：{preview or '（无内容）'}"
     if tool_name == "install_friday_plugin":
         return "为星期五安装一个扩展插件（会下载并写入本地文件）"
     if tool_name == "uninstall_friday_plugin":
