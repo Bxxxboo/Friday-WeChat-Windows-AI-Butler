@@ -193,7 +193,14 @@ def main() -> int:
         if not zip_path.is_file():
             print(f"Zip not found: {zip_path}", file=sys.stderr)
             return 1
-        upload_asset(repo, release_id, token, zip_path)
+        try:
+            upload_asset(repo, release_id, token, zip_path)
+        except urllib.error.HTTPError as exc:
+            print(
+                f"Warning: main zip upload failed (HTTP {exc.code}); "
+                "Gitee attach_files may reject files near 100MB. Trying setup-only fallback.",
+                file=sys.stderr,
+            )
         update_path = ROOT / "release" / release_update_zip_name(args.version)
         if update_path.is_file():
             print(f"Uploading update zip: {update_path.name} ...")

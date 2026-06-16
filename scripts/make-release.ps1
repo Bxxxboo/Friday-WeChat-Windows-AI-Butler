@@ -1,12 +1,18 @@
 $ErrorActionPreference = "Stop"
-Set-Location (Split-Path -Parent $PSScriptRoot)
+if (-not $PSScriptRoot) {
+    throw "make-release.ps1 must be invoked with -File (PSScriptRoot missing)"
+}
+$FridayRepo = (Get-Item -LiteralPath $PSScriptRoot).Parent.FullName
+Set-Location -LiteralPath $FridayRepo
 
 . (Join-Path $PSScriptRoot "friday-dist.ps1")
 
-# 发版前确保 ppt-master skill 资源完整（体量大，默认不进 Git）
-$SyncPpt = Join-Path $PWD "scripts\sync_ppt_master_skill.ps1"
-$PptSkillMarker = Join-Path $PWD "extensions\ppt-master\scripts\svg_to_pptx.py"
-if ((Test-Path $SyncPpt) -and -not (Test-Path -LiteralPath $PptSkillMarker)) {
+$PptSkillMarker = [System.IO.Path]::Combine($FridayRepo, "extensions", "ppt-master", "scripts", "svg_to_pptx.py")
+if (-not (Test-Path -LiteralPath $PptSkillMarker)) {
+    $SyncPpt = Join-Path $FridayRepo "scripts\sync_ppt_master_skill.ps1"
+    if (-not (Test-Path -LiteralPath $SyncPpt)) {
+        throw "ppt-master skill missing and sync script not found: $SyncPpt"
+    }
     Write-Host "Syncing ppt-master skill (first-time / missing)..." -ForegroundColor Cyan
     & $SyncPpt
     if (-not (Test-Path -LiteralPath $PptSkillMarker)) {
@@ -14,10 +20,10 @@ if ((Test-Path $SyncPpt) -and -not (Test-Path -LiteralPath $PptSkillMarker)) {
     }
 }
 
-$DistApp = Get-FridayDistDir -Root $PWD
+$DistApp = Get-FridayDistDir -Root $FridayRepo
 $Exe = Get-FridayExe -DistDir $DistApp
 
-$VersionLine = Select-String -Path (Join-Path $PWD "friday\version.py") -Pattern '__version__ = "(.+)"' | Select-Object -First 1
+$VersionLine = Select-String -Path (Join-Path $FridayRepo "friday\version.py") -Pattern '__version__ = "(.+)"' | Select-Object -First 1
 $TargetVersion = if ($VersionLine) { $VersionLine.Matches[0].Groups[1].Value } else { "" }
 
 $needsBuild = -not $Exe
@@ -31,29 +37,29 @@ if ($Exe -and $TargetVersion) {
 
 if ($needsBuild) {
     Write-Host "Building exe..." -ForegroundColor Yellow
-    & (Join-Path $PWD "scripts\build.ps1")
-    $Exe = Get-FridayExe -DistDir (Get-FridayDistDir -Root $PWD)
+    & (Join-Path $FridayRepo "scripts\build.ps1")
+    $Exe = Get-FridayExe -DistDir (Get-FridayDistDir -Root $FridayRepo)
     if (-not $Exe) {
         throw "Build failed."
     }
 }
 
 if (-not $TargetVersion) {
-    $TargetVersion = Get-FridayVersion -Root $PWD
+    $TargetVersion = Get-FridayVersion -Root $FridayRepo
 }
 
-$ReleaseRoot = Join-Path $PWD "release"
+$ReleaseRoot = Join-Path $FridayRepo "release"
 $SetupName = "Friday-Setup-$TargetVersion.exe"
 $ZipName = "Friday-Windows-$TargetVersion.zip"
 $UpdateZipName = "Friday-Update-$TargetVersion.zip"
 
 # 先构建安装包，再组装发布 ZIP（内含 Setup.exe，供官网/浏览器下载）
 $SetupPath = Join-Path $ReleaseRoot $SetupName
-$BuildInstaller = Join-Path $PWD "scripts\build-installer.ps1"
+$BuildInstaller = Join-Path $FridayRepo "scripts\build-installer.ps1"
 if (Test-Path $BuildInstaller) {
     Write-Host ""
     Write-Host "Building Setup installer..." -ForegroundColor Cyan
-    & $BuildInstaller -SkipBuild -Root $PWD
+    & $BuildInstaller -SkipBuild -Root $FridayRepo
     if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $SetupPath)) {
         $setupMb = [math]::Round((Get-Item $SetupPath).Length / 1MB, 1)
         Write-Host "Done Setup: $SetupPath (${setupMb} MB)" -ForegroundColor Green

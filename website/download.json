@@ -1,12 +1,12 @@
 {
-    "version":  "1.4.4",
+    "version":  "1.4.5",
     "date":  "2026-06-11",
-    "tag":  "v1.4.4",
+    "tag":  "v1.4.5",
     "gitee_home":  "https://gitee.com/Bxxxboo/friday",
     "releases_page":  "https://gitee.com/Bxxxboo/friday/releases",
-    "download_url":  "https://gitee.com/Bxxxboo/friday/releases/download/v1.4.4/Friday-Windows-1.4.4.zip",
-    "zip_url":  "https://gitee.com/Bxxxboo/friday/releases/download/v1.4.4/Friday-Windows-1.4.4.zip",
-    "setup_url":  "https://gitee.com/Bxxxboo/friday/releases/download/v1.4.4/Friday-Setup-1.4.4.exe",
-    "setup_name":  "Friday-Setup-1.4.4.exe",
-    "zip_name":  "Friday-Windows-1.4.4.zip"
+    "download_url":  "https://gitee.com/Bxxxboo/friday/releases/download/v1.4.5/Friday-Windows-1.4.5.zip",
+    "zip_url":  "https://gitee.com/Bxxxboo/friday/releases/download/v1.4.5/Friday-Windows-1.4.5.zip",
+    "setup_url":  "https://gitee.com/Bxxxboo/friday/releases/download/v1.4.5/Friday-Setup-1.4.5.exe",
+    "setup_name":  "Friday-Setup-1.4.5.exe",
+    "zip_name":  "Friday-Windows-1.4.5.zip"
 }

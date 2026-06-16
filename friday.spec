@@ -21,6 +21,24 @@ _clr_loader_binaries = collect_dynamic_libs("clr_loader")
 _pythonnet_datas = collect_data_files("pythonnet")
 _tiktoken_datas = collect_data_files("tiktoken") + collect_data_files("tiktoken_ext")
 
+
+def _extension_datas() -> list[tuple[str, str]]:
+    """打包 extensions/；ppt-master 体量大，安装包仅含 manifest，skill 首次启动下载。"""
+    items: list[tuple[str, str]] = []
+    ext_root = ROOT / "extensions"
+    if not ext_root.is_dir():
+        return items
+    for path in sorted(ext_root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(ext_root).as_posix()
+        if rel.startswith("ppt-master/") and rel != "ppt-master/friday-plugin.json":
+            continue
+        dest = str(Path("extensions") / path.parent.relative_to(ext_root))
+        items.append((str(path), dest))
+    return items
+
+
 a = Analysis(
     ["run.py"],
     pathex=[str(ROOT)],
@@ -28,10 +46,10 @@ a = Analysis(
     datas=[
         (str(ROOT / "web"), "web"),
         (str(ROOT / "assets"), "assets"),
-        (str(ROOT / "extensions"), "extensions"),
         (str(ROOT / "requirements-python.txt"), "."),
         (str(Path(certifi.where())), "certifi"),
     ]
+    + _extension_datas()
     + _pythonnet_datas
     + _tiktoken_datas
     + _pn_runtime_files,
