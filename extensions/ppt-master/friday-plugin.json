@@ -1,0 +1,25 @@
+{
+  "id": "ppt-master",
+  "name": "PPT Master 演示文稿",
+  "version": "2.9.0",
+  "description": "来自 hugohe3/ppt-master：多角色协作生成高质量、可编辑 PPTX（SVG 流水线 + 原生形状导出）。",
+  "author": "Hugo He (hugohe3/ppt-master)",
+  "skills": [
+    {
+      "id": "make-deck",
+      "label": "专业 PPT",
+      "icon": "📊",
+      "category": "plugin",
+      "prompt": "请为我制作一份专业演示文稿。\n\n先 read_text_file 读取 {plugin_dir}/SKILL.md，严格按 ppt-master 工作流执行（串行流水线、禁止跳步）。\n- 项目目录建在用户文档或默认操作文件夹下\n- Windows 脚本一律用 python，不要用 python3\n- 源材料非 Markdown 时先用 {plugin_dir}/scripts/source_to_md/ 下对应转换脚本\n- 完成后用 python {plugin_dir}/scripts/svg_to_pptx.py 导出 .pptx\n- 禁止用 create_pptx 代替本流程"
+    }
+  ],
+  "rules": [
+    {
+      "id": "use-ppt-master",
+      "title": "PPT 走 ppt-master",
+      "content": "用户要求做 PPT、演示文稿、汇报 deck、幻灯片、生成 pptx（含「做汇报」「生成演示」）时：禁止直接调用 create_pptx（那只是无样式草稿）；须 read_text_file 读取 {plugin_dir}/SKILL.md 并严格按 ppt-master 工作流执行。脚本目录 {plugin_dir}/scripts；Windows 用 python 不用 python3。项目建在用户文档或默认操作文件夹；导出用 scripts/svg_to_pptx.py。若用户明确只要极简一页草稿且不要设计，才可用 create_pptx。",
+      "enabled": true,
+      "always_apply": true
+    }
+  ]
+}

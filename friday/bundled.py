@@ -16,7 +16,13 @@ _log = get_logger("bundled")
 BUNDLED_PLUGIN_IDS: frozenset[str] = frozenset({
     "vision-bridge",
     "storage-analyzer",
+    "ppt-master",
 })
+
+# 首次启动从 GitHub 拉取 skill 脚本与模板（仓库 extensions/ 仅含 manifest）
+BUNDLED_SKILL_SOURCES: dict[str, str] = {
+    "ppt-master": "hugohe3/ppt-master@v2.9.0/skills/ppt-master",
+}
 
 # 曾作为内置/推荐插件安装过的 ID，启动迁移时一并清理残留
 _LEGACY_BUNDLED_IDS: frozenset[str] = BUNDLED_PLUGIN_IDS | frozenset({"demo-office"})
@@ -30,11 +36,19 @@ def is_bundled_plugin(plugin_id: str) -> bool:
     return (plugin_id or "").strip() in BUNDLED_PLUGIN_IDS
 
 
+def _skill_package_complete(root: Path) -> bool:
+    return (root / "SKILL.md").is_file() and (root / "scripts" / "svg_to_pptx.py").is_file()
+
+
 def bundled_resource_dir(plugin_id: str) -> Path:
-    """技能脚本等资源目录：优先使用曾下载到 AppData 的完整包，否则用仓库 extensions/。"""
+    """技能脚本等资源目录：优先完整包（AppData 下载或仓库 extensions/）。"""
     pid = plugin_id.strip()
     app_dir = get_appdata_dir() / "plugins" / pid
     ext_dir = extensions_dir() / pid
+    if _skill_package_complete(app_dir):
+        return app_dir
+    if _skill_package_complete(ext_dir):
+        return ext_dir
     if (app_dir / "scripts").is_dir() or (app_dir / "SKILL.md").is_file():
         return app_dir
     return ext_dir
@@ -149,10 +163,36 @@ def migrate_legacy_bundled_plugins() -> None:
         _save_all(kept)
 
 
+def bundled_skill_assets_ready(plugin_id: str) -> bool:
+    return _skill_package_complete(bundled_resource_dir(plugin_id))
+
+
+def ensure_bundled_skill_assets() -> None:
+    """按需从 GitHub 下载内置 skill 的脚本与模板到 AppData。"""
+    from friday.plugins import _download_github_skill_folder, parse_github_skill_source
+
+    for plugin_id, source in BUNDLED_SKILL_SOURCES.items():
+        if plugin_id not in BUNDLED_PLUGIN_IDS:
+            continue
+        if bundled_skill_assets_ready(plugin_id):
+            continue
+        ext_dir = extensions_dir() / plugin_id
+        if _skill_package_complete(ext_dir):
+            continue
+        dest = get_appdata_dir() / "plugins" / plugin_id
+        try:
+            owner, repo, ref, skill_path = parse_github_skill_source(source)
+            _download_github_skill_folder(owner, repo, ref, skill_path, dest)
+            _log.info("已下载内置 skill 资源 | id=%s files→%s", plugin_id, dest)
+        except Exception as exc:
+            _log.warning("内置 skill 资源下载失败 | id=%s err=%s", plugin_id, exc)
+
+
 def bundled_already_message(plugin_id: str) -> str:
     names = {
         "vision-bridge": "图片视觉桥接",
         "storage-analyzer": "存储分析",
+        "ppt-master": "PPT Master 演示文稿",
     }
     label = names.get(plugin_id, plugin_id)
     return f"「{label}」已是星期五内置能力，无需安装插件。"
@@ -176,4 +216,6 @@ def resolve_bundled_source(source: str) -> str | None:
         return "storage-analyzer"
     if re.search(r"vision-bridge", cleaned, re.I):
         return "vision-bridge"
+    if re.search(r"ppt-master", cleaned, re.I):
+        return "ppt-master"
     return None

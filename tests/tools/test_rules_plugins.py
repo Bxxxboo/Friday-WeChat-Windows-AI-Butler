@@ -162,8 +162,41 @@ def test_bundled_rules_in_prompt(tmp_appdata):
     prompt = active_rules_prompt()
     assert "图片必走视觉桥接" in prompt
     assert "存储分析只读" in prompt
+    assert "PPT 走 ppt-master" in prompt
     assert "简洁回复" not in prompt
     assert "回复习惯" in prompt
+
+
+def test_bundled_ppt_master_not_installable(tmp_appdata):
+    with pytest.raises(ValueError, match="内置"):
+        install_plugin("skill:hugohe3/ppt-master/skills/ppt-master")
+
+
+def test_bundled_ppt_master_manifest(tmp_appdata):
+    from friday.bundled import _load_manifest
+
+    manifest = _load_manifest("ppt-master")
+    assert manifest is not None
+    assert manifest["id"] == "ppt-master"
+    rules = manifest.get("rules") or []
+    assert any(r.get("title") == "PPT 走 ppt-master" for r in rules)
+
+
+def test_ensure_bundled_skill_assets_skips_when_ready(tmp_appdata, monkeypatch):
+    from friday.bundled import ensure_bundled_skill_assets
+
+    called = {"n": 0}
+
+    def _fake_download(*_a, **_k):
+        called["n"] += 1
+
+    monkeypatch.setattr(
+        "friday.bundled.bundled_skill_assets_ready",
+        lambda _pid: True,
+    )
+    monkeypatch.setattr("friday.plugins._download_github_skill_folder", _fake_download)
+    ensure_bundled_skill_assets()
+    assert called["n"] == 0
 
 
 def test_retired_concise_rule_removed(tmp_appdata):

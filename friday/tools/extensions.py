@@ -33,7 +33,8 @@ def _catalog_plugin_id(source: str) -> str | None:
         "① skill:owner/repo/skill目录（GitHub 上的 Agent Skill）；"
         "② owner/repo 或 owner/repo@分支（仓库根目录需 friday-plugin.json）；"
         "③ local:插件id（非内置扩展目录）。"
-        "图片视觉桥接、storage-analyzer 已内置，无需安装。"
+        "图片视觉桥接、storage-analyzer、PPT Master 已内置，无需安装。"
+        "PPT Master 已内置。"
         "失败时不要猜测编造仓库名连续重试，应 list_plugin_catalog 查看说明。"
     ),
     parameters={

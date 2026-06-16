@@ -2,6 +2,22 @@
 
 版本说明与 `assets/changelog.json` 同步；应用内「更新公告」亦读取该文件。
 
+## 1.4.5（2026-06-11）
+
+**内置 PPT Master：专业演示文稿工作流**
+
+### 新功能
+
+- 内置 [hugohe3/ppt-master](https://github.com/hugohe3/ppt-master) v2.9.0：多角色协作生成高质量、可编辑 PPTX（SVG 流水线 + 原生形状导出）
+- 欢迎页「做汇报 PPT」「生成周报」自动走 ppt-master 流程
+
+### 改进
+
+- 做 PPT / 演示文稿时系统规则强制走 ppt-master，禁止默认使用简陋的 `create_pptx` 草稿工具
+- 发版脚本自动同步 ppt-master skill 资源；首次启动亦可从 GitHub 拉取
+
+---
+
 ## 1.4.4（2026-06-11）
 
 **微信联系人发消息修复、乱发附件与桌面 UI 修复**

@@ -299,7 +299,10 @@ def _download_github_skill_folder(
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         url = _raw_url(owner, repo, ref, str(item["path"]))
-        target.write_text(_fetch_text(url), encoding="utf-8")
+        if _github_blob_is_binary(full_path):
+            target.write_bytes(_fetch_bytes(url))
+        else:
+            target.write_text(_fetch_text(url), encoding="utf-8")
 
     _log.info(
         "已下载 GitHub skill | %s/%s@%s/%s files=%d",
@@ -413,15 +416,34 @@ def _raw_url(owner: str, repo: str, ref: str, path: str) -> str:
     return f"https://raw.githubusercontent.com/{owner}/{repo}/{ref}/{path.lstrip('/')}"
 
 
-def _fetch_text(url: str, *, timeout: float = 20.0) -> str:
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
-            return resp.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        raise ValueError(f"HTTP {exc.code}: {url}") from exc
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        raise ValueError(f"无法访问: {exc}") from exc
+def _fetch_bytes(url: str, *, timeout: float = 20.0, retries: int = 3) -> bytes:
+    last_exc: Exception | None = None
+    for attempt in range(retries):
+        request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            raise ValueError(f"HTTP {exc.code}: {url}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_exc = exc
+            if attempt + 1 < retries:
+                time.sleep(1.5 * (attempt + 1))
+    raise ValueError(f"无法访问: {last_exc}") from last_exc
+
+
+def _fetch_text(url: str, *, timeout: float = 20.0, retries: int = 3) -> str:
+    return _fetch_bytes(url, timeout=timeout, retries=retries).decode("utf-8")
+
+
+_BINARY_SUFFIXES = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2",
+    ".ttf", ".eot", ".zip", ".pyc", ".pdf",
+})
+
+
+def _github_blob_is_binary(path: str) -> bool:
+    return Path(path).suffix.lower() in _BINARY_SUFFIXES
 
 
 def _load_registry() -> list[dict[str, Any]]:
@@ -485,7 +507,7 @@ def format_plugin_catalog(*, force_refresh: bool = False) -> str:
 
     if not _PLUGIN_CATALOG:
         text = (
-            "图片视觉桥接、存储分析等能力已内置于星期五，无需安装。"
+            "图片视觉桥接、存储分析、PPT Master 等能力已内置于星期五，无需安装。"
             "可在设置 → 扩展 → 插件 从 GitHub 安装其他 friday-plugin.json 扩展包。"
             "\nGitHub Agent Skill 用 skill:owner/repo/目录 格式；整仓即 Skill 示例："
             " skill:Haojae/scipilot-figure-skill/. （仓库根目录有 SKILL.md 时用 /. 作路径）"

@@ -68,6 +68,11 @@ storage-report.html
 # 本地 Cursor 配置由 junction 指向 .friday（见 scripts/link-cursor-dev.ps1）
 .cursor/
 
-.DS_Store
+# ppt-master skill 体量大，发版前运行 scripts/sync_ppt_master_skill.ps1
+extensions/ppt-master/*
+!extensions/ppt-master/friday-plugin.json
+.tmp-ppt-master/
+.tmp-ppt-master-sync/
+
 Thumbs.db
 desktop.ini

@@ -9,7 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from friday.auth import verify_api_token
-from friday.bundled import migrate_legacy_bundled_plugins
+from friday.bundled import ensure_bundled_skill_assets, migrate_legacy_bundled_plugins
 from friday.paths import web_dir
 from friday.rules import ensure_builtin_rules
 from friday.sessions import ensure_default_session, migrate_legacy_data_dir, migrate_session_files
@@ -34,6 +34,7 @@ async def _lifespan(app: FastAPI):
         initialize_first_run()
         apply_network_environment(load_settings())
         migrate_legacy_bundled_plugins()
+        ensure_bundled_skill_assets()
         ensure_builtin_rules()
         migrate_session_files()
         ensure_default_session()

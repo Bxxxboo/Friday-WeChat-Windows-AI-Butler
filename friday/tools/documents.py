@@ -52,7 +52,7 @@ def create_docx(output_path: str, title: str, sections: list[dict]) -> str:
 
 @register_tool(
     name="create_pptx",
-    description="创建 PowerPoint 文档",
+    description="创建极简 PowerPoint 草稿（无设计、仅标题+要点）。正式汇报/演示请走内置 ppt-master 工作流，不要用本工具。",
     parameters={
         "type": "object",
         "properties": {

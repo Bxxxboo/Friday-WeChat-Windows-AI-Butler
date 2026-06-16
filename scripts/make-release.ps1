@@ -3,6 +3,17 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 
 . (Join-Path $PSScriptRoot "friday-dist.ps1")
 
+# 发版前确保 ppt-master skill 资源完整（体量大，默认不进 Git）
+$SyncPpt = Join-Path $PWD "scripts\sync_ppt_master_skill.ps1"
+$PptSkillMarker = Join-Path $PWD "extensions\ppt-master\scripts\svg_to_pptx.py"
+if ((Test-Path $SyncPpt) -and -not (Test-Path -LiteralPath $PptSkillMarker)) {
+    Write-Host "Syncing ppt-master skill (first-time / missing)..." -ForegroundColor Cyan
+    & $SyncPpt
+    if (-not (Test-Path -LiteralPath $PptSkillMarker)) {
+        throw "ppt-master skill sync failed: $PptSkillMarker missing"
+    }
+}
+
 $DistApp = Get-FridayDistDir -Root $PWD
 $Exe = Get-FridayExe -DistDir $DistApp
 
