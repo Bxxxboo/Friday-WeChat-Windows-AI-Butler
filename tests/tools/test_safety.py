@@ -129,7 +129,7 @@ def test_download_file_allowed_outside_workspace(workspace: Path):
 
 
 def test_should_request_approval_once_per_turn():
-    from friday.safety import TurnApprovalState, ToolDecision, mark_turn_approved, should_request_approval
+    from friday.safety import ToolDecision, TurnApprovalState, mark_turn_approved, should_request_approval
 
     settings = UserSettings(approve_once_per_turn=True, require_approval_exec=True)
     state = TurnApprovalState()
@@ -141,7 +141,7 @@ def test_should_request_approval_once_per_turn():
 
 
 def test_always_require_respects_once_per_turn_after_general():
-    from friday.safety import TurnApprovalState, ToolDecision, mark_turn_approved, should_request_approval
+    from friday.safety import ToolDecision, TurnApprovalState, mark_turn_approved, should_request_approval
 
     settings = UserSettings(approve_once_per_turn=True, require_approval_exec=True)
     state = TurnApprovalState()
@@ -158,7 +158,7 @@ def test_always_require_respects_once_per_turn_after_general():
 
 
 def test_always_require_image_gen_never_reuses_turn():
-    from friday.safety import TurnApprovalState, ToolDecision, should_request_approval
+    from friday.safety import ToolDecision, TurnApprovalState, should_request_approval
 
     settings = UserSettings(approve_once_per_turn=True, require_approval_writes=True)
     state = TurnApprovalState(general=True)
@@ -211,7 +211,7 @@ def test_powershell_backtick_download_blocked_at_evaluate():
 
 
 def test_large_download_still_needs_separate_approval():
-    from friday.safety import TurnApprovalState, ToolDecision, mark_turn_approved, should_request_approval
+    from friday.safety import ToolDecision, TurnApprovalState, mark_turn_approved, should_request_approval
 
     settings = UserSettings(approve_once_per_turn=True, require_approval_writes=True)
     state = TurnApprovalState()

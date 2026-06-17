@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
+from friday.storage import UserSettings
 from friday.weixin.bridge import (
     DESKTOP_CONTINUE_HINT,
     FILE_SEND_FAIL_HINT,
@@ -14,7 +13,6 @@ from friday.weixin.bridge import (
 )
 from friday.weixin.client import WeixinAccount
 from friday.weixin.media import aes_ecb_padded_size, encrypt_aes_ecb
-from friday.storage import UserSettings
 
 
 def test_truncate_reply_short_unchanged():

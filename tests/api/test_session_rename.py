@@ -32,7 +32,7 @@ def test_weixin_legacy_title_upgrade(tmp_appdata):
     legacy = create_session(title="微信 821ab0ba")
     mapping_path = tmp_appdata / "weixin_sessions.json"
     mapping_path.write_text(
-        '{"acc1::peer1@im.wechat": "%s"}' % legacy.id,
+        f'{{"acc1::peer1@im.wechat": "{legacy.id}"}}',
         encoding="utf-8",
     )
     session_id = resolve_session_id("acc1", "peer1@im.wechat")

@@ -70,7 +70,12 @@ def _canonical_update_download_url(repo: str, version: str, source_kind: str) ->
 
 
 def _pick_download_sha256(data: dict, download_url: str, *, repo: str = "", source_kind: str = "") -> str:
-    from friday.release_hashes import SUMS_FILENAME, expected_sha256_for_download, filename_from_download_url, parse_sums_text
+    from friday.release_hashes import (
+        SUMS_FILENAME,
+        expected_sha256_for_download,
+        filename_from_download_url,
+        parse_sums_text,
+    )
     from friday.version import release_update_zip_name
 
     url = (download_url or "").strip()

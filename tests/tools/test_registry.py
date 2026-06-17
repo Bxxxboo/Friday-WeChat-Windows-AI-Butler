@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from friday.tools.registry import parse_tool_arguments
 
 

@@ -8,9 +8,9 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable
 
 from friday.logging_config import get_logger
 from friday.paths import bundle_dir, get_appdata_dir, is_frozen

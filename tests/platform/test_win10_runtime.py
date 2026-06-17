@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from unittest.mock import patch
-
 from friday.win10_runtime import (
     RuntimeItem,
     check_dotnet_framework,

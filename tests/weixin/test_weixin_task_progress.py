@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from friday.storage import UserSettings
 from friday.weixin.bridge import _make_weixin_progress_handler
 from friday.weixin.client import WeixinAccount
 from friday.weixin.progress import collect_newly_completed_todos, format_weixin_task_progress
-from friday.storage import UserSettings
 
 
 def test_collect_newly_completed_todos():

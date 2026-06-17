@@ -7,15 +7,15 @@ from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Any
 
-from friday.logging_config import get_logger
 from friday.approval_narration import build_approval_user_copy
+from friday.logging_config import get_logger
 from friday.safety import (
     PendingAction,
+    ToolDecision,
     TurnApprovalState,
     mark_turn_approved,
     should_request_approval,
 )
-from friday.safety import ToolDecision
 from friday.sessions import save_agent_state
 from friday.storage import UserSettings, load_settings
 from friday.weixin.approval import format_approval_prompt_weixin, parse_approval_text
@@ -27,8 +27,8 @@ from friday.weixin.client import (
     send_peer_image,
     send_peer_text,
 )
-from friday.weixin.sessions import resolve_session_id
 from friday.weixin.progress import collect_newly_completed_todos, format_weixin_task_progress
+from friday.weixin.sessions import resolve_session_id
 
 _log = get_logger("weixin.bridge")
 
@@ -104,11 +104,12 @@ class InboundResponse:
 
 
 def _peer_lock(peer: str) -> threading.Lock:
-    lock = _peer_locks.get(peer)
-    if lock is None:
-        lock = threading.Lock()
-        _peer_locks[peer] = lock
-    return lock
+    with _inbound_meta_lock:
+        lock = _peer_locks.get(peer)
+        if lock is None:
+            lock = threading.Lock()
+            _peer_locks[peer] = lock
+        return lock
 
 
 def _prune_recent_inbound(now: float) -> None:

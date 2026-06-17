@@ -171,7 +171,7 @@ def test_save_settings_preserves_image_gen_test_cache():
 
 
 def test_probe_image_gen_status_keeps_ok_cache_on_inconclusive_failure(monkeypatch):
-    from friday.api_connect import probe_image_gen_status, record_service_status, _auth_status_key, _read_auth_status
+    from friday.api_connect import _auth_status_key, _read_auth_status, probe_image_gen_status, record_service_status
 
     settings = UserSettings(
         image_gen_enabled=True,
@@ -198,7 +198,7 @@ def test_probe_image_gen_status_keeps_ok_cache_on_inconclusive_failure(monkeypat
 
 
 def test_test_image_gen_service_preserves_ok_cache_on_soft_failure(monkeypatch):
-    from friday.api_connect import test_image_gen_service, record_service_status, _auth_status_key, _read_auth_status
+    from friday.api_connect import _auth_status_key, _read_auth_status, record_service_status, test_image_gen_service
 
     settings = UserSettings(
         image_gen_enabled=True,
@@ -222,7 +222,7 @@ def test_test_image_gen_service_preserves_ok_cache_on_soft_failure(monkeypatch):
 
 
 def test_test_image_gen_service_overwrites_ok_cache_on_hard_failure(monkeypatch):
-    from friday.api_connect import test_image_gen_service, record_service_status, _auth_status_key, _read_auth_status
+    from friday.api_connect import _auth_status_key, _read_auth_status, record_service_status, test_image_gen_service
 
     settings = UserSettings(
         image_gen_enabled=True,
@@ -245,7 +245,7 @@ def test_test_image_gen_service_overwrites_ok_cache_on_hard_failure(monkeypatch)
 
 
 def test_probe_image_gen_status_quick_failure_does_not_clobber_ok_cache(monkeypatch):
-    from friday.api_connect import probe_image_gen_status, record_service_status, _auth_status_key, _read_auth_status
+    from friday.api_connect import _auth_status_key, _read_auth_status, probe_image_gen_status, record_service_status
 
     settings = UserSettings(
         image_gen_enabled=True,

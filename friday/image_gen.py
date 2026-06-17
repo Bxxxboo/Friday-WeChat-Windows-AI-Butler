@@ -1123,7 +1123,7 @@ def _humanize_image_gen_http_error(
         return "生图请求参数有误，请检查模型名、Key 与 Base URL 是否匹配"
 
     if code >= 500:
-        return f"生图服务端暂时异常，请稍后重试" + (f"（{detail}）" if detail else "")
+        return "生图服务端暂时异常，请稍后重试" + (f"（{detail}）" if detail else "")
 
     if detail:
         return f"生图 API 异常：{detail}"
@@ -1143,7 +1143,6 @@ def verify_image_gen_api(
 
     from friday.config import (
         IMAGE_GEN_IMAGES_PROBE_TIMEOUT,
-        IMAGE_GEN_PROBE_TIMEOUT,
         STATUS_BAR_IMAGE_GEN_PROBE_TIMEOUT,
     )
 

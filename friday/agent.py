@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable
-
 import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
 
 from friday.brain import ChatCompletionResult, DeepSeekBrain, UsageStats
 from friday.config import MAX_TOOL_RESULT_CHARS, MAX_TOOL_ROUNDS, MAX_TOOL_ROUNDS_CAP
 from friday.logging_config import get_logger
+from friday.operations import log_operation
+from friday.ppt_task import (
+    append_ppt_task_hint,
+    block_draft_document_during_ppt_message,
+    block_plugin_list_during_ppt_message,
+    block_powershell_read_during_ppt_message,
+    conversation_in_ppt_task,
+    is_ppt_task_context,
+)
 from friday.safety import (
     PendingAction,
     RiskLevel,
@@ -21,7 +30,6 @@ from friday.safety import (
     summarize_preview,
 )
 from friday.storage import UserSettings
-from friday.operations import log_operation
 from friday.tools.registry import CANCELLED_TOOL_MESSAGE, execute_tool, is_download_task_context, parse_tool_arguments
 
 ApprovalCallback = Callable[[PendingAction], bool]
@@ -332,6 +340,7 @@ class FridayAgent:
             self._last_round_tool_results(finish),
             user_goal=self._approval_user_goal(),
             pending_todos=pending,
+            ppt_session_active=self._ppt_session_active(),
         )
 
     def _wrap_up_reply(self, on_event: EventCallback | None, *, reason: str = "round_limit") -> str:
@@ -399,7 +408,15 @@ class FridayAgent:
                 return str(msg.get("content", ""))
         return ""
 
+    def _ppt_session_active(self) -> bool:
+        return conversation_in_ppt_task(self.messages) or is_ppt_task_context(
+            self._approval_user_goal()
+        )
+
     def _approval_user_goal(self) -> str:
+        from friday.ppt_task import is_ppt_task_context, is_short_confirmation
+
+        candidates: list[str] = []
         for msg in reversed(self.messages):
             if msg.get("role") != "user":
                 continue
@@ -410,8 +427,12 @@ class FridayAgent:
                 text = text.split("\n\n【当前任务：", 1)[0].strip()
             if "\n\n【复杂任务提示】" in text:
                 text = text.split("\n\n【复杂任务提示】", 1)[0].strip()
-            return text
-        return ""
+            if is_short_confirmation(text):
+                continue
+            candidates.append(text)
+            if is_ppt_task_context(text):
+                return text
+        return candidates[0] if candidates else ""
 
     def _latest_assistant_text(self) -> str:
         for msg in reversed(self.messages):
@@ -468,6 +489,41 @@ class FridayAgent:
                 schedule_id=str(meta.get("schedule_id", "")),
             )
             return result
+
+        if name in {"list_friday_plugins", "list_plugin_catalog", "install_friday_plugin"} and self._ppt_session_active():
+            result = block_plugin_list_during_ppt_message()
+            meta = self.operation_meta or {}
+            log_operation(
+                name, args, result,
+                session_id=str(meta.get("session_id", "")),
+                trigger=str(meta.get("trigger", "chat")),
+                schedule_id=str(meta.get("schedule_id", "")),
+            )
+            return result
+
+        if name in {"create_pptx", "create_docx"} and self._ppt_session_active():
+            result = block_draft_document_during_ppt_message()
+            meta = self.operation_meta or {}
+            log_operation(
+                name, args, result,
+                session_id=str(meta.get("session_id", "")),
+                trigger=str(meta.get("trigger", "chat")),
+                schedule_id=str(meta.get("schedule_id", "")),
+            )
+            return result
+
+        if name == "run_powershell" and self._ppt_session_active():
+            cmd = str(args.get("command", "")).lower()
+            if "get-content" in cmd or "skill.md" in cmd or "ppt-master" in cmd:
+                result = block_powershell_read_during_ppt_message()
+                meta = self.operation_meta or {}
+                log_operation(
+                    name, args, result,
+                    session_id=str(meta.get("session_id", "")),
+                    trigger=str(meta.get("trigger", "chat")),
+                    schedule_id=str(meta.get("schedule_id", "")),
+                )
+                return result
 
         decision = evaluate_tool(
             self.settings,
@@ -834,6 +890,8 @@ class FridayAgent:
                 "一次 download_software 调用即可，不要分多步试探链接。"
             )
             user_text = user_text + hint
+        ppt_active = conversation_in_ppt_task(self.messages) or is_ppt_task_context(user_text)
+        user_text = append_ppt_task_hint(user_text, session_active=ppt_active)
         from friday.plan import maybe_append_complex_task_plan_hint
 
         user_text = maybe_append_complex_task_plan_hint(user_text, session_id)

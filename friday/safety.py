@@ -4,8 +4,15 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from urllib.parse import urlparse
 
+from friday.approval_descriptions import (
+    describe_approval_detail,
+    describe_approval_plain,
+    summarize_preview,
+)
+from friday.approval_descriptions import (
+    format_bytes as _format_bytes,
+)
 from friday.interaction_modes import (
     ASK_BLOCK_REASON,
     YOLO_EXEC_REQUIRES_APPROVAL,
@@ -16,6 +23,13 @@ from friday.interaction_modes import (
 from friday.os_path_guard import block_reason_for_destructive_paths
 from friday.paths import known_folders
 from friday.storage import UserSettings, resolved_workspace
+
+# Re-exported for `from friday.safety import ...` compatibility
+__all__ = [
+    "describe_approval_detail",
+    "describe_approval_plain",
+    "summarize_preview",
+]
 
 
 class RiskLevel(str, Enum):
@@ -406,9 +420,6 @@ def _powershell_download_block_reason(command: str) -> str:
     return ""
 
 
-from friday.approval_descriptions import format_bytes as _format_bytes
-
-
 def _evaluate_download(
     settings: UserSettings,
     arguments: dict,
@@ -490,11 +501,6 @@ def needs_approval(tool_name: str) -> bool:
     return classify_tool(tool_name) != RiskLevel.READ
 
 
-from friday.approval_descriptions import (  # noqa: E402
-    describe_approval_detail,
-    describe_approval_plain,
-    summarize_preview,
-)
 
 
 def summarize_action(tool_name: str, arguments: dict) -> str:

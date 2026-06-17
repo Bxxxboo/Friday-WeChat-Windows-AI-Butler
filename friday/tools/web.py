@@ -11,18 +11,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from friday.logging_config import get_logger
-from friday.tools._decorators import register_tool
 from friday.config import (
-    DOWNLOAD_LARGE_MAX_BYTES,
     DOWNLOAD_LARGE_THRESHOLD_BYTES,
-    DOWNLOAD_MAX_BYTES,
     WEB_PAGE_MAX_BYTES,
 )
+from friday.logging_config import get_logger
+from friday.tools._decorators import register_tool
 from friday.tools.web_limits import DownloadProbe, download_byte_limit, format_bytes
 from friday.tools.web_security import normalize_url, validate_public_url
 from friday.tools.web_trust import (
-    TrustLevel,
     assess_download_trust,
     format_trust_report,
     pick_best_download_link,

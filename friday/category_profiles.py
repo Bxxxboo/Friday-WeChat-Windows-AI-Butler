@@ -6,7 +6,6 @@ from copy import deepcopy
 from typing import Any, Literal
 
 from friday.custom_endpoints import (
-    Category as EndpointCategory,
     _DEFAULT_BUILTIN,
     _cfg,
     active_provider_id,
@@ -17,6 +16,9 @@ from friday.custom_endpoints import (
     snapshot_from_active,
     switch_custom_endpoint,
     upsert_endpoint,
+)
+from friday.custom_endpoints import (
+    Category as EndpointCategory,
 )
 from friday.storage import UserSettings
 

@@ -348,8 +348,8 @@ def install_github_skill(source: str) -> dict[str, Any]:
                 "icon": "✨",
                 "category": "plugin",
                 "prompt": (
-                    f"请 read_text_file 读取 {{plugin_dir}}/SKILL.md，"
-                    f"严格按 storage-analyzer 流程执行。脚本在 {{plugin_dir}}/scripts。"
+                    "请 read_text_file 读取 {plugin_dir}/SKILL.md，"
+                    "严格按 storage-analyzer 流程执行。脚本在 {plugin_dir}/scripts。"
                 ),
             }],
             "rules": [],

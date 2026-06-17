@@ -195,7 +195,7 @@ def _probe_tcp(host: str, port: int) -> ConnectivityStep:
         with socket.create_connection((host, port), timeout=min(API_CONNECT_TIMEOUT, 12.0)):
             pass
         return ConnectivityStep("TCP 连接", True, f"{host}:{port} 可达")
-    except (TimeoutError, socket.timeout) as exc:
+    except TimeoutError as exc:
         return ConnectivityStep(
             "TCP 连接",
             False,

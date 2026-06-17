@@ -2,11 +2,7 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from friday.weixin.login_runner import (
     WEIXIN_LOGIN_URL_RE,

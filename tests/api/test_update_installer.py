@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -21,25 +22,55 @@ from friday.update_installer import (
     resolve_update_digest,
     start_apply_update,
 )
-import urllib.error
 
 
 def test_validate_download_url():
-    assert _validate_download_url("https://gitee.com/Bxxxboo/friday/releases/download/v1/Friday-Windows-1.2.4.zip")
-    assert _validate_download_url("https://github.com/user/repo/releases/download/v1/a.zip")
-    assert _validate_download_url("https://raw.githubusercontent.com/user/repo/v1/a.zip")
+    assert _validate_download_url(
+        "https://gitee.com/Bxxxboo/friday/releases/download/v1.4.6/Friday-Update-1.4.6.zip"
+    )
+    assert _validate_download_url(
+        "https://github.com/Bxxxboo/Friday-WeChat-Windows-AI-Butler/releases/download/v1.4.6/Friday-Update-1.4.6.zip"
+    )
+    assert not _validate_download_url("https://github.com/user/repo/releases/download/v1/a.zip")
+    assert not _validate_download_url("https://raw.githubusercontent.com/user/repo/v1/a.zip")
     assert not _validate_download_url("http://evil.example/update.zip")
     assert not _validate_download_url("https://evil.example/gitee.com/foo.zip")
     assert not _validate_download_url("https://gitee.com.evil.net/foo.zip")
     assert not _validate_download_url("")
 
 
-def test_resolve_update_digest_requires_hash():
+def test_resolve_update_digest_uses_official_hash(monkeypatch):
     url = "https://gitee.com/Bxxxboo/friday/releases/download/v1.3.1/Friday-Update-1.3.1.zip"
-    digest = "a" * 64
-    assert resolve_update_digest(url, digest) == digest
+    official = "a" * 64
+    monkeypatch.setattr(
+        "friday.release_hashes.expected_sha256_for_download",
+        lambda _url, **kwargs: official,
+    )
+    assert resolve_update_digest(url, "") == official
+    assert resolve_update_digest(url, official) == official
+
+
+def test_resolve_update_digest_rejects_client_mismatch(monkeypatch):
+    url = "https://gitee.com/Bxxxboo/friday/releases/download/v1.3.1/Friday-Update-1.3.1.zip"
+    official = "a" * 64
+    monkeypatch.setattr(
+        "friday.release_hashes.expected_sha256_for_download",
+        lambda _url, **kwargs: official,
+    )
+    with pytest.raises(RuntimeError, match="不一致"):
+        resolve_update_digest(url, "b" * 64)
+
+
+def test_resolve_update_digest_requires_hash(monkeypatch):
+    url = "https://gitee.com/Bxxxboo/friday/releases/download/v1.3.1/Friday-Update-1.3.1.zip"
+    monkeypatch.setattr(
+        "friday.release_hashes.expected_sha256_for_download",
+        lambda _url, **kwargs: "",
+    )
     with pytest.raises(RuntimeError, match="SHA256"):
         resolve_update_digest(url, "")
+    with pytest.raises(RuntimeError, match="SHA256"):
+        resolve_update_digest(url, "a" * 64)
 
 
 def test_extract_release_rejects_zip_slip(tmp_path: Path):

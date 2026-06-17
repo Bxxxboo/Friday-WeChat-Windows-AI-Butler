@@ -8,19 +8,21 @@ from __future__ import annotations
 import importlib
 import json
 import re
-import time
 import threading
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from typing import Any, Callable
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from typing import Any
 
 from friday.config import (
     CANCEL_POLL_INTERVAL,
     TOOL_TIMEOUT_DOWNLOAD,
     TOOL_TIMEOUT_DOWNLOAD_LARGE,
     TOOL_TIMEOUT_EXEC,
+    TOOL_TIMEOUT_IMAGE_GEN,
     TOOL_TIMEOUT_READ,
     TOOL_TIMEOUT_VISION,
-    TOOL_TIMEOUT_IMAGE_GEN,
     TOOL_TIMEOUT_WRITE,
 )
 from friday.logging_config import get_logger

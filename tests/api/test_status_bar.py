@@ -4,7 +4,7 @@ import asyncio
 
 from friday.agent import FridayAgent
 from friday.server import _agent_cache, get_status_bar
-from friday.storage import save_settings, UserSettings
+from friday.storage import UserSettings, save_settings
 
 
 def test_status_bar_payload(tmp_appdata):

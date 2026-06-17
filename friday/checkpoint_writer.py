@@ -7,9 +7,10 @@ import queue
 import re
 import threading
 import time
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from friday.config import (
     CHECKPOINT_FIELD_KEYS,
@@ -302,8 +303,8 @@ def _summarize_for_checkpoint(
     notes: str,
     summarize_fn: Callable[[list[dict[str, Any]]], str] | None = None,
 ) -> CheckpointFields:
-    from friday.prefix_cache import deterministic_summary, format_messages_for_summary
     from friday.plan import get_session_plan
+    from friday.prefix_cache import deterministic_summary, format_messages_for_summary
 
     batch = [m for m in messages if m.get("role") in {"user", "assistant", "tool"}][-40:]
     if summarize_fn:

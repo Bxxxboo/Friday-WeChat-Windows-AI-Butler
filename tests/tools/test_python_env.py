@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -96,6 +97,27 @@ def test_run_python_inline(workspace):
         result = run_python("print('friday-py-ok')", cwd=ws, timeout=60)
     assert "friday-py-ok" in result
     assert "exit=0" in result
+
+
+def test_run_python_script_splits_quoted_args(workspace, monkeypatch):
+    from pathlib import Path
+
+    from friday.tools.python_runner import run_python_script
+
+    script = Path(workspace) / "t.py"
+    script.write_text("print(1)", encoding="utf-8")
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        "friday.tools.python_runner._run_process",
+        lambda args, **kw: calls.append(args) or "exit=0\n",
+    )
+    monkeypatch.setattr(
+        "friday.tools.python_runner._ensure_python",
+        lambda workspace: (Path(sys.executable), "ok"),
+    )
+    run_python_script(str(script), args='"hello world" --flag')
+    assert calls[0][-2:] == ["hello world", "--flag"]
 
 
 def test_env_status_not_ready(tmp_path):
@@ -199,7 +221,7 @@ def test_get_setup_progress_idle():
 
 
 def test_pip_mirrors_default_domestic_first():
-    from friday.python_env import PIP_INDEX_DEFAULT, _PIP_MIRRORS
+    from friday.python_env import _PIP_MIRRORS, PIP_INDEX_DEFAULT
 
     assert _PIP_MIRRORS[0][0] == PIP_INDEX_DEFAULT
     assert "npmmirror" in PIP_INDEX_DEFAULT or "tsinghua" in PIP_INDEX_DEFAULT

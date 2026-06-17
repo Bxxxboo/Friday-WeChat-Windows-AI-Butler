@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from friday.storage import UserSettings, merge_settings, save_settings, load_settings
-from friday.vision import describe_image, vision_config_hint, vision_ready, masked_vision_key
 from friday.safety import RiskLevel, classify_tool
+from friday.storage import UserSettings, load_settings, merge_settings, save_settings
+from friday.vision import describe_image, masked_vision_key, vision_config_hint, vision_ready
 
 
 def test_vision_ready_requires_enabled_and_key():
@@ -126,8 +126,9 @@ def test_describe_image_compresses_large_png(tmp_path: Path):
     from friday.vision import _COMPRESS_IF_OVER, optimize_image_bytes
 
     try:
-        from PIL import Image
         import random
+
+        from PIL import Image
     except ImportError:
         pytest.skip("Pillow not installed")
 

@@ -12,7 +12,7 @@ from friday.edition import app_user_model_id, window_title
 from friday.logging_config import setup_logging
 from friday.net import find_free_port
 from friday.paths import app_icon_path, get_appdata_dir, stable_icon_path
-from friday.splash import blank_html, boot_splash_html, resolved_boot_theme, splash_background
+from friday.splash import boot_splash_html, resolved_boot_theme, splash_background
 from friday.storage import load_settings
 
 _log = None  # 在 main() 中赋值

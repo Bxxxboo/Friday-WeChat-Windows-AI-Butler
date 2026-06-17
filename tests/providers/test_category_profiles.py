@@ -6,7 +6,7 @@ from friday.category_profiles import (
     switch_category_profile,
 )
 from friday.custom_endpoints import switch_category_provider
-from friday.storage import UserSettings, merge_settings, save_settings, load_settings
+from friday.storage import UserSettings, load_settings, merge_settings, save_settings
 
 
 def test_switch_image_gen_snapshots_and_restores_api(tmp_appdata):
@@ -255,7 +255,6 @@ def test_load_settings_restores_enabled_from_profile_flag(tmp_appdata):
 
 
 def test_save_persists_category_enabled_in_profile(tmp_appdata):
-    from friday.category_profiles import persist_category_profile
 
     settings = UserSettings(
         vision_enabled=True,

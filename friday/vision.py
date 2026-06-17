@@ -146,7 +146,6 @@ def compose_chat_message(
 
 def _vision_client(api_key: str, base_url: str, settings: UserSettings | None = None):
     from friday.api_connect import build_openai_client
-    from friday.config import VISION_HTTP_TIMEOUT
 
     return build_openai_client(
         api_key,

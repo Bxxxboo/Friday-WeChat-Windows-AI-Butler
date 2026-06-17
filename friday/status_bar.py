@@ -9,7 +9,6 @@ from typing import Any
 
 from friday.storage import load_settings, resolved_workspace
 
-
 SessionContextLoader = Callable[
     [str],
     tuple[list[dict[str, Any]] | None, list[dict[str, Any]] | None],

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from friday.sessions import (
     create_session,
     delete_session,

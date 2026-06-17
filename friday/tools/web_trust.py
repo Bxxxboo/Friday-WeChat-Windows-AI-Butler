@@ -15,7 +15,7 @@ from friday.logging_config import get_logger
 _log = get_logger("web_trust")
 
 _TLS_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
-_TRUST_CACHE: dict[str, tuple[float, "TrustReport"]] = {}
+_TRUST_CACHE: dict[str, tuple[float, TrustReport]] = {}
 _CACHE_TTL = 300.0
 
 # 全球常见软件发布商 / CDN（域名后缀匹配）
@@ -306,7 +306,7 @@ def inspect_tls(hostname: str, *, use_cache: bool = True) -> dict[str, object]:
                     "issuer": str(org),
                     "reason": "" if hostname_ok else "证书域名与站点不匹配",
                 }
-    except (ssl.SSLError, socket.timeout, TimeoutError, OSError) as exc:
+    except (ssl.SSLError, TimeoutError, OSError) as exc:
         result = {"valid": False, "issuer": "", "reason": str(exc)}
 
     _TLS_CACHE[host] = (now, result)

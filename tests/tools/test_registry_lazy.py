@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from friday.tools.registry import TOOL_DEFINITIONS, _IMPORTED, ensure_all_tools, get_tool_definitions
+from friday.tools.registry import _IMPORTED, TOOL_DEFINITIONS, ensure_all_tools, get_tool_definitions
 
 
 def test_lazy_modules_not_loaded_at_import():

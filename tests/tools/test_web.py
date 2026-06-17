@@ -22,7 +22,7 @@ def small_probe(monkeypatch: pytest.MonkeyPatch):
         return DownloadProbe(url=url, final_url=url, content_length=50 * 1024 * 1024)
 
     def _trust(url, *, expected_software="", use_cache=True):
-        from friday.tools.web_trust import TrustReport, TrustLevel
+        from friday.tools.web_trust import TrustLevel, TrustReport
         return TrustReport(
             url=url, domain="example.com", level=TrustLevel.TRUSTED, label="可信发布商",
         )
@@ -37,7 +37,7 @@ def large_probe(monkeypatch: pytest.MonkeyPatch):
         return DownloadProbe(url=url, final_url=url, content_length=3 * 1024 ** 3)
 
     def _trust(url, *, expected_software="", use_cache=True):
-        from friday.tools.web_trust import TrustReport, TrustLevel
+        from friday.tools.web_trust import TrustLevel, TrustReport
         return TrustReport(
             url=url, domain="example.com", level=TrustLevel.TRUSTED, label="可信发布商",
         )

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from friday.memory_events import events_path, log_memory_event
 from friday.memory_search import search_saved_memory
-from friday.tools.memory_tools import search_past_conversations, search_saved_memory as tool_search_saved
+from friday.tools.memory_tools import search_past_conversations
+from friday.tools.memory_tools import search_saved_memory as tool_search_saved
 
 
 def test_log_memory_event(tmp_path, monkeypatch):

@@ -431,7 +431,7 @@ def on_session_deleted(session_id: str, *, settings: UserSettings | None = None)
         if item.get("lifecycle") in {LIFECYCLE_DELIVERED, LIFECYCLE_PINNED}:
             continue
         exp = item.get("expires_at")
-        item["expires_at"] = min(float(exp), grace) if isinstance(exp, (int, float)) else grace
+        item["expires_at"] = min(float(exp), grace) if isinstance(exp, int | float) else grace
         updated += 1
     if updated:
         _save_index(items, cfg)
@@ -482,7 +482,7 @@ def run_gc(*, settings: UserSettings | None = None, dry_run: bool = False) -> di
         if _should_skip_gc_item(item):
             continue
         exp = item.get("expires_at")
-        if not isinstance(exp, (int, float)) or exp > now:
+        if not isinstance(exp, int | float) or exp > now:
             continue
         src = Path(str(item.get("path", "")).replace("/", "\\"))
         if dry_run:
@@ -506,7 +506,7 @@ def run_gc(*, settings: UserSettings | None = None, dry_run: bool = False) -> di
         if item.get("status") != STATUS_TRASHED:
             continue
         trashed_at = item.get("trashed_at")
-        if not isinstance(trashed_at, (int, float)) or trashed_at > trash_cutoff:
+        if not isinstance(trashed_at, int | float) or trashed_at > trash_cutoff:
             continue
         src = Path(str(item.get("path", "")).replace("/", "\\"))
         size = int(item.get("size_bytes") or 0)

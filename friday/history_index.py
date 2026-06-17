@@ -52,7 +52,6 @@ def ensure_schema() -> None:
 
 
 def _display_text(msg: dict[str, Any]) -> str:
-    role = str(msg.get("role", ""))
     content = str(msg.get("content", "")).strip()
     if not content:
         images = msg.get("generated_images")

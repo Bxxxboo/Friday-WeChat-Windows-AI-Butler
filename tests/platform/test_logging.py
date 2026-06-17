@@ -8,7 +8,6 @@ from friday.logging_config import (
     log_file_path,
     purge_expired_logs,
     read_recent_log_lines,
-    setup_logging,
 )
 
 

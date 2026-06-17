@@ -10,11 +10,6 @@ _MULTI_STEP_HINTS = re.compile(
     re.I,
 )
 
-_PLUGIN_LIST_GOAL = re.compile(
-    r"插件|技能|规则|扩展|catalog|github.*rule|rules|skill",
-    re.I,
-)
-
 _READ_LIST_TOOLS = frozenset({"list_friday_plugins", "list_plugin_catalog"})
 
 
@@ -28,7 +23,9 @@ def looks_like_multi_step_task(user_goal: str, *, pending_todos: int = 0) -> boo
 
 
 def looks_like_plugin_list_goal(user_goal: str) -> bool:
-    return bool(_PLUGIN_LIST_GOAL.search((user_goal or "").strip()))
+    from friday.ppt_task import is_plugin_list_goal
+
+    return is_plugin_list_goal(user_goal)
 
 
 def _format_plugin_list_reply(
@@ -61,22 +58,24 @@ def try_fast_finish_reply(
     *,
     user_goal: str = "",
     pending_todos: int = 0,
+    ppt_session_active: bool = False,
 ) -> str | None:
     """工具成功后返回模板回复以跳过总结轮 LLM（单工具或插件双列表）。"""
     if not tool_results:
         return None
 
+    from friday.ppt_task import is_ppt_project_artifact_path, is_ppt_task_context
+
+    if is_ppt_task_context(user_goal) or pending_todos > 0 or ppt_session_active:
+        return None
+
     names = {name for name, _, _ in tool_results}
     if names <= _READ_LIST_TOOLS and len(tool_results) == len(names):
+        if not looks_like_plugin_list_goal(user_goal):
+            return None
         if len(tool_results) == 2 and names == _READ_LIST_TOOLS:
-            if looks_like_multi_step_task(user_goal, pending_todos=pending_todos):
-                if not looks_like_plugin_list_goal(user_goal):
-                    return None
             return _format_plugin_list_reply(tool_results)
         if len(tool_results) == 1:
-            if looks_like_multi_step_task(user_goal, pending_todos=pending_todos):
-                if not looks_like_plugin_list_goal(user_goal):
-                    return None
             name, _args, result = tool_results[0]
             text = (result or "").strip()
             if not text:
@@ -98,6 +97,8 @@ def try_fast_finish_reply(
 
     if name == "write_text_file" and text.startswith("已写入:"):
         path = text.split(":", 1)[1].strip()
+        if is_ppt_project_artifact_path(path):
+            return None
         return f"已保存修改到 `{path}`。"
 
     if name == "generate_image" and text.startswith("已生成图片并保存："):
@@ -108,9 +109,13 @@ def try_fast_finish_reply(
         return f"图片已生成并保存到 `{path}`。{detail}".strip()
 
     if name == "move_file" and text.startswith("已移动:"):
+        if is_ppt_project_artifact_path(text.split(":", 1)[-1]):
+            return None
         return f"{text.rstrip('。')}。"
 
     if name == "copy_file" and text.startswith("已复制:"):
+        if is_ppt_project_artifact_path(text):
+            return None
         return f"{text.rstrip('。')}。"
 
     if name == "create_docx" and text.startswith("已创建 Word"):

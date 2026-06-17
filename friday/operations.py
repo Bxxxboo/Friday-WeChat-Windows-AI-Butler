@@ -13,7 +13,7 @@ from typing import Any
 from friday.io_utils import atomic_write_json, load_json
 from friday.logging_config import get_logger
 from friday.paths import get_appdata_dir
-from friday.safety import RiskLevel, WRITE_TOOLS, classify_tool, summarize_action
+from friday.safety import WRITE_TOOLS, RiskLevel, classify_tool, summarize_action
 
 _log = get_logger("operations")
 

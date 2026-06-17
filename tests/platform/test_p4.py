@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from friday.operations import export_operations, log_operation, replay_prompt
 from friday.schedules import compute_next_run, create_schedule, mark_schedule_run
 from friday.skills import create_skill, delete_skill, list_skills, list_skills_grouped

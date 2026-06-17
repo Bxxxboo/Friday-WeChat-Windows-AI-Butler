@@ -70,7 +70,8 @@ def test_sha256_hex_file_and_verify(tmp_path: Path):
         verify_file_sha256(path, "b" * 64)
 
 
-def test_verify_skips_when_expected_empty(tmp_path: Path):
+def test_verify_rejects_empty_expected(tmp_path: Path):
     path = tmp_path / "sample.bin"
     path.write_bytes(b"x")
-    verify_file_sha256(path, "")
+    with pytest.raises(RuntimeError, match="校验信息无效"):
+        verify_file_sha256(path, "")

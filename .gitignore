@@ -35,6 +35,7 @@ release/Friday-Setup-*.exe
 release/SHA256SUMS.txt
 release/stage/
 release/stage-*/
+release/_verify*/
 release/test.zip
 installer/stage/
 installer/output/

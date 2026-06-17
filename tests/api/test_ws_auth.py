@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 import secrets
 
-import friday.auth as auth
 from fastapi.testclient import TestClient
+
+import friday.auth as auth
 
 
 def test_ws_auth_via_first_message(tmp_appdata, monkeypatch):

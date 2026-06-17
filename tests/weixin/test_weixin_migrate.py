@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from friday.weixin.setup import migrate_legacy_openclaw_state
 
 

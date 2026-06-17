@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from typing import Any
 
@@ -198,7 +197,7 @@ def detect_repeated_tool_loop(
             fn = call.get("function") or {}
             name = str(fn.get("name", ""))
             args = str(fn.get("arguments", ""))
-            sig = hashlib.sha1(f"{name}|{args}".encode("utf-8")).hexdigest()[:12]
+            sig = hashlib.sha1(f"{name}|{args}".encode()).hexdigest()[:12]
             signatures.append(sig)
             if name:
                 names.append(name)

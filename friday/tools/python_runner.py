@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
-import os
 from pathlib import Path
 
 from friday.logging_config import get_logger
@@ -219,7 +220,7 @@ def run_python_script(path: str, args: str = "", cwd: str = "", timeout: int = 3
 
     cmd = [str(python_exe), str(script)]
     if args.strip():
-        cmd.extend(args.split())
+        cmd.extend(shlex.split(args, posix=True))
 
     _log.info("执行 Python 脚本 | script=%s | timeout=%d", script, timeout)
     result = _run_process(cmd, cwd=work_dir, timeout=timeout)

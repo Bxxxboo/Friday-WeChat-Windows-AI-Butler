@@ -3,8 +3,9 @@ from __future__ import annotations
 import secrets
 from pathlib import Path
 
-import friday.auth as auth
 from fastapi.testclient import TestClient
+
+import friday.auth as auth
 
 
 def _client_with_token(monkeypatch, tmp_appdata, token: str) -> TestClient:

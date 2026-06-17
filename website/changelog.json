@@ -1,6 +1,49 @@
 {
   "entries": [
     {
+      "version": "1.4.7",
+      "date": "2026-06-18",
+      "title": "代码卫生、MCP 与一键更新安全加固",
+      "sections": [
+        {
+          "label": "修复",
+          "items": [
+            "MCP 扩展：启动子进程时正确传入 PATH 与自定义环境变量，修复部分 MCP 服务无法连接",
+            "一键更新：下载链接仅允许官方 Gitee/GitHub Release 直链，SHA256 必须与 Release 附件一致"
+          ]
+        },
+        {
+          "label": "改进",
+          "items": [
+            "全库 ruff lint 清理（160+ 项），提升打包与启动稳定性",
+            "PPT 任务检测独立为 ppt_task 模块，减少做演示文稿时误用草稿工具",
+            "新增 scripts/run-typecheck.cmd，便于后续类型检查治理"
+          ]
+        }
+      ]
+    },
+    {
+      "version": "1.4.6",
+      "date": "2026-06-11",
+      "title": "打包修复与一键更新稳定性",
+      "sections": [
+        {
+          "label": "修复",
+          "items": [
+            "打包：补全 PyInstaller hiddenimports（weixin_send / ui_send），消除启动时 ModuleNotFoundError 警告",
+            "一键更新：Gitee Release 资产缺失或配额限制时仍能正确检测 Friday-Update 包",
+            "一键更新：SHA256SUMS 解析与下载 URL 规范化，避免校验失败"
+          ]
+        },
+        {
+          "label": "改进",
+          "items": [
+            "新增 test_packaging_spec 回归：确保 friday.spec 始终包含微信发送工具模块"
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.4.5",
       "date": "2026-06-11",
       "title": "内置 PPT Master：专业演示文稿工作流",

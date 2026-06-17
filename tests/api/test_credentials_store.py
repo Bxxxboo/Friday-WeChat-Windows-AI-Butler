@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from friday.credentials_store import (
     credentials_dir,
     load_api_secrets,
@@ -82,7 +84,6 @@ def test_merge_profile_maps_preserves_stored_model_and_url():
 
 def test_delete_custom_endpoint_persists_after_save(tmp_appdata):
     from friday.custom_endpoints import add_blank_endpoint, delete_custom_endpoint, upsert_endpoint
-    from friday.storage import merge_settings
 
     settings = upsert_endpoint(
         UserSettings(),
@@ -135,6 +136,44 @@ def test_merge_settings_delete_custom_endpoint_persists(tmp_appdata):
     reloaded = load_settings()
     assert len(reloaded.llm_custom_endpoints) == 1
     assert reloaded.llm_custom_endpoints[0]["name"] == "A"
+
+
+def test_merge_endpoint_lists_preserves_stored_when_incoming_empty():
+    from friday.credentials_store import _merge_endpoint_lists
+
+    stored = [
+        {
+            "id": "ep-1",
+            "name": "mimo",
+            "api_key": "sk-secret",
+            "base_url": "https://api.example/v1",
+            "model": "model-a",
+        }
+    ]
+    merged = _merge_endpoint_lists([], stored)
+    assert len(merged) == 1
+    assert merged[0]["name"] == "mimo"
+    assert merged[0]["api_key"] == "sk-secret"
+
+
+def test_merge_endpoint_lists_fills_empty_api_key_from_stored():
+    from friday.credentials_store import _merge_endpoint_lists
+
+    stored = [{"id": "ep-1", "name": "A", "api_key": "sk-old", "base_url": "https://x", "model": "m"}]
+    incoming = [{"id": "ep-1", "name": "A", "api_key": "", "base_url": "https://x", "model": "m"}]
+    merged = _merge_endpoint_lists(incoming, stored)
+    assert merged[0]["api_key"] == "sk-old"
+
+
+def test_encrypt_key_rejects_plaintext_fallback(monkeypatch):
+    from friday.storage import _encrypt_key
+
+    def _boom():
+        raise RuntimeError("fernet unavailable")
+
+    monkeypatch.setattr("friday.storage._get_fernet", _boom)
+    with pytest.raises(RuntimeError, match="无法加密"):
+        _encrypt_key("sk-test-key")
 
 
 def test_credentials_preferred_when_settings_decrypt_fails(tmp_appdata):

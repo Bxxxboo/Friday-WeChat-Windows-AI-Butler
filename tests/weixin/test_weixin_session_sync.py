@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from friday.sessions import create_session, get_session, save_agent_state
+from friday.sessions import create_session, save_agent_state
 from friday.ws_broadcast import notify_session_updated, register_ws_client, unregister_ws_client
 
 

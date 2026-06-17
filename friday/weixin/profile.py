@@ -11,8 +11,14 @@ from typing import Any
 
 from friday.config import APP_NAME
 from friday.logging_config import get_logger
-from friday.version import __version__
-from friday.weixin.client import BOT_AGENT, CHANNEL_VERSION, ILINK_APP_CLIENT_VERSION, ILINK_APP_ID, list_account_ids, resolve_account
+from friday.weixin.client import (
+    BOT_AGENT,
+    CHANNEL_VERSION,
+    ILINK_APP_CLIENT_VERSION,
+    ILINK_APP_ID,
+    list_account_ids,
+    resolve_account,
+)
 from friday.weixin.config import openclaw_state_dir
 
 _log = get_logger("weixin.profile")

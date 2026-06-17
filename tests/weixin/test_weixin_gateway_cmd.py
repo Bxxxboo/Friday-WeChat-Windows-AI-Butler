@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from friday.weixin.config import openclaw_env, openclaw_state_dir
+from friday.weixin.config import openclaw_env
 from friday.weixin.gateway import (
     _gateway_cmd_is_current,
+    _parse_gateway_cmd,
     ensure_gateway_cmd,
     write_gateway_cmd,
-    _parse_gateway_cmd,
 )
 
 

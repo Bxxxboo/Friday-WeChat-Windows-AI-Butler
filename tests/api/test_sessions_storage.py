@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from friday.config import MAX_PERSISTED_TOOL_CHARS, SESSION_FORMAT_VERSION
 from friday.sessions import (
+    create_session,
     get_session,
     migrate_session_files,
     save_agent_state,
-    create_session,
 )
 
 

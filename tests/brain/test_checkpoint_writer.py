@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import threading
-import time
-
-import pytest
 
 from friday.checkpoint_writer import (
     CheckpointFields,
+    CheckpointMeta,
     append_session_note,
     checkpoint_tier_for_ratio,
     load_checkpoint_meta,
@@ -14,10 +12,9 @@ from friday.checkpoint_writer import (
     read_checkpoint,
     render_checkpoint_md,
     write_checkpoint_sync,
-    CheckpointMeta,
 )
 from friday.config import CHECKPOINT_TRIGGER_RATIOS
-from friday.sessions import create_session, get_session
+from friday.sessions import create_session
 
 
 def test_checkpoint_tier_thresholds():
@@ -129,7 +126,7 @@ def test_concurrent_writes_do_not_corrupt(tmp_appdata):
 
 
 def test_schedule_gate_uses_meta_tier(tmp_appdata, monkeypatch):
-    from friday.checkpoint_writer import save_checkpoint_meta, CheckpointMeta, maybe_schedule_checkpoint
+    from friday.checkpoint_writer import CheckpointMeta, maybe_schedule_checkpoint, save_checkpoint_meta
 
     monkeypatch.setattr(
         "friday.brain.compute_context_meter",

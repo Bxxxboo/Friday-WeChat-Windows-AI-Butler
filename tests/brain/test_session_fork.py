@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from friday.checkpoint_writer import write_checkpoint_sync
-from friday.sessions import fork_session, create_session, get_session, save_session_fields
+from friday.sessions import create_session, fork_session, get_session, save_session_fields
 
 
 def test_fork_copies_checkpoint_seed(tmp_appdata):

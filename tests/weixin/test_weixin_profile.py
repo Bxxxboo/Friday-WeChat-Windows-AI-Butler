@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from friday.weixin.profile import (
     DEFAULT_WEIXIN_DESCRIPTION,

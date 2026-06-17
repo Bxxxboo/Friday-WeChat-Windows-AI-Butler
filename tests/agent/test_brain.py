@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from friday.brain import DeepSeekBrain, build_system_prompt, resolve_max_context, _CONTEXT_MARKER
+from friday.brain import _CONTEXT_MARKER, DeepSeekBrain, build_system_prompt, resolve_max_context
 from friday.storage import UserSettings
 
 

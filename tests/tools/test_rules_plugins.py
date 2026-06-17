@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -9,7 +8,6 @@ from friday.bundled import BUNDLED_PLUGIN_IDS, migrate_legacy_bundled_plugins
 from friday.plugins import (
     format_plugin_catalog,
     install_github_skill,
-    install_local_plugin,
     install_plugin,
     install_plugin_from_manifest,
     list_plugins,
@@ -21,7 +19,6 @@ from friday.plugins import (
 )
 from friday.rules import active_rules_prompt, create_rule, delete_rule, get_rule, list_rules, update_rule
 from friday.skills import delete_skill, get_skill, list_skills, update_skill
-
 
 _DEMO_MANIFEST = {
     "id": "my-custom-plugin",

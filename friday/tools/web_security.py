@@ -5,7 +5,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
-from urllib.parse import urlparse, urljoin, urlunparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 _ALLOWED_SCHEMES = {"http", "https"}
 _BLOCKED_HOSTS = {

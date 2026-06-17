@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import secrets
 import shutil
 import subprocess
@@ -22,9 +21,6 @@ from friday.weixin.node_runtime import ensure_node_npm, npm_command, run_npm_glo
 from friday.weixin.openclaw_cli import (
     cli_available,
     find_openclaw_script,
-    openclaw_argv,
-    openclaw_shell_invocation,
-    resolve_openclaw_command,
     run_openclaw,
 )
 
@@ -708,7 +704,6 @@ def install_bridge_plugin() -> tuple[bool, str]:
 
 
 def start_gateway(*, force_restart: bool = False) -> tuple[bool, str]:
-    from friday.weixin.gateway import ensure_gateway_running
 
     cfg_ok, cfg_msg = ensure_openclaw_gateway_config()
     if not cfg_ok:

@@ -109,7 +109,7 @@ def expected_sha256_for_download(
 def verify_file_sha256(path: Path, expected_hex: str) -> None:
     expected = (expected_hex or "").strip().lower()
     if not expected:
-        return
+        raise RuntimeError("更新包校验信息无效，请从官方 Release 重新下载。")
     if not re.fullmatch(r"[a-f0-9]{64}", expected):
         raise RuntimeError("更新包校验信息无效，请从官方 Release 重新下载。")
     actual = sha256_hex_file(path)

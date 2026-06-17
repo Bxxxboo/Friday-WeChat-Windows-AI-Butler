@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from friday.error_hints import (
     build_test_response,
     classify_error,

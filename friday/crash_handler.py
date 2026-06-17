@@ -6,7 +6,7 @@ import os
 import sys
 import threading
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from types import TracebackType
 
@@ -30,7 +30,7 @@ def crashes_dir() -> Path:
 
 
 def _utc_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def format_crash_report(
@@ -78,7 +78,7 @@ def write_crash_report(
 ) -> Path | None:
     try:
         body = format_crash_report(exc_type, exc_value, exc_tb, context=context)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         path = crashes_dir() / f"crash-{stamp}-{os.getpid()}.log"
         path.write_text(body, encoding="utf-8")
         _prune_old_reports()

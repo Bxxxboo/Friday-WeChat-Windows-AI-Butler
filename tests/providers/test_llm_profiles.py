@@ -1,7 +1,6 @@
 """大模型服务商配置记忆测试。"""
 
 from friday.llm_profiles import (
-    persist_active_profile,
     profiles_summary,
     repair_llm_key_alignment,
     seed_profiles_from_active,

@@ -11,7 +11,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 # 保持插入顺序（Python 3.7+ dict 已有序，显式用 OrderedDict 更清晰）
 _REGISTRY: OrderedDict[str, dict[str, Any]] = OrderedDict()

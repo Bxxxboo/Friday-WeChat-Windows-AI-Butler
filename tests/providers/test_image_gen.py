@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from pathlib import Path
-
-import pytest
-
+import friday.image_gen as image_gen_module
 from friday.image_gen import (
+    _is_ark_image_gen_endpoint,
+    _should_skip_images_probe,
     default_base_url,
     extract_path_from_tool_result,
     format_generate_result,
@@ -17,11 +17,8 @@ from friday.image_gen import (
     resolve_image_gen_size,
     resolve_image_gen_timeouts,
     verify_image_gen_api,
-    _is_ark_image_gen_endpoint,
-    _should_skip_images_probe,
 )
-import friday.image_gen as image_gen_module
-from friday.safety import ToolDecision, evaluate_tool, should_request_approval, TurnApprovalState
+from friday.safety import TurnApprovalState, evaluate_tool, should_request_approval
 from friday.storage import UserSettings, save_settings
 
 
@@ -397,7 +394,6 @@ def test_is_ark_image_gen_endpoint_detects_ep_and_volces(tmp_appdata):
 
 def test_verify_models_http_ark_ep_not_in_list_defers_to_images(tmp_appdata, monkeypatch):
     import json
-    import urllib.error
 
     class _FakeResp:
         status = 200

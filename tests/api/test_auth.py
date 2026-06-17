@@ -20,7 +20,6 @@ def test_api_token_prefers_env_after_module_import(tmp_appdata, monkeypatch):
 
 
 def test_api_token_persists_to_appdata(tmp_appdata, monkeypatch):
-    import os
 
     monkeypatch.delenv("FRIDAY_API_TOKEN", raising=False)
     auth._TOKEN = ""

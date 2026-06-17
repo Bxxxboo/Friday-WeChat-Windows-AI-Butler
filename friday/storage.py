@@ -15,7 +15,7 @@ from pathlib import Path
 
 from friday.io_utils import atomic_write_json, load_json
 from friday.logging_config import get_logger
-from friday.paths import default_workspace, default_workspace_path, get_appdata_dir
+from friday.paths import default_workspace_path, get_appdata_dir
 
 _log = get_logger("storage")
 
@@ -61,9 +61,11 @@ def _encrypt_key(plaintext: str) -> str:
         f = _get_fernet()
         token = f.encrypt(plaintext.encode("utf-8"))
         return _ENCRYPTION_PREFIX + token.decode("utf-8")
-    except Exception:
-        _log.exception("加密 API Key 失败，回退为明文存储")
-        return plaintext
+    except Exception as exc:
+        _log.exception("加密 API Key 失败，拒绝明文保存")
+        raise RuntimeError(
+            "无法加密 API Key，保存已取消。请检查 %APPDATA%\\Friday 目录权限与 .fernet_key。"
+        ) from exc
 
 
 def _decrypt_key(stored: str) -> str:
@@ -149,12 +151,12 @@ class UserSettings:
     dream_memory_enabled: bool = False
 
     @classmethod
-    def from_dict(cls, data: dict) -> "UserSettings":
+    def from_dict(cls, data: dict) -> UserSettings:
         valid_keys = {f.name for f in fields(cls)}
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered)
 
-    def merge(self, partial: dict) -> "UserSettings":
+    def merge(self, partial: dict) -> UserSettings:
         merged = asdict(self)
         merged.update(partial)
         return UserSettings.from_dict(merged)
@@ -348,7 +350,12 @@ def load_settings() -> UserSettings:
         _log.info("已从 profile 回填视觉/生图活跃配置")
         settings = aligned_cat
 
-    from friday.llm_profiles import active_provider_id, normalize_profiles, repair_llm_key_alignment, seed_profiles_from_active
+    from friday.llm_profiles import (
+        active_provider_id,
+        normalize_profiles,
+        repair_llm_key_alignment,
+        seed_profiles_from_active,
+    )
 
     profiles = normalize_profiles(settings.llm_profiles)
     active = active_provider_id(settings)
@@ -517,7 +524,11 @@ def resolved_workspace(settings: UserSettings) -> str:
 
 def merge_settings(current: UserSettings, payload: dict) -> UserSettings:
     """合并前端传过来的部分设置更新；空 Key 保留原值，空 URL/模型回退默认值。"""
-    from friday.category_profiles import merge_category_settings, persist_category_profile, repair_isolated_category_settings
+    from friday.category_profiles import (
+        merge_category_settings,
+        persist_category_profile,
+        repair_isolated_category_settings,
+    )
     from friday.custom_endpoints import merge_custom_settings, persist_custom_on_save
     from friday.llm_profiles import merge_llm_settings, persist_active_profile
 

@@ -7,7 +7,7 @@ import platform
 import re
 import sys
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -111,7 +111,7 @@ def export_diagnostic_bundle(dest: Path | None = None) -> tuple[Path, dict[str, 
     from friday.version import __version__
 
     appdata = get_appdata_dir()
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     if dest is None:
         dest = appdata / f"Friday-diagnostic-{stamp}.zip"
 
@@ -120,7 +120,7 @@ def export_diagnostic_bundle(dest: Path | None = None) -> tuple[Path, dict[str, 
         "kind": "friday-diagnostic",
         "app_version": __version__,
         "display_version": display_version(__version__),
-        "exported_at_utc": datetime.now(timezone.utc).isoformat(),
+        "exported_at_utc": datetime.now(UTC).isoformat(),
     }
     report: dict[str, Any] = {
         "path": str(dest),

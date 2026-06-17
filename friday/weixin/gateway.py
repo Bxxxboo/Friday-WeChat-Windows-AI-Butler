@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
 import socket
 import subprocess
 import time
@@ -213,7 +212,11 @@ def ensure_gateway_running(
     force_restart: bool = False,
 ) -> dict[str, object]:
     """探测 Gateway；未运行时静默后台拉起（默认不 restart、不弹窗）。"""
-    from friday.weixin.setup import ensure_bridge_plugin_for_gateway, ensure_openclaw_gateway_config, ensure_weixin_plugin_for_gateway
+    from friday.weixin.setup import (
+        ensure_bridge_plugin_for_gateway,
+        ensure_openclaw_gateway_config,
+        ensure_weixin_plugin_for_gateway,
+    )
 
     ensure_openclaw_gateway_config()
     ensure_weixin_plugin_for_gateway()

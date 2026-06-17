@@ -178,6 +178,7 @@ class MCPStdioClient:
             text=True,
             encoding="utf-8",
             errors="replace",
+            env=env,
             cwd=str(cwd_path) if cwd_path and cwd_path.is_dir() else None,
             creationflags=_CREATE_NO_WINDOW if __import__("os").name == "nt" else 0,
         )

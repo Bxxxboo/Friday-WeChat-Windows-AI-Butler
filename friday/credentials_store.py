@@ -204,6 +204,10 @@ def _merge_endpoint_lists(incoming: Any, stored: Any) -> list:
         out.append(item)
         if eid:
             seen.add(eid)
+    # incoming 为空时保留凭据库中的 endpoint（settings 与 credentials 不同步）
+    if not new_norm:
+        for entry in old_norm:
+            out.append(dict(entry))
     return out
 
 

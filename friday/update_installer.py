@@ -12,8 +12,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from friday.logging_config import get_logger
 from friday.paths import get_appdata_dir, is_frozen, resolve_packaged_exe_in_dir
@@ -211,34 +211,47 @@ def _fail_apply(*, detail: str, hint: str, percent: int = 5) -> None:
         _apply_state["running"] = False
 
 
-_UPDATE_ALLOWED_EXACT_HOSTS = frozenset({"gitee.com", "github.com"})
+def _official_update_repos() -> tuple[str, str]:
+    from friday.updates import gitee_repo, github_repo
 
-
-def _update_host_allowed(host: str) -> bool:
-    normalized = (host or "").lower().rstrip(".")
-    if normalized in _UPDATE_ALLOWED_EXACT_HOSTS:
-        return True
-    return normalized.endswith(".githubusercontent.com")
+    return gitee_repo(), github_repo()
 
 
 def _validate_download_url(url: str) -> bool:
+    """仅允许官方 Gitee/GitHub Release 直链（releases/download）。"""
     parsed = urllib.parse.urlparse((url or "").strip())
     if parsed.scheme != "https" or not parsed.hostname:
         return False
-    return _update_host_allowed(parsed.hostname)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    parts = [p for p in (parsed.path or "").split("/") if p]
+    if len(parts) < 5 or parts[2] != "releases" or parts[3] != "download":
+        return False
+    repo = f"{parts[0]}/{parts[1]}".lower()
+    gitee_repo, github_repo = _official_update_repos()
+    if host == "gitee.com":
+        return repo == gitee_repo.lower()
+    if host == "github.com":
+        return repo == github_repo.lower()
+    return False
 
 
 def resolve_update_digest(download_url: str, expected_sha256: str = "") -> str:
-    """解析更新包 SHA256；无法获得期望哈希时拒绝更新（防无校验安装）。"""
+    """从官方 SHA256SUMS 解析期望哈希；客户端传入值仅作比对，不可单独信任。"""
     from friday.release_hashes import expected_sha256_for_download
 
-    digest = (expected_sha256 or "").strip() or expected_sha256_for_download(download_url)
-    if not digest:
+    official = (expected_sha256_for_download(download_url) or "").strip().lower()
+    if not official:
         raise RuntimeError(
             "无法校验更新包完整性（缺少 SHA256）。"
             "请重新「检查更新」，或从 Gitee Releases 手动下载 Friday-Update.zip。"
         )
-    return digest
+    client = (expected_sha256 or "").strip().lower()
+    if client and client != official:
+        raise RuntimeError(
+            "更新包校验信息与官方 Release 不一致。"
+            "请重新「检查更新」，勿使用第三方下载链接。"
+        )
+    return official
 
 
 def _download_release(url: str, dest: Path) -> None:

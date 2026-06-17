@@ -12,7 +12,6 @@ from friday.weixin.setup import (
     install_openclaw_cli,
     install_weixin_plugin,
     launch_weixin_login_terminal,
-    migrate_legacy_openclaw_state,
 )
 
 

@@ -3,12 +3,9 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
-import os
-import shutil
 import zipfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 from friday.tools._decorators import register_tool
 

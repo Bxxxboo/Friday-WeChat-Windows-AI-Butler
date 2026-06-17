@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from friday.logging_config import get_logger
+from friday.version import __version__
 from friday.weixin.config import openclaw_state_dir
 
 _log = get_logger("weixin.client")
@@ -21,7 +22,7 @@ ILINK_APP_ID = "bot"
 # openclaw-weixin 2.4.4 -> 0x00020404
 ILINK_APP_CLIENT_VERSION = 132100
 CHANNEL_VERSION = "2.4.4"
-from friday.version import __version__
+
 BOT_AGENT = f"Friday/{__version__}"
 MESSAGE_ITEM_TEXT = 1
 MESSAGE_ITEM_IMAGE = 2

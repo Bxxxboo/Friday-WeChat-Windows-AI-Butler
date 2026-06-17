@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import time
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +27,7 @@ def _bundle_info(*, sections: list[str] | None = None) -> dict[str, Any]:
     return {
         "bundle_version": BUNDLE_VERSION,
         "app_version": __version__,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "included_sections": sections or [],
     }
 

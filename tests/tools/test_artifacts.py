@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 import pytest
 
@@ -18,7 +17,7 @@ from friday.artifacts import (
     sync_session_references,
 )
 from friday.sessions import create_session, save_agent_state
-from friday.storage import UserSettings, load_settings
+from friday.storage import load_settings
 
 
 @pytest.fixture

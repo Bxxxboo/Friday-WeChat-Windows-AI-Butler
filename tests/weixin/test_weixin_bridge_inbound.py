@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from friday.storage import UserSettings
-from friday.weixin.bridge import InboundRequest, WEIXIN_TASK_ACK, handle_inbound
+from friday.weixin.bridge import WEIXIN_TASK_ACK, InboundRequest, handle_inbound
 from friday.weixin.client import WeixinAccount
 
 
@@ -421,8 +421,8 @@ def test_handle_inbound_ignores_duplicate_approval_after_resolve(tmp_appdata, mo
 
 
 def test_handle_inbound_approval_unblocks_while_turn_lock_held(tmp_appdata, monkeypatch):
-    from concurrent.futures import Future
     import threading
+    from concurrent.futures import Future
 
     import friday.weixin.bridge as bridge
 
@@ -482,7 +482,6 @@ def test_handle_inbound_reports_orphan_approval(tmp_appdata, monkeypatch):
 
 
 def test_weixin_approval_gate_stops_followup_prompts(tmp_appdata, monkeypatch):
-    from concurrent.futures import Future
     from threading import Thread
 
     import friday.weixin.bridge as bridge
