@@ -34,7 +34,6 @@ async def _lifespan(app: FastAPI):
         initialize_first_run()
         apply_network_environment(load_settings())
         migrate_legacy_bundled_plugins()
-        ensure_bundled_skill_assets()
         ensure_builtin_rules()
         migrate_session_files()
         ensure_default_session()
@@ -68,6 +67,14 @@ async def _lifespan(app: FastAPI):
     await asyncio.to_thread(_bootstrap)
     _backend_ready = True
 
+    async def _bundled_skill_warmup() -> None:
+        from friday.logging_config import get_logger
+
+        try:
+            await asyncio.to_thread(ensure_bundled_skill_assets)
+        except Exception:
+            get_logger("bundled").exception("内置 skill 资源后台下载失败")
+
     async def _weixin_warmup() -> None:
         from friday.logging_config import get_logger
 
@@ -87,6 +94,7 @@ async def _lifespan(app: FastAPI):
         except Exception:
             get_logger("weixin").exception("微信桥接后台初始化失败")
 
+    asyncio.create_task(_bundled_skill_warmup())
     asyncio.create_task(_weixin_warmup())
     yield
 

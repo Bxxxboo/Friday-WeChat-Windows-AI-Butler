@@ -167,7 +167,7 @@ def bundled_skill_assets_ready(plugin_id: str) -> bool:
     return _skill_package_complete(bundled_resource_dir(plugin_id))
 
 
-def ensure_bundled_skill_assets() -> None:
+def ensure_bundled_skill_assets(*, fetch_timeout: float = 12.0) -> None:
     """按需从 GitHub 下载内置 skill 的脚本与模板到 AppData。"""
     from friday.plugins import _download_github_skill_folder, parse_github_skill_source
 
@@ -182,7 +182,9 @@ def ensure_bundled_skill_assets() -> None:
         dest = get_appdata_dir() / "plugins" / plugin_id
         try:
             owner, repo, ref, skill_path = parse_github_skill_source(source)
-            _download_github_skill_folder(owner, repo, ref, skill_path, dest)
+            _download_github_skill_folder(
+                owner, repo, ref, skill_path, dest, fetch_timeout=fetch_timeout,
+            )
             _log.info("已下载内置 skill 资源 | id=%s files→%s", plugin_id, dest)
         except Exception as exc:
             _log.warning("内置 skill 资源下载失败 | id=%s err=%s", plugin_id, exc)

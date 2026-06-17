@@ -244,11 +244,11 @@ def parse_github_skill_source(source: str) -> tuple[str, str, str, str]:
     return owner, repo.replace(".git", ""), ref.strip() or "main", skill_path
 
 
-def _fetch_github_tree(owner: str, repo: str, ref: str) -> list[dict[str, Any]]:
+def _fetch_github_tree(owner: str, repo: str, ref: str, *, fetch_timeout: float = 30.0) -> list[dict[str, Any]]:
     url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{ref}?recursive=1"
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=30.0) as resp:
+        with urllib.request.urlopen(request, timeout=fetch_timeout) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise ValueError(f"无法读取 GitHub 目录树 HTTP {exc.code}") from exc
@@ -266,8 +266,10 @@ def _download_github_skill_folder(
     ref: str,
     skill_path: str,
     dest: Path,
+    *,
+    fetch_timeout: float = 30.0,
 ) -> None:
-    tree = _fetch_github_tree(owner, repo, ref)
+    tree = _fetch_github_tree(owner, repo, ref, fetch_timeout=fetch_timeout)
     root_skill = skill_path.strip("/") == "."
     if root_skill:
         blobs = [item for item in tree if item.get("type") == "blob"]
@@ -300,9 +302,9 @@ def _download_github_skill_folder(
         target.parent.mkdir(parents=True, exist_ok=True)
         url = _raw_url(owner, repo, ref, str(item["path"]))
         if _github_blob_is_binary(full_path):
-            target.write_bytes(_fetch_bytes(url))
+            target.write_bytes(_fetch_bytes(url, timeout=fetch_timeout))
         else:
-            target.write_text(_fetch_text(url), encoding="utf-8")
+            target.write_text(_fetch_text(url, timeout=fetch_timeout), encoding="utf-8")
 
     _log.info(
         "已下载 GitHub skill | %s/%s@%s/%s files=%d",
