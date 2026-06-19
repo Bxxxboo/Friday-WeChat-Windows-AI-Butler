@@ -832,14 +832,20 @@
     }
   }
 
+  function syncStatusBarAfterSettingsSave(data) {
+    applyFromSettings(data);
+    void refreshStatusBar({ force: true });
+  }
+
   async function refreshStatusBar(options = {}) {
     if (!F.resolveApiToken?.()) return;
     if (refreshInFlight && !options.force) return refreshInFlight;
     refreshInFlight = (async () => {
       const sessionId = F.activeSessionId || "";
       const pollOnly = Boolean(options.pollOnly);
+      const force = Boolean(options.force);
       const baseQs = statusBarQuery(sessionId);
-      const skipServices = shouldSkipServiceRefresh();
+      const skipServices = !force && shouldSkipServiceRefresh();
 
       if (!options.skipQuick) {
         try {
@@ -851,18 +857,23 @@
           if (quickRes.ok) {
             const data = await quickRes.json();
             // 定时轮询只刷新 tokens/上下文，不把无缓存的 checking 写回状态点
-            if (skipServices || pollOnly) refreshStatusBarMeta(data);
-            else applyPayload(data);
+            if (pollOnly) {
+              refreshStatusBarMeta(data);
+            } else if (skipServices) {
+              refreshStatusBarMeta(data);
+            } else {
+              applyPayload(data, { force });
+            }
           }
         } catch {
           // 保留已有状态
         }
       }
-      if (skipServices || pollOnly) return;
+      if (pollOnly || skipServices) return;
       try {
         const res = await F.apiFetchWithTimeout(`/api/status-bar${baseQs}`, {}, REFRESH_TIMEOUT_MS);
         if (!res.ok) return;
-        applyPayload(await res.json());
+        applyPayload(await res.json(), { force });
       } catch {
         // 保留已有状态
       }
@@ -880,6 +891,7 @@
   }
 
   F.applyStatusFromSettings = applyFromSettings;
+  F.syncStatusBarAfterSettingsSave = syncStatusBarAfterSettingsSave;
   F.applyStatusUsage = applyUsage;
   F.patchStatusBar = patchStatusBar;
   F.patchImageGenStatus = patchImageGenStatus;

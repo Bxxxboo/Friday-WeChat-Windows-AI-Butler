@@ -149,8 +149,8 @@ class UserSettings:
     context_smart_enabled: bool = True
     goal_verifier_enabled: bool = True
     goal_verifier_evidence_required: bool = True
-    multi_agent_enabled: bool = False
-    max_sub_agents: int = 2
+    multi_agent_enabled: bool = True
+    max_sub_agents: int = 3
     dream_memory_enabled: bool = False
 
     @classmethod

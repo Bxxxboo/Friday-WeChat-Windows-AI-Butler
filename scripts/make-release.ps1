@@ -5,6 +5,8 @@ if (-not $PSScriptRoot) {
 $FridayRepo = (Get-Item -LiteralPath $PSScriptRoot).Parent.FullName
 Set-Location -LiteralPath $FridayRepo
 
+& (Join-Path $PSScriptRoot "verify-requirements-lock.ps1")
+
 . (Join-Path $PSScriptRoot "friday-dist.ps1")
 
 $PptSkillMarker = [System.IO.Path]::Combine($FridayRepo, "extensions", "ppt-master", "scripts", "svg_to_pptx.py")
@@ -36,7 +38,7 @@ if ($Exe -and $TargetVersion) {
 }
 
 Write-Host "Running credentials regression tests..." -ForegroundColor Cyan
-python -m pytest tests/api/test_credentials_store.py tests/providers/test_llm_profiles.py tests/providers/test_category_profiles.py -q
+python -m pytest tests/api/test_credentials_store.py tests/providers/test_llm_profiles.py tests/providers/test_category_profiles.py -q --no-cov
 if ($LASTEXITCODE -ne 0) {
     throw "Credentials regression tests failed."
 }

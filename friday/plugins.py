@@ -112,6 +112,66 @@ def _manifest_has_absolute_plugin_dir(manifest: dict[str, Any], plugin_id: str) 
     return False
 
 
+def _skill_md_available(plugin_dir: Path | None) -> bool:
+    return bool(plugin_dir and (plugin_dir / "SKILL.md").is_file())
+
+
+def _default_skill_prompt(*, description: str, has_skill_md: bool) -> str:
+    if has_skill_md:
+        base = "请 read_text_file 读取 {plugin_dir}/SKILL.md"
+        desc = (description or "").strip()
+        if desc:
+            return f"{base}，严格按插件工作流执行。\n\n{desc}"
+        return f"{base}，严格按其中的工作流执行。"
+    desc = (description or "").strip()
+    if desc:
+        return desc
+    return "请按插件说明执行当前任务。"
+
+
+def _normalize_skill_item(
+    raw: dict[str, Any],
+    *,
+    plugin_id: str,
+    plugin_name: str,
+    description: str,
+    plugin_dir: Path | None,
+) -> dict[str, Any]:
+    item = dict(raw)
+    sid = str(item.get("id") or item.get("name") or plugin_id).strip()
+    if not sid or not re.match(r"^[\w-]+$", sid):
+        sid = plugin_id
+    label = str(
+        item.get("label") or item.get("title") or item.get("name") or plugin_name or sid
+    ).strip()
+    prompt = str(item.get("prompt") or "").strip()
+    if not prompt:
+        prompt = _default_skill_prompt(
+            description=description,
+            has_skill_md=_skill_md_available(plugin_dir),
+        )
+    item["id"] = sid
+    item["label"] = label or sid.replace("-", " ").title()
+    item["prompt"] = prompt
+    item.setdefault("icon", "✨")
+    item.setdefault("category", "plugin")
+    return item
+
+
+def _normalize_rule_item(raw: dict[str, Any], *, plugin_id: str) -> dict[str, Any]:
+    item = dict(raw)
+    rid = str(item.get("id") or item.get("name") or "rule").strip()
+    if not rid or not re.match(r"^[\w-]+$", rid):
+        rid = "rule"
+    title = str(item.get("title") or item.get("label") or item.get("name") or rid).strip()
+    item["id"] = rid
+    item["title"] = title or rid.replace("-", " ").title()
+    item.setdefault("enabled", True)
+    item.setdefault("always_apply", False)
+    item["content"] = str(item.get("content") or "").strip()
+    return item
+
+
 def migrate_installed_plugin_manifests() -> int:
     """启动时将旧版绝对路径 manifest 迁移为 {plugin_dir} 占位符。"""
     marker = get_appdata_dir() / ".plugin_manifest_portable_v1"
@@ -127,7 +187,10 @@ def migrate_installed_plugin_manifests() -> int:
         if not manifest_path.is_file():
             continue
         try:
-            manifest = _validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")))
+            manifest = _validate_manifest(
+                json.loads(manifest_path.read_text(encoding="utf-8")),
+                plugin_dir=_plugin_dir(plugin_id),
+            )
         except (OSError, json.JSONDecodeError, ValueError):
             continue
         portable = _ensure_portable_manifest(manifest, plugin_id)
@@ -137,6 +200,39 @@ def migrate_installed_plugin_manifests() -> int:
             upsert_plugin_rules(plugin_id, portable["rules"])
             updated += 1
             _log.info("已迁移插件 manifest 为可移植格式 | id=%s", plugin_id)
+    try:
+        marker.write_text(str(updated), encoding="utf-8")
+    except OSError:
+        pass
+    return updated
+
+
+def migrate_plugin_skill_fields() -> int:
+    """启动时将旧 manifest 技能/规则字段（title 等）规范化为 Friday 标准并刷新 skills.json。"""
+    marker = get_appdata_dir() / ".plugin_manifest_normalize_v1"
+    if marker.is_file():
+        return 0
+
+    updated = 0
+    for entry in list_plugins():
+        plugin_id = str(entry.get("id", "")).strip()
+        if not plugin_id:
+            continue
+        manifest_path = _plugin_dir(plugin_id) / _MANIFEST
+        if not manifest_path.is_file():
+            continue
+        try:
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest = _validate_manifest(raw, plugin_dir=_plugin_dir(plugin_id))
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+        portable = _ensure_portable_manifest(manifest, plugin_id)
+        if portable != raw:
+            atomic_write_json(manifest_path, portable)
+            upsert_plugin_skills(plugin_id, portable["skills"])
+            upsert_plugin_rules(plugin_id, portable["rules"])
+            updated += 1
+            _log.info("已规范化插件 manifest 字段 | id=%s", plugin_id)
     try:
         marker.write_text(str(updated), encoding="utf-8")
     except OSError:
@@ -334,9 +430,15 @@ def install_github_skill(source: str) -> dict[str, Any]:
     bundle_manifest = extensions_dir() / plugin_id / _MANIFEST
     manifest_path = dest / _MANIFEST
     if bundle_manifest.is_file():
-        manifest = _validate_manifest(json.loads(bundle_manifest.read_text(encoding="utf-8")))
+        manifest = _validate_manifest(
+            json.loads(bundle_manifest.read_text(encoding="utf-8")),
+            plugin_dir=dest,
+        )
     elif manifest_path.is_file():
-        manifest = _validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")))
+        manifest = _validate_manifest(
+            json.loads(manifest_path.read_text(encoding="utf-8")),
+            plugin_dir=dest,
+        )
     else:
         manifest = _validate_manifest({
             "id": plugin_id,
@@ -533,24 +635,41 @@ def invalidate_plugin_catalog_cache() -> None:
     _catalog_text_cache = None
 
 
-def _validate_manifest(data: dict[str, Any]) -> dict[str, Any]:
+def _validate_manifest(data: dict[str, Any], plugin_dir: Path | None = None) -> dict[str, Any]:
     pid = str(data.get("id", "")).strip()
     name = str(data.get("name", "")).strip()
     if not pid or not re.match(r"^[\w-]+$", pid):
         raise ValueError("插件 manifest 缺少合法 id（字母数字与连字符）")
     if not name:
         raise ValueError("插件 manifest 缺少 name")
-    skills = data.get("skills")
-    rules = data.get("rules")
-    if not isinstance(skills, list):
-        skills = []
-    if not isinstance(rules, list):
-        rules = []
+    description = str(data.get("description", ""))
+    skills_raw = data.get("skills")
+    rules_raw = data.get("rules")
+    if not isinstance(skills_raw, list):
+        skills_raw = []
+    if not isinstance(rules_raw, list):
+        rules_raw = []
+    skills = [
+        _normalize_skill_item(
+            s,
+            plugin_id=pid,
+            plugin_name=name,
+            description=description,
+            plugin_dir=plugin_dir,
+        )
+        for s in skills_raw
+        if isinstance(s, dict)
+    ]
+    rules = [
+        _normalize_rule_item(r, plugin_id=pid)
+        for r in rules_raw
+        if isinstance(r, dict)
+    ]
     return {
         "id": pid,
         "name": name,
         "version": str(data.get("version", "1.0.0")),
-        "description": str(data.get("description", "")),
+        "description": description,
         "author": str(data.get("author", "")),
         "skills": skills,
         "rules": rules,
@@ -561,10 +680,15 @@ def install_plugin_from_manifest(manifest: dict[str, Any], *, source: str = "loc
     """从 manifest 字典安装（测试 / 本地示例）。"""
     from friday.bundled import bundled_already_message, is_bundled_plugin
 
-    manifest = _validate_manifest(manifest)
-    plugin_id = manifest["id"]
+    raw = dict(manifest)
+    plugin_id = str(raw.get("id", "")).strip()
+    if not plugin_id or not re.match(r"^[\w-]+$", plugin_id):
+        raise ValueError("插件 manifest 缺少合法 id")
     if is_bundled_plugin(plugin_id):
         raise ValueError(bundled_already_message(plugin_id))
+    dest = _plugin_dir(plugin_id)
+    dest.mkdir(parents=True, exist_ok=True)
+    manifest = _validate_manifest(raw, plugin_dir=dest)
     now = time.time()
     entry = {
         "id": plugin_id,
@@ -608,19 +732,13 @@ def install_local_plugin(plugin_id: str) -> dict[str, Any]:
     if not manifest_path.is_file():
         raise ValueError(f"未找到内置插件「{pid}」（{manifest_path}）")
 
-    manifest = _validate_manifest(json.loads(manifest_path.read_text(encoding="utf-8")))
-    entry = install_plugin_from_manifest(manifest, source=f"local:{pid}")
+    dest = _plugin_dir(pid)
+    dest.mkdir(parents=True, exist_ok=True)
     bundle = extensions_dir() / pid
     if bundle.is_dir():
-        _copy_tree(bundle, _plugin_dir(pid))
-        manifest = _ensure_portable_manifest(
-            json.loads(manifest_path.read_text(encoding="utf-8")),
-            pid,
-        )
-        atomic_write_json(_plugin_dir(pid) / _MANIFEST, manifest)
-        upsert_plugin_skills(pid, manifest["skills"])
-        upsert_plugin_rules(pid, manifest["rules"])
-    return entry
+        _copy_tree(bundle, dest)
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return install_plugin_from_manifest(raw, source=f"local:{pid}")
 
 
 def install_plugin(source: str) -> dict[str, Any]:
@@ -652,11 +770,21 @@ def install_plugin(source: str) -> dict[str, Any]:
         ) from exc
 
     try:
-        manifest = _validate_manifest(json.loads(manifest_text))
+        raw = json.loads(manifest_text)
     except json.JSONDecodeError as exc:
         raise ValueError(f"插件 manifest JSON 无效: {exc}") from exc
 
-    plugin_id = manifest["id"]
+    plugin_id = str(raw.get("id", "")).strip()
+    if not plugin_id or not re.match(r"^[\w-]+$", plugin_id):
+        raise ValueError("插件 manifest 缺少合法 id（字母数字与连字符）")
+
+    dest = _plugin_dir(plugin_id)
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        manifest = _validate_manifest(raw, plugin_dir=dest)
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+
     registry = _load_registry()
     now = time.time()
 
@@ -680,8 +808,6 @@ def install_plugin(source: str) -> dict[str, Any]:
     registry.append(entry)
     _save_registry(registry)
 
-    dest = _plugin_dir(plugin_id)
-    dest.mkdir(parents=True, exist_ok=True)
     manifest = _ensure_portable_manifest(manifest, plugin_id)
     atomic_write_json(dest / _MANIFEST, manifest)
 

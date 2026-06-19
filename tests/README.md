@@ -17,6 +17,10 @@ pytest 套件，按业务域分子目录。共享 fixture 在根目录 `conftest
 
 ```powershell
 pip install -r requirements-dev.txt
-pytest
+pytest                    # 单元/集成 + 覆盖率 ≥55%（默认忽略 tests/e2e）
+pytest --no-cov           # 快速跑，不统计覆盖率
+pytest tests/e2e/         # UI e2e（Playwright）
 pytest tests/providers/test_image_gen.py -q
 ```
+
+覆盖率配置见 `pyproject.toml`（`--cov-fail-under=55`，GUI 入口文件已 omit）。

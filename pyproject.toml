@@ -9,6 +9,28 @@ requires-python = ">=3.11"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
+# addopts 在 pytest.ini（Windows/CI 加载更稳定）；e2e 单独 pytest tests/e2e/
+markers = [
+    "e2e: UI end-to-end tests (requires playwright + chromium)",
+]
+
+[tool.coverage.run]
+source = ["friday"]
+# GUI 入口 / 定时调度仅手工或 e2e 覆盖，不计入单元测试覆盖率
+omit = [
+    "friday/desktop.py",
+    "friday/splash.py",
+    "friday/win32_chrome.py",
+    "friday/single_instance.py",
+    "friday/scheduler.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
 
 [tool.ruff]
 line-length = 120
@@ -27,3 +49,4 @@ warn_return_any = false
 warn_unused_ignores = true
 ignore_missing_imports = true
 check_untyped_defs = false
+follow_imports = "skip"

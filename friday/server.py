@@ -28,6 +28,9 @@ async def _lifespan(app: FastAPI):
     _backend_ready = False
 
     def _bootstrap() -> None:
+        from friday.boot_timing import log_summary, mark
+
+        mark("bootstrap_start")
         from friday.api_connect import apply_network_environment
 
         migrate_legacy_data_dir()
@@ -63,15 +66,24 @@ async def _lifespan(app: FastAPI):
             from friday.logging_config import get_logger
 
             get_logger("artifacts").exception("启动时生成物回收失败")
+        mark("bootstrap_done")
+        log_summary(trigger="backend_bootstrap")
 
     await asyncio.to_thread(_bootstrap)
     _backend_ready = True
+    from friday.boot_timing import log_summary as _log_boot_summary, mark as _boot_mark
+
+    _boot_mark("api_ready")
+    _log_boot_summary(trigger="api_ready")
 
     async def _bundled_skill_warmup() -> None:
+        from friday.boot_timing import log_summary, mark
         from friday.logging_config import get_logger
 
         try:
             await asyncio.to_thread(ensure_bundled_skill_assets)
+            mark("ppt_assets_ready")
+            log_summary(trigger="ppt_assets_ready")
         except Exception:
             get_logger("bundled").exception("内置 skill 资源后台下载失败")
 

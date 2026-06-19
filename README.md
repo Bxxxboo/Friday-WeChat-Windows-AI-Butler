@@ -14,7 +14,7 @@
 
 帮你整理文件、查看系统、生成文档、执行日常电脑事务——说人话就行，不用懂技术。
 
-**当前版本：1.2.3**
+**当前版本：1.4.10**（以 [`friday/version.py`](friday/version.py) 为准；发版时与官网 `download.json` 同步）
 
 ## 功能
 
@@ -47,7 +47,7 @@ powershell -ExecutionPolicy Bypass -File setup.ps1
 powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 ```
 
-产物：`dist/星期五/星期五.exe`（onedir 文件夹分发，含 `_internal/`，主程序无需安装 Python）
+产物：`dist/Friday/Friday.exe`（onedir 文件夹分发，含 `_internal/`，主程序无需安装 Python；旧构建可能仍为 `dist/星期五/星期五.exe`）
 
 **运行要求：**
 
@@ -63,16 +63,16 @@ powershell -ExecutionPolicy Bypass -File scripts/build.ps1
 powershell -ExecutionPolicy Bypass -File release/create-shortcut.ps1
 ```
 
-开发模式使用 `.python-env\Scripts\pythonw.exe` 启动 `run.py`；打包后可将快捷方式改为指向 `dist/星期五/星期五.exe`。
+开发模式使用 `.python-env\Scripts\pythonw.exe` 启动 `run.py`；打包后可将快捷方式改为指向 `dist/Friday/Friday.exe`。
 
 ## 移植到新电脑
 
 ### 方式 A：拷贝 exe 文件夹（推荐给测试机）
 
 1. 在本机打包：`powershell -ExecutionPolicy Bypass -File scripts/build.ps1`
-2. 将整个 **`dist/星期五/`** 文件夹拷到新电脑（不要只拷单个 exe）
+2. 将整个 **`dist/Friday/`** 文件夹拷到新电脑（不要只拷单个 exe；旧包目录名可能为 `dist/星期五/`）
 3. 确认新电脑已装 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)（Win11 一般已有）
-4. 双击 `星期五.exe` 测试；首次使用会走引导填 API Key、选文件夹
+4. 双击 `Friday.exe` 测试；首次使用会走引导填 API Key、选文件夹
 
 **注意**：exe 不含 Agent 用的系统 Python。若要用 `run_python` 跑数据分析脚本，新电脑还需：
 
@@ -168,8 +168,12 @@ powershell -ExecutionPolicy Bypass -File scripts/make-release.ps1
 
 ```powershell
 pip install -r requirements-dev.txt
-pytest
+pytest                    # 单元/集成 + 覆盖率 ≥55%（默认忽略 tests/e2e）
+pytest --no-cov           # 快速跑，不统计覆盖率
+pytest tests/e2e/         # Playwright UI e2e
 ```
+
+覆盖率配置见 `pytest.ini` / `pyproject.toml`；详见 [tests/README.md](tests/README.md)。
 
 ## 文档
 
@@ -194,7 +198,8 @@ pytest
 ├── friday/
 │   ├── README.md           # 包内模块索引
 │   ├── desktop.py          # pywebview 桌面壳
-│   ├── server.py           # FastAPI + WebSocket 路由
+│   ├── server.py           # FastAPI 装配、token 中间件
+│   ├── api/routes/         # HTTP / WebSocket 路由（settings、sessions、chat、plugins…）
 │   ├── api/schemas.py      # HTTP 请求/响应模型
 │   ├── agent.py / brain.py # Agent 与 LLM
 │   ├── tools/              # 本地可调用工具

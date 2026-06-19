@@ -202,7 +202,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 | `web/styles.css` | 全局样式 |
 | `web/app.js` | 主逻辑、聊天流 |
 | `web/chat.js` | 消息渲染、Markdown |
-| `web/settings.js` | 设置各 section、可移植性 UI |
+| `web/settings.js` | 设置导航 / 移植 / 更新（见 settings-theme.js、settings-providers.js） |
 | `web/onboarding.js` | 首次引导 |
 | `web/weixin.js` | 微信配置向导 |
 | `web/errorHints.js` | API 错误 → 用户文案 |
@@ -300,6 +300,17 @@ Yolo 模式、PowerShell/Python 黑名单、已知绕过限制见 **[docs/AGENT-
 4. Gitee Release 必发；GitHub 可选
 
 详见 `docs/reasonix/rules/version-and-github.md`。
+
+### 13.1 发版前手动检查清单
+
+| 检查项 | 操作 | 预期 |
+|--------|------|------|
+| 设置保存 ↔ 状态栏 | 设置 → **视觉辅助**：切换「启用视觉辅助」→ **保存** | 底部状态栏「视觉 关 / 未配置 / 在线」与勾选一致，无需重启 |
+| 生图开关 | 设置 → **生图**：切换「启用生图」→ **保存** | 底部「生图 关 / 未配置 / 在线」同步 |
+| 大模型保存 | 设置 → 大模型：改模型名 → **保存** | 状态栏模型名更新 |
+| 一键更新 | 设置 → 安全与更新 → **检查更新** | 能拉取 Gitee/GitHub Release（国内优先 Gitee） |
+
+自动化：`pytest tests/api/test_settings_status_bar.py -q` 覆盖 vision/image_gen 开关与 status-bar 一致。
 
 ---
 

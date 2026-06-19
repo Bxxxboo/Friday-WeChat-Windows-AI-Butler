@@ -36,7 +36,10 @@ E:\Friday\
 | 模块 | 说明 |
 |------|------|
 | `desktop.py` | pywebview 窗口、uvicorn 线程 |
-| `server.py` | FastAPI 应用、路由、WebSocket 聊天 |
+| `server.py` | FastAPI 装配：lifespan、token 中间件、`register_*_routes`（~180 行） |
+| `api/routes/` | 按域拆分的路由（settings、sessions、chat、plugins、diagnostics、static） |
+| `api/weixin_routes.py` | 微信桥 REST |
+| `api/chat_runtime.py` | WebSocket 聊天运行时、Agent 缓存与审批状态 |
 | `api/schemas.py` | HTTP 请求/响应 Pydantic 模型 |
 | `splash.py` | 启动页 HTML |
 | `single_instance.py` / `instance_lock.py` | 防多开 |
@@ -106,6 +109,22 @@ OpenClaw Gateway + 消息桥接 + 设置向导（`setup.py`）。
 
 详见 [web/README.md](../web/README.md)。
 
+## `friday/api/` 路由（自 `server.py` 拆出）
+
+| 模块 | 职责 |
+|------|------|
+| `routes/settings.py` | `/api/settings`、测试连接 |
+| `routes/sessions.py` | 会话 CRUD |
+| `routes/chat.py` | WebSocket `/ws/chat` |
+| `routes/plugins.py` | 插件、技能、规则、状态栏 |
+| `routes/diagnostics.py` | health、更新检查 |
+| `routes/static_pages.py` | 首页 HTML、`__FRIDAY_TOKEN__` 注入 |
+| `weixin_routes.py` | `/api/weixin/*` |
+| `chat_runtime.py` | Agent 实例缓存、Yolo 解锁、审批清除 |
+| `settings_helpers.py` / `session_helpers.py` | 设置合并、会话序列化 |
+
+uvicorn 入口仍为 `friday.server:app`；测试与 scheduler 可从 `friday.server` 导入兼容符号。
+
 ## `tests/` 布局
 
 ```
@@ -116,8 +135,11 @@ tests/
 ├── providers/       # 模型/视觉/生图服务商
 ├── tools/           # 本地工具、安全、插件
 ├── weixin/          # 微信桥与 Gateway
-└── platform/        # 可移植性、版本、日志
+├── platform/        # 可移植性、版本、日志
+└── e2e/             # Playwright UI（默认 pytest 忽略）
 ```
+
+约 **108** 个 `test_*.py`；默认 `pytest` 启用 `--cov=friday`、`--cov-fail-under=55`。
 
 ## `scripts/` 分类
 
@@ -130,14 +152,15 @@ tests/
 
 ## 已知体量热点（后续可拆）
 
-| 文件 | 行数级 | 建议 |
-|------|--------|------|
-| `server.py` | ~1900 | 按域拆 `api/routers/*.py` |
-| `web/styles.css` | ~4300 | 按页面拆 CSS 或在构建阶段合并 |
-| `web/settings.js` | ~1000 | 按 Tab 拆文件 |
-| `image_gen.py` | ~1000 | 探测与生成可分子模块 |
+| 文件 | 行数级（2026-06） | 建议 |
+|------|-------------------|------|
+| `web/styles.css` | ~5250 | 按页面拆 CSS 或在构建阶段合并 |
+| `web/settings.js` | ~1930 | 按 Tab 拆文件（见 IMPLEMENTATION-PLAN 3.3） |
+| `image_gen.py` | ~1360 | 探测与生成可分子模块 |
+| `api/routes/plugins.py` | ~510 | 插件/技能/规则可再拆 |
+| `plugins.py` | ~720 | 安装迁移与 manifest 规范化 |
 
-拆路由时保持 `friday.server:app` 为 uvicorn 入口，避免改打包配置。
+`server.py` 路由已迁入 `friday/api/routes/`；保持 `friday.server:app` 为 uvicorn 入口，避免改打包配置。
 
 ## 数据落盘
 

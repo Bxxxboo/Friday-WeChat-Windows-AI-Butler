@@ -480,9 +480,17 @@ class FridayAgent(AgentToolExecMixin):
         from friday.plan import maybe_append_complex_task_plan_hint
 
         user_text = maybe_append_complex_task_plan_hint(user_text, session_id)
-        from friday.sub_agents import maybe_inject_planner_hint
+        from friday.sub_agents import prepare_multi_agent_turn
+        from friday.plan import upsert_plan_anchor
 
-        user_text = maybe_inject_planner_hint(user_text, self.settings, self.brain)
+        user_text, sub_plan_md = prepare_multi_agent_turn(
+            user_text,
+            self.settings,
+            self.brain,
+            session_id=session_id,
+        )
+        if sub_plan_md.strip():
+            self.messages = upsert_plan_anchor(self.messages, sub_plan_md)
         self.messages.append({"role": "user", "content": user_text})
 
         max_rounds = self._max_tool_rounds()

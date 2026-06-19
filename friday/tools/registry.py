@@ -1,6 +1,6 @@
 """工具注册中心 —— 通过装饰器自动收集，无需手动维护定义和映射列表。
 
-轻量工具模块启动时加载；documents / media 延迟 import，加快冷启动。
+import 时不加载任何工具子模块；首次对话/执行/取 schema 时再按需加载。
 """
 
 from __future__ import annotations
@@ -101,18 +101,23 @@ def _import_tools_module(name: str) -> bool:
 
 def _rebuild_maps() -> None:
     global TOOL_MAP, TOOL_DEFINITIONS
-    TOOL_MAP = build_tool_map()
-    TOOL_DEFINITIONS = build_definitions()
+    built_map = build_tool_map()
+    built_defs = build_definitions()
+    TOOL_MAP.clear()
+    TOOL_MAP.update(built_map)
+    TOOL_DEFINITIONS.clear()
+    TOOL_DEFINITIONS.extend(built_defs)
 
 
-for _module in _EAGER_MODULES:
-    _import_tools_module(_module)
-_rebuild_maps()
+def _ensure_eager_tools() -> None:
+    """加载常用工具模块（首次对话/执行工具前）。"""
+    for name in _EAGER_MODULES:
+        _import_tools_module(name)
+    _rebuild_maps()
 
-ToolFunc = Callable[..., str]
 
-TOOL_DEFINITIONS: list[dict[str, Any]]
-TOOL_MAP: dict[str, Callable[..., str]]
+TOOL_MAP: dict[str, Callable[..., str]] = {}
+TOOL_DEFINITIONS: list[dict[str, Any]] = []
 
 _TOOL_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="friday-tool")
 
@@ -124,7 +129,8 @@ _TIMEOUT_BY_RISK = {
 
 
 def ensure_all_tools() -> None:
-    """加载全部工具模块（首次对话前调用）。"""
+    """加载全部工具模块（首次需要完整 schema 时调用）。"""
+    _ensure_eager_tools()
     for name in _LAZY_MODULES:
         _import_tools_module(name)
     _rebuild_maps()

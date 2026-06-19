@@ -76,8 +76,7 @@ if __name__ == "__main__":
         weixin_login_main()
         raise SystemExit(0)
     ensure_single_instance()
-    if sys.platform == "win32" and getattr(sys, "frozen", False):
-        from friday.update_rollback import guard_startup_after_update
+    from friday.update_rollback import guard_startup_after_update
 
     if not guard_startup_after_update():
         raise SystemExit(0)

@@ -1,6 +1,6 @@
 /* ================================================================= *
- *  settings.js — Friday 设置页：API / 文件夹 / 外观 / 数据移植与日志 / 安全与更新 + 主题
- *  依赖 utils.js
+ *  settings.js — 设置页：加载 / 导航 / 移植 / 更新
+ *  依赖 settings-theme.js、settings-providers.js
  * ================================================================= */
 
 (function () {
@@ -8,181 +8,6 @@
 
   const F = window.Friday;
   if (!F) { console.error("settings.js: window.Friday 未初始化"); return; }
-
-  /* ── 主题 / UI 偏好 ── */
-
-  function cacheUiPrefs(theme, fontSize, uiLanguage) {
-    localStorage.setItem(
-      "friday_ui_prefs",
-      JSON.stringify({
-        theme,
-        font_size: fontSize,
-        ui_language: uiLanguage || window.FridayI18n?.getLanguage?.() || "zh",
-      })
-    );
-  }
-
-  function t(key, params) {
-    return window.FridayI18n?.t?.(key, params) ?? key;
-  }
-
-  function resolveTheme(mode) {
-    if (mode === "system") {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    }
-    return mode === "light" ? "light" : "dark";
-  }
-
-  function applyTheme(mode) {
-    const themeMode = mode || "light";
-    document.documentElement.dataset.themeMode = themeMode;
-    document.documentElement.dataset.theme = resolveTheme(themeMode);
-    const resolved = resolveTheme(themeMode);
-    document.documentElement.style.backgroundColor = resolved === "light" ? "#f0ebe3" : "#0a0d12";
-    if (document.documentElement.classList.contains("desktop")) {
-      window.pywebview?.api?.sync_window_chrome?.(
-        resolved === "light" ? "#f0ebe3" : "#0a0d12",
-        resolved === "dark"
-      );
-    }
-  }
-
-  function applyFontSize(size) {
-    document.documentElement.dataset.fontSize = size || "medium";
-  }
-
-  function initThemeWatcher() {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => {
-      if (document.documentElement.dataset.themeMode === "system") {
-        applyTheme("system");
-      }
-    };
-    if (media.addEventListener) media.addEventListener("change", handler);
-    else media.addListener(handler);
-  }
-
-  function applyUiSettings(data) {
-    applyTheme(data.theme || "light");
-    applyFontSize(data.font_size || "medium");
-    const lang = data.ui_language || "zh";
-    window.FridayI18n?.setLanguage?.(lang);
-    cacheUiPrefs(data.theme || "light", data.font_size || "medium", lang);
-    F.refreshProviderLabels?.();
-  }
-
-  /* ── 安全表单 ── */
-
-  function fillSecurityForm(data) {
-    document.getElementById("restrictToWorkspace").checked = data.restrict_to_workspace;
-    const allowRead = document.getElementById("allowReadUserFolders");
-    if (allowRead) allowRead.checked = data.allow_read_user_folders !== false;
-    document.getElementById("requireApprovalWrites").checked = data.require_approval_writes;
-    document.getElementById("requireApprovalExec").checked = data.require_approval_exec;
-    document.getElementById("approveOncePerTurn").checked = data.approve_once_per_turn !== false;
-    document.getElementById("allowWriteFiles").checked = data.allow_write_files;
-    document.getElementById("allowMoveFiles").checked = data.allow_move_files;
-    document.getElementById("allowOrganize").checked = data.allow_organize;
-    document.getElementById("allowCreateDocuments").checked = data.allow_create_documents;
-    document.getElementById("allowPowershell").checked = data.allow_powershell;
-    document.getElementById("allowPython").checked = data.allow_python !== false;
-    document.getElementById("allowWebBrowse").checked = data.allow_web_browse;
-    document.getElementById("allowDownloads").checked = data.allow_downloads;
-    document.getElementById("requireTrustedDownloads").checked = data.require_trusted_downloads;
-  }
-
-  let autostartBusy = false;
-
-  function applyAutostartUi(data) {
-    const checkbox = document.getElementById("launchAtLogon");
-    const hint = document.getElementById("launchAtLogonHint");
-    if (!checkbox) return;
-    checkbox.disabled = data.launch_at_logon_available === false;
-    checkbox.checked = !!data.launch_at_logon;
-    if (hint) {
-      hint.textContent = data.launch_at_logon_detail || "";
-    }
-  }
-
-  async function toggleAutostart(enabled) {
-    if (autostartBusy) return;
-    autostartBusy = true;
-    const checkbox = document.getElementById("launchAtLogon");
-    const resultEl = document.getElementById("autostartResult");
-    if (resultEl) {
-      resultEl.className = "settings-result";
-      resultEl.textContent = enabled ? "正在开启…" : "正在关闭…";
-    }
-    try {
-      const res = await F.apiFetch("/api/autostart", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: !!enabled }),
-      });
-      const data = await res.json();
-      applyAutostartUi({
-        launch_at_logon: !!data.enabled,
-        launch_at_logon_available: data.available !== false,
-        launch_at_logon_detail: data.detail || data.message || "",
-      });
-      if (resultEl) {
-        resultEl.className = data.ok ? "settings-result ok" : "settings-result error";
-        if (data.ok) {
-          resultEl.textContent = data.enabled ? t("autostart.enabled") : t("autostart.disabled");
-        } else {
-          resultEl.textContent = data.message || t("autostart.failed");
-          if (checkbox) checkbox.checked = !enabled;
-        }
-      } else if (!data.ok && checkbox) {
-        checkbox.checked = !enabled;
-      }
-    } catch {
-      if (resultEl) {
-        resultEl.className = "settings-result error";
-        resultEl.textContent = t("autostart.failed");
-      }
-      if (checkbox) checkbox.checked = !enabled;
-    } finally {
-      autostartBusy = false;
-    }
-  }
-
-  function collectSecuritySettings() {
-    return {
-      restrict_to_workspace: document.getElementById("restrictToWorkspace").checked,
-      allow_read_user_folders: document.getElementById("allowReadUserFolders")?.checked !== false,
-      require_approval_writes: document.getElementById("requireApprovalWrites").checked,
-      require_approval_exec: document.getElementById("requireApprovalExec").checked,
-      approve_once_per_turn: document.getElementById("approveOncePerTurn").checked,
-      allow_write_files: document.getElementById("allowWriteFiles").checked,
-      allow_move_files: document.getElementById("allowMoveFiles").checked,
-      allow_organize: document.getElementById("allowOrganize").checked,
-      allow_create_documents: document.getElementById("allowCreateDocuments").checked,
-      allow_powershell: document.getElementById("allowPowershell").checked,
-      allow_python: document.getElementById("allowPython").checked,
-      allow_web_browse: document.getElementById("allowWebBrowse").checked,
-      allow_downloads: document.getElementById("allowDownloads").checked,
-      require_trusted_downloads: document.getElementById("requireTrustedDownloads").checked,
-    };
-  }
-
-  function applyStrictSecurityPreset() {
-    document.getElementById("restrictToWorkspace").checked = true;
-    const allowRead = document.getElementById("allowReadUserFolders");
-    if (allowRead) allowRead.checked = false;
-    document.getElementById("requireApprovalWrites").checked = true;
-    document.getElementById("requireApprovalExec").checked = true;
-    document.getElementById("allowWriteFiles").checked = true;
-    document.getElementById("allowMoveFiles").checked = false;
-    document.getElementById("allowOrganize").checked = false;
-    document.getElementById("allowCreateDocuments").checked = true;
-    document.getElementById("allowPowershell").checked = false;
-    document.getElementById("allowPython").checked = true;
-    document.getElementById("allowWebBrowse").checked = true;
-    document.getElementById("allowDownloads").checked = false;
-    document.getElementById("requireTrustedDownloads").checked = true;
-  }
-
   /* ── 加载设置 ── */
 
   async function loadSettings(options = {}) {
@@ -207,9 +32,9 @@
       : "尚未保存 API Key";
     const visionEnabled = document.getElementById("visionEnabled");
     if (visionEnabled) visionEnabled.checked = !!data.vision_enabled;
-    applyVisionKeyHint(data);
+    F.applyVisionKeyHint?.(data);
     if (visionEnabled) {
-      updateVisionStatus(data.vision_ready, data.vision_enabled, data.vision_status_hint);
+      F.updateVisionStatus?.(data.vision_ready, data.vision_enabled, data.vision_status_hint);
     }
     const imageGenEnabled = document.getElementById("imageGenEnabled");
     if (imageGenEnabled) imageGenEnabled.checked = !!data.image_gen_enabled;
@@ -222,7 +47,7 @@
         : "尚未保存生图 API Key";
     }
     if (imageGenEnabled) {
-      updateImageGenStatus(
+      F.updateImageGenStatus?.(
         data.image_gen_ready,
         data.image_gen_enabled,
         data.image_gen_status_hint || "",
@@ -234,13 +59,13 @@
     if (langEl) langEl.value = data.ui_language || "zh";
     F.setInteractionMode?.(data.interaction_mode || "agent", { persist: false, skipYoloGate: true });
     void F.refreshYoloUnlockState?.();
-    fillSecurityForm(data);
-    applyAutostartUi(data);
+    F.fillSecurityForm?.(data);
+    F.applyAutostartUi?.(data);
     fillArtifactForm(data);
     fillContextSmartForm(data);
     void loadWorkspaceMemoryEditor();
     void loadUserMemoryList();
-    applyUiSettings(data);
+    F.applyUiSettings?.(data);
     F.updateApiStatus(data.api_ready);
     F.bootSettingsSnapshot = data;
     F.applyStatusFromSettings?.(data);
@@ -253,502 +78,6 @@
       F.settingsResult.textContent = data.portability_notices.join("\n");
     }
     return data;
-  }
-
-  /* ── 保存 ── */
-
-  function collectNetworkSettings() {
-    return {
-      api_proxy: document.getElementById("apiProxy")?.value.trim() || "",
-      api_trust_env: document.getElementById("apiTrustEnv")?.checked !== false,
-    };
-  }
-
-  function collectSettings() {
-    return {
-      ...collectNetworkSettings(),
-      ...F.collectCustomPayload?.("llm"),
-      llm_provider: document.getElementById("llmProvider")?.value || "deepseek",
-      api_key: document.getElementById("apiKey").value.trim(),
-      base_url: document.getElementById("baseUrl").value.trim(),
-      model: F.collectLlmModel?.() || document.getElementById("model")?.value || "",
-      workspace: document.getElementById("workspace").value.trim(),
-    };
-  }
-
-  function collectVisionSettings() {
-    return {
-      ...collectNetworkSettings(),
-      ...F.collectCustomPayload?.("vision"),
-      vision_enabled: document.getElementById("visionEnabled").checked,
-      vision_provider: document.getElementById("visionProvider")?.value || "ark",
-      vision_api_key: document.getElementById("visionApiKey").value.trim(),
-      vision_base_url: document.getElementById("visionBaseUrl").value.trim(),
-      vision_model: F.collectVisionModel?.() || "",
-    };
-  }
-
-  function collectImageGenSettings() {
-    return {
-      ...collectNetworkSettings(),
-      ...F.collectCustomPayload?.("image_gen"),
-      image_gen_enabled: document.getElementById("imageGenEnabled").checked,
-      image_gen_provider: document.getElementById("imageGenProvider").value,
-      image_gen_api_key: document.getElementById("imageGenApiKey").value.trim(),
-      image_gen_base_url: document.getElementById("imageGenBaseUrl").value.trim(),
-      image_gen_fallback_urls: document.getElementById("imageGenFallbackUrls").value.trim(),
-      image_gen_model: F.collectImageGenModel?.() || document.getElementById("imageGenModel")?.value.trim() || "",
-    };
-  }
-
-  function updateImageGenStatus(ready, enabled, statusHint = "", verified = false) {
-    const pill = document.getElementById("imageGenStatus");
-    if (!pill) return;
-    if (!enabled) {
-      pill.textContent = "生图未启用";
-      pill.classList.remove("ready");
-      return;
-    }
-    if (verified) {
-      pill.textContent = "生图 API 已验证";
-      pill.classList.add("ready");
-      return;
-    }
-    if (ready) {
-      pill.textContent = "已配置 · 待测试";
-      pill.classList.add("ready");
-    } else {
-      pill.textContent = statusHint || "生图 API 未配置";
-      pill.classList.remove("ready");
-    }
-  }
-
-  function onImageGenProviderChangeLegacy() {
-    /* providers.js 已接管生图服务商切换 */
-  }
-
-  function updateVisionStatus(ready, enabled, statusHint = "", verified = false) {
-    const pill = document.getElementById("visionStatus");
-    if (!pill) return;
-    if (!enabled) {
-      pill.textContent = "视觉辅助未启用";
-      pill.classList.remove("ready");
-      window.Friday?.refreshStatusBar?.();
-      return;
-    }
-    if (verified) {
-      pill.textContent = "视觉 API 已验证";
-      pill.classList.add("ready");
-      window.Friday?.refreshStatusBar?.();
-      return;
-    }
-    if (ready) {
-      pill.textContent = "已配置 · 待测试";
-      pill.classList.add("ready");
-    } else {
-      pill.textContent = statusHint || "视觉 API 未配置";
-      pill.classList.remove("ready");
-    }
-    window.Friday?.refreshStatusBar?.();
-  }
-
-  function applyVisionKeyHint(data) {
-    const hint = document.getElementById("visionApiKeyHint");
-    if (!hint) return;
-    const masked = data?.vision_api_key_masked;
-    const base = masked ? `当前已保存: ${masked}` : "尚未保存视觉 API Key";
-    const statusHint = data?.vision_status_hint || "";
-    if (statusHint.includes("Key 格式不匹配")) {
-      hint.textContent = `${base} · 火山方舟请改用 ark- 开头的 Key`;
-      hint.classList.add("settings-hint-warn");
-      return;
-    }
-    hint.classList.remove("settings-hint-warn");
-    hint.textContent = base;
-  }
-
-  async function saveSettings(event) {
-    event.preventDefault();
-    F.settingsResult.className = "settings-result";
-    F.settingsResult.textContent = "保存中...";
-    const payload = collectSettings();
-    const res = await F.apiFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    document.getElementById("apiKey").value = "";
-    document.getElementById("apiKeyHint").textContent = `当前已保存: ${data.api_key_masked}`;
-    F.apiReady = data.api_ready;
-    F.updateApiStatus(data.api_ready);
-    await F.initProviders?.(data);
-    F.settingsResult.className = "settings-result ok";
-    F.settingsResult.textContent = "设置已保存。";
-    F.updateInputState();
-    F.applyStatusFromSettings?.(data);
-    void F.refreshStatusBar?.();
-  }
-
-  async function pickWorkspaceFolder() {
-    const input = document.getElementById("workspace");
-    const btn = document.getElementById("pickWorkspaceBtn");
-    F.workspaceResult.className = "settings-result";
-    F.workspaceResult.textContent = "";
-
-    if (!window.pywebview?.api?.pick_folder) {
-      F.workspaceResult.className = "settings-result error";
-      F.workspaceResult.textContent =
-        "文件夹选择仅在桌面客户端（星期五.exe 或 python run.py）中可用。请直接在输入框填写路径，例如 D:/Documents/星期五，再点「保存」。";
-      return;
-    }
-
-    if (btn) btn.disabled = true;
-    F.workspaceResult.textContent = "正在打开文件夹选择…";
-
-    try {
-      const path = await window.pywebview.api.pick_folder(input.value.trim());
-      if (path) {
-        input.value = path;
-        F.workspaceResult.className = "settings-result ok";
-        F.workspaceResult.textContent = "已选择目录，请点击「保存」。";
-      } else {
-        F.workspaceResult.className = "settings-result";
-        F.workspaceResult.textContent =
-          "未选择文件夹（可能已取消）。也可直接在输入框填写路径，例如 D:/Documents/星期五，再点「保存」。";
-      }
-    } catch {
-      F.workspaceResult.className = "settings-result error";
-      F.workspaceResult.textContent =
-        "打开文件夹选择器失败。请直接在输入框填写路径，例如 D:/Documents/星期五，再点「保存」。";
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-  }
-
-  async function saveWorkspace(event) {
-    event.preventDefault();
-    F.workspaceResult.className = "settings-result";
-    F.workspaceResult.textContent = "保存中...";
-    const payload = {
-      workspace: document.getElementById("workspace").value.trim(),
-    };
-    const res = await F.apiFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    document.getElementById("workspace").value = data.workspace;
-    F.workspaceResult.className = "settings-result ok";
-    F.workspaceResult.textContent = "默认文件夹已保存。";
-  }
-
-  async function saveAppearanceSettings(event) {
-    event.preventDefault();
-    F.appearanceResult.className = "settings-result";
-    F.appearanceResult.textContent = t("appearance.saving");
-    const payload = {
-      ui_language: document.getElementById("uiLanguage")?.value || "zh",
-      theme: document.getElementById("themeMode").value,
-      font_size: document.getElementById("fontSize").value,
-    };
-    const res = await F.apiFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    applyUiSettings(data);
-    F.appearanceResult.className = "settings-result ok";
-    F.appearanceResult.textContent = t("appearance.saved");
-  }
-
-  async function saveSecuritySettings(event) {
-    event.preventDefault();
-    F.securityResult.className = "settings-result";
-    F.securityResult.textContent = "保存中...";
-    const res = await F.apiFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(collectSecuritySettings()),
-    });
-    if (!res.ok) {
-      F.securityResult.className = "settings-result error";
-      F.securityResult.textContent = "保存失败，请重试。";
-      return;
-    }
-    const data = await res.json();
-    fillSecurityForm(data);
-    F.securityResult.className = "settings-result ok";
-    F.securityResult.textContent = "安全设置已保存。";
-  }
-
-  async function testSettings() {
-    F.settingsResult.className = "settings-result";
-    F.settingsResult.textContent = "测试连接中...";
-    const payload = collectSettings();
-    const res = await F.apiFetchWithTimeout("/api/settings/test", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }, 60000);
-    const data = await res.json();
-    F.applyApiTestResult?.(F.settingsResult, data);
-    if (data.ok) F.updateApiStatus(true);
-    void F.refreshStatusBar?.();
-  }
-
-  function formatDiagnoseReport(report) {
-    const sections = [
-      ["对话大模型", report.llm],
-      ["视觉 API", report.vision],
-      ["生图 API", report.image_gen],
-    ];
-    const lines = [];
-    for (const [title, block] of sections) {
-      if (!block || !Array.isArray(block.steps) || !block.steps.length) continue;
-      lines.push(`【${title}】${block.ok ? " ✓" : " ✗"}`);
-      for (const step of block.steps) {
-        const mark = step.ok ? "✓" : "✗";
-        lines.push(`  ${mark} ${step.name}: ${step.detail}`);
-        if (!step.ok && step.hint) lines.push(`     → ${step.hint}`);
-      }
-      lines.push("");
-    }
-    return lines.join("\n").trim();
-  }
-
-  async function diagnoseNetworkSettings() {
-    F.settingsResult.className = "settings-result";
-    F.settingsResult.textContent = "正在诊断网络（DNS / TCP / SSL）…";
-    const payload = {
-      ...collectSettings(),
-      ...collectVisionSettings(),
-      ...collectImageGenSettings(),
-    };
-    try {
-      const res = await F.apiFetchWithTimeout("/api/settings/diagnose?full_api=false", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }, 90000);
-      const data = await res.json();
-      const text = formatDiagnoseReport(data);
-      const allOk = data.llm?.ok && (!payload.vision_enabled || data.vision?.ok) && (!payload.image_gen_enabled || data.image_gen?.ok);
-      F.settingsResult.className = allOk ? "settings-result ok" : "settings-result error";
-      F.settingsResult.textContent = text || "诊断完成，无可用结果";
-      void F.refreshStatusBar?.();
-    } catch (err) {
-      F.settingsResult.className = "settings-result error";
-      F.settingsResult.textContent = `诊断请求失败：${err?.message || err}`;
-    }
-  }
-
-  async function saveVisionSettings(event) {
-    event.preventDefault();
-    const resultEl = document.getElementById("visionResult");
-    if (resultEl) {
-      resultEl.className = "settings-result";
-      resultEl.textContent = "保存中...";
-    }
-    const payload = collectVisionSettings();
-    const res = await F.apiFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      if (resultEl) {
-        resultEl.className = "settings-result error";
-        resultEl.textContent = F.formatApiErrorResponse?.(res, data) || "保存失败，请重试。";
-      }
-      return;
-    }
-    document.getElementById("visionApiKey").value = "";
-    applyVisionKeyHint(data);
-    updateVisionStatus(data.vision_ready, data.vision_enabled, data.vision_status_hint);
-    await F.initProviders?.(data);
-    if (resultEl) {
-      resultEl.className = "settings-result ok";
-      resultEl.textContent = "视觉设置已保存。";
-    }
-  }
-
-  async function testVisionSettings() {
-    const resultEl = document.getElementById("visionResult");
-    if (resultEl) {
-      resultEl.className = "settings-result";
-      resultEl.textContent = "测试视觉 API 中...";
-    }
-    const payload = collectVisionSettings();
-    if (!payload.vision_enabled) {
-      if (resultEl) {
-        resultEl.className = "settings-result error";
-        resultEl.textContent = "请先勾选「启用视觉辅助」。";
-      }
-      updateVisionStatus(false, false);
-      return;
-    }
-    const res = await F.apiFetch("/api/settings/test-vision", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.ok) {
-      if (res.status === 401) {
-        await F.ensureApiToken?.();
-      }
-      if (resultEl) {
-        resultEl.className = "settings-result error";
-        resultEl.textContent = F.formatApiErrorResponse?.(res, data, { service: "视觉 API", context: "vision" })
-          || F.formatErrorResult?.(data)
-          || data.message
-          || "视觉 API 测试失败";
-      }
-      const hint = payload.vision_provider === "ark" && payload.vision_api_key?.startsWith("sk-")
-        ? "Key 格式不匹配：火山方舟需 ark- 开头"
-        : (data.message || "");
-      updateVisionStatus(false, payload.vision_enabled, hint);
-      void F.refreshStatusBar?.();
-      return;
-    }
-
-    const saveRes = await F.apiFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const saved = await saveRes.json();
-    document.getElementById("visionApiKey").value = "";
-    applyVisionKeyHint(saved);
-    updateVisionStatus(saved.vision_ready, saved.vision_enabled, saved.vision_status_hint, true);
-    await F.initProviders?.(saved);
-    if (resultEl) {
-      resultEl.className = "settings-result ok";
-      resultEl.textContent = `${data.message}（已自动保存，对话中可识图）`;
-    }
-    void F.refreshStatusBar?.();
-  }
-
-  function markImageGenStatusBarOnline(detail = "") {
-    F.patchImageGenStatus?.({
-      image_gen_enabled: true,
-      image_gen_configured: true,
-      image_gen_online: true,
-      image_gen_reach_detail: detail || "生图 API 已就绪",
-    });
-  }
-
-  async function saveImageGenSettings(event) {
-    event.preventDefault();
-    const resultEl = document.getElementById("imageGenResult");
-    if (resultEl) {
-      resultEl.className = "settings-result";
-      resultEl.textContent = "保存中...";
-    }
-    const payload = collectImageGenSettings();
-    const res = await F.apiFetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    document.getElementById("imageGenApiKey").value = "";
-    document.getElementById("imageGenApiKeyHint").textContent = data.image_gen_api_key_masked
-      ? `当前已保存: ${data.image_gen_api_key_masked}`
-      : "尚未保存生图 API Key";
-    updateImageGenStatus(
-      data.image_gen_ready,
-      data.image_gen_enabled,
-      data.image_gen_status_hint || "",
-    );
-    if (data.image_gen_ready && data.image_gen_enabled) {
-      markImageGenStatusBarOnline("生图 API 已就绪");
-    }
-    await F.initProviders?.(data);
-    if (resultEl) {
-      resultEl.className = "settings-result ok";
-      resultEl.textContent = "生图设置已保存。";
-    }
-    void F.refreshStatusBar?.();
-  }
-
-  async function testImageGenSettings() {
-    const resultEl = document.getElementById("imageGenResult");
-    const btn = document.getElementById("testImageGenBtn");
-    if (btn) btn.disabled = true;
-    if (resultEl) {
-      resultEl.className = "settings-result";
-      resultEl.textContent = "正在验证生图端点与模型（约需半分钟至 2 分钟）…";
-    }
-    const payload = collectImageGenSettings();
-    if (!payload.image_gen_enabled) {
-      if (resultEl) {
-        resultEl.className = "settings-result error";
-        resultEl.textContent = "请先勾选「启用生图」。";
-      }
-      updateImageGenStatus(false, false);
-      if (btn) btn.disabled = false;
-      return;
-    }
-    if (!payload.image_gen_model) {
-      if (resultEl) {
-        resultEl.className = "settings-result error";
-        resultEl.textContent = "请先填写生图模型名称。";
-      }
-      updateImageGenStatus(false, payload.image_gen_enabled, "请填写生图模型名称");
-      if (btn) btn.disabled = false;
-      return;
-    }
-    try {
-      const res = await F.apiFetchWithTimeout("/api/settings/test-image-gen", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }, 180000);
-      const data = await res.json();
-      if (!data.ok) {
-        F.applyApiTestResult?.(resultEl, data);
-        updateImageGenStatus(false, payload.image_gen_enabled, "测试未通过");
-        return;
-      }
-
-      const saveRes = await F.apiFetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const saved = await saveRes.json();
-      document.getElementById("imageGenApiKey").value = "";
-      document.getElementById("imageGenApiKeyHint").textContent = saved.image_gen_api_key_masked
-        ? `当前已保存: ${saved.image_gen_api_key_masked}`
-        : "尚未保存生图 API Key";
-      updateImageGenStatus(saved.image_gen_ready, saved.image_gen_enabled, "", true);
-      await F.initProviders?.(saved);
-      if (resultEl) {
-        resultEl.className = "settings-result ok";
-        resultEl.textContent = `${data.message}（已自动保存）`;
-      }
-      await F.refreshStatusBar?.({ force: true });
-      if (saved.image_gen_ready && saved.image_gen_enabled) {
-        const statusDetail = String(data.message || "生图 API 已就绪").split("\n")[0].trim();
-        markImageGenStatusBarOnline(statusDetail || "生图 API 已就绪");
-      }
-    } catch (err) {
-      const timedOut = err?.name === "AbortError";
-      if (resultEl) {
-        resultEl.className = "settings-result error";
-        resultEl.textContent = timedOut
-          ? "生图测试超时（3 分钟）。端点可能响应过慢或不可达，请检查 Base URL 与模型名。"
-          : "生图测试失败，请确认星期五后端已启动并重试。";
-      }
-      updateImageGenStatus(false, payload.image_gen_enabled, timedOut ? "测试超时" : "测试失败");
-    } finally {
-      if (btn) btn.disabled = false;
-    }
   }
 
   /* ── 设置面板切换 ── */
@@ -932,7 +261,7 @@
         pathHint.textContent = data.path.replace(/[/\\]friday\.log$/i, "");
       }
       const lines = data.lines || [];
-      preview.textContent = lines.length ? lines.join("\n") : t("logs.empty");
+      preview.textContent = lines.length ? lines.join("\n") : F.t("logs.empty");
     } catch {
       preview.textContent = "无法读取日志，请稍后重试。";
     }
@@ -944,7 +273,7 @@
       await window.pywebview.api.open_appdata_folder();
       if (resultEl) {
         resultEl.className = "settings-result ok";
-        resultEl.textContent = t("logs.opened");
+        resultEl.textContent = F.t("logs.opened");
       }
       return;
     }
@@ -988,32 +317,7 @@
 
   initModelStatusPreview();
 
-  F.t = t;
-  F.cacheUiPrefs = cacheUiPrefs;
-  F.resolveTheme = resolveTheme;
-  F.applyTheme = applyTheme;
-  F.applyFontSize = applyFontSize;
-  F.initThemeWatcher = initThemeWatcher;
-  F.applyUiSettings = applyUiSettings;
-  F.fillSecurityForm = fillSecurityForm;
-  F.collectSecuritySettings = collectSecuritySettings;
-  F.applyStrictSecurityPreset = applyStrictSecurityPreset;
   F.loadSettings = loadSettings;
-  F.collectSettings = collectSettings;
-  F.saveSettings = saveSettings;
-  F.pickWorkspaceFolder = pickWorkspaceFolder;
-  F.saveWorkspace = saveWorkspace;
-  F.saveAppearanceSettings = saveAppearanceSettings;
-  F.saveSecuritySettings = saveSecuritySettings;
-  F.testSettings = testSettings;
-  F.diagnoseNetworkSettings = diagnoseNetworkSettings;
-  F.saveVisionSettings = saveVisionSettings;
-  F.testVisionSettings = testVisionSettings;
-  F.updateVisionStatus = updateVisionStatus;
-  F.applyVisionKeyHint = applyVisionKeyHint;
-  F.saveImageGenSettings = saveImageGenSettings;
-  F.testImageGenSettings = testImageGenSettings;
-  F.onImageGenProviderChangeLegacy = onImageGenProviderChangeLegacy;
   F.openSettings = openSettings;
   F.closeSettings = closeSettings;
   F.switchSettingsPanel = switchSettingsPanel;
@@ -1073,7 +377,7 @@
     const emptyEl = document.getElementById("artifactStorageEmpty");
     if (el) {
       el.classList.remove("hidden");
-      el.textContent = t("settings.data.artifactsLoading") || "正在加载占用信息…";
+      el.textContent = F.t("settings.data.artifactsLoading") || "正在加载占用信息…";
     }
     emptyEl?.classList.add("hidden");
     try {
@@ -1085,7 +389,7 @@
     } catch {
       if (el) {
         el.classList.remove("hidden");
-        el.textContent = t("settings.data.artifactsLoadError") || "无法加载占用信息。";
+        el.textContent = F.t("settings.data.artifactsLoadError") || "无法加载占用信息。";
       }
       emptyEl?.classList.add("hidden");
       return null;
@@ -1968,7 +1272,7 @@
     const sourceLink = document.getElementById("updateSourceLink");
     if (resultEl) {
       resultEl.className = "settings-result";
-      resultEl.textContent = t("updates.checking");
+      resultEl.textContent = F.t("updates.checking");
     }
     applyBtn?.classList.add("hidden");
     try {
@@ -1990,7 +1294,7 @@
           const hint = data.can_auto_update
             ? "可点「一键更新并重启」自动完成，无需手动解压。"
             : (data.auto_update_hint || data.manual_download_hint || "请下载安装程序 Friday-Setup 后运行。");
-          resultEl.textContent = `${t("updates.found", { latest: data.latest, current: data.current })}\n${hint}`;
+          resultEl.textContent = `${F.t("updates.found", { latest: data.latest, current: data.current })}\n${hint}`;
         }
         if (applyBtn && data.can_auto_update && data.download_url && data.download_sha256) {
           applyBtn.classList.remove("hidden");
@@ -2015,7 +1319,7 @@
       } else {
         if (resultEl) {
           resultEl.className = "settings-result ok";
-          resultEl.textContent = t("updates.latest", { version: data.current });
+          resultEl.textContent = F.t("updates.latest", { version: data.current });
         }
         downloadLink?.classList.add("hidden");
       }
@@ -2031,7 +1335,7 @@
         resultEl.className = "settings-result error";
         resultEl.textContent = err?.name === "AbortError"
           ? "检查更新超时，请检查网络后重试。"
-          : t("updates.fail");
+          : F.t("updates.fail");
       }
     }
   }
@@ -2042,7 +1346,7 @@
   document.getElementById("checkUpdateBtn")?.addEventListener("click", checkForUpdates);
   document.getElementById("applyUpdateBtn")?.addEventListener("click", () => void applyUpdate());
   document.getElementById("launchAtLogon")?.addEventListener("change", (event) => {
-    void toggleAutostart(event.target.checked);
+    void F.toggleAutostart?.(event.target.checked);
   });
   document.getElementById("viewChangelogBtn")?.addEventListener("click", () => {
     void F.showChangelogHistory?.();

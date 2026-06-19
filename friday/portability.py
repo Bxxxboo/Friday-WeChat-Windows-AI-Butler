@@ -507,7 +507,7 @@ def run_portability_audit(settings: UserSettings) -> list[dict[str, object]]:
 
 def run_startup_portability_checks(settings: UserSettings) -> UserSettings:
     """启动时自愈配置并记录需展示给用户的提示。"""
-    from friday.plugins import migrate_installed_plugin_manifests
+    from friday.plugins import migrate_installed_plugin_manifests, migrate_plugin_skill_fields
 
     if try_migrate_legacy_appdata():
         settings = load_settings()
@@ -515,6 +515,10 @@ def run_startup_portability_checks(settings: UserSettings) -> UserSettings:
     migrated = migrate_installed_plugin_manifests()
     if migrated:
         _log.info("已迁移 %d 个插件 manifest 为可移植格式", migrated)
+
+    normalized = migrate_plugin_skill_fields()
+    if normalized:
+        _log.info("已规范化 %d 个插件 manifest 技能/规则字段", normalized)
 
     settings, ws_notes = repair_workspace(settings)
     for note in ws_notes:

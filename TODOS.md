@@ -139,7 +139,7 @@
 
 **原则**
 
-- **有上限**：单用户任务同时活跃子 Agent ≤ **2～3**（可配置 `max_sub_agents`，默认 2）
+- **有上限**：单用户任务同时活跃子 Agent ≤ **3**（可配置 `max_sub_agents`，默认 3）
 - **分工固定**：规划 / 调研 / 执行 等**角色模板**，非任意 spawn
 - **主 Agent 仍唯一对外**：子 Agent 只产出结构化中间结果（plan、research notes、checklist），不直接调危险工具
 - **与现有并行工具调用共存**：只读调研类可子 Agent；写盘/Shell/微信仍走主 Agent + 审批
@@ -158,15 +158,15 @@
 **改动**
 
 1. `friday/sub_agents.py`（或 agent 子模块）：角色 prompt、并发池、超时、取消
-2. 设置：`multi_agent_enabled`（默认关）、`max_sub_agents`（默认 2）
+2. 设置：`multi_agent_enabled`（默认开）、`max_sub_agents`（默认 3）
 3. 观测：operations log 标记 `sub_agent:planner|research` 便于诊断
 
 **验收**
 
 - [x] 关闭时行为与现版完全一致（`tests/agent/test_sub_agents.py`）
-- [ ] 开启后 3 步以上复杂任务：plan 质量可测（固定 eval case ≥1）
-- [ ] 并发数超过上限时排队，不 spawn 第 4 个
-- [ ] 子 Agent 无法调用 delete_file / run_powershell / 微信发送等 HIGH 风险工具
+- [x] 开启后 3 步以上复杂任务：plan 质量可测（固定 eval case ≥1）
+- [x] 并发数超过上限时排队，不 spawn 第 4 个
+- [x] 子 Agent 无法调用 delete_file / run_powershell / 微信发送等 HIGH 风险工具
 
 **非目标**：无限群狼、子 Agent 各带独立会话 UI、分布式 worker
 

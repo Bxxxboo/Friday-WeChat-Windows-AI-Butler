@@ -18,7 +18,6 @@ from friday.config import (
 from friday.logging_config import get_logger
 from friday.paths import format_folders_for_prompt, known_folders
 from friday.storage import UserSettings, resolved_workspace
-from friday.tools.registry import get_tool_definitions_for_messages
 
 _log = get_logger("brain")
 
@@ -482,6 +481,8 @@ class DeepSeekBrain:
             "temperature": 0.2,
         }
         if tools:
+            from friday.tools.registry import get_tool_definitions_for_messages
+
             kwargs["tools"] = tool_definitions or get_tool_definitions_for_messages(
                 messages,
                 settings=self.settings,
@@ -505,6 +506,8 @@ class DeepSeekBrain:
             "stream": True,
         }
         if tools:
+            from friday.tools.registry import get_tool_definitions_for_messages
+
             kwargs["tools"] = tool_definitions or get_tool_definitions_for_messages(
                 messages,
                 settings=self.settings,

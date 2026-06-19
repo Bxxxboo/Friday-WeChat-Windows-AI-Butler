@@ -68,7 +68,7 @@
     try {
       const res = await F.apiFetch("/api/skills?grouped=true");
       const data = await res.json();
-      const groups = data.groups || [];
+      const groups = (data.groups || []).filter((g) => g.category !== "plugin");
       allSkills = groups.flatMap((g) => g.skills || []);
       renderWelcomeGroups(groups);
     } catch (err) {

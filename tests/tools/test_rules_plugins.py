@@ -299,6 +299,62 @@ def test_install_github_skill_storage_analyzer_blocked(tmp_appdata):
         install_github_skill("KKKKhazix/khazix-skills/storage-analyzer")
 
 
+def test_validate_manifest_maps_title_to_label(tmp_appdata):
+    from friday.plugins import _validate_manifest
+
+    manifest = _validate_manifest({
+        "id": "legacy-skill",
+        "name": "Legacy Plugin",
+        "description": "科研图表助手",
+        "skills": [{"title": "科研数据可视化", "icon": "📈"}],
+        "rules": [{"label": "简洁规则", "content": "回答要短。", "enabled": True}],
+    })
+    assert manifest["skills"][0]["label"] == "科研数据可视化"
+    assert manifest["skills"][0]["id"] == "legacy-skill"
+    assert "科研图表助手" in manifest["skills"][0]["prompt"]
+    assert manifest["rules"][0]["title"] == "简洁规则"
+
+
+def test_validate_manifest_prompt_uses_skill_md(tmp_appdata):
+    from friday.plugins import _validate_manifest
+
+    plugin_dir = tmp_appdata / "plugins" / "has-md"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "SKILL.md").write_text("# Skill\n", encoding="utf-8")
+    manifest = _validate_manifest({
+        "id": "has-md",
+        "name": "Has MD",
+        "description": "做出版级配图",
+        "skills": [{"title": "主技能"}],
+    }, plugin_dir=plugin_dir)
+    assert "SKILL.md" in manifest["skills"][0]["prompt"]
+    assert "做出版级配图" in manifest["skills"][0]["prompt"]
+
+
+def test_migrate_plugin_skill_fields_fixes_legacy_manifest(tmp_appdata):
+    from friday.plugins import migrate_plugin_skill_fields
+
+    plugin_dir = tmp_appdata / "plugins" / "legacy-skill"
+    plugin_dir.mkdir(parents=True)
+    raw = {
+        "id": "legacy-skill",
+        "name": "Legacy",
+        "version": "1.0.0",
+        "description": "desc",
+        "skills": [{"title": "科研数据可视化", "prompt": "run skill"}],
+        "rules": [],
+    }
+    (plugin_dir / "friday-plugin.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    install_plugin_from_manifest(raw, source="local")
+    (plugin_dir / "friday-plugin.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    (tmp_appdata / ".plugin_manifest_normalize_v1").unlink(missing_ok=True)
+
+    updated = migrate_plugin_skill_fields()
+    assert updated >= 1
+    skill = next(s for s in list_skills(include_disabled=True) if s.get("plugin_id") == "legacy-skill")
+    assert skill["label"] == "科研数据可视化"
+
+
 def test_plugin_manifest_substitutes_at_runtime(tmp_appdata):
     manifest = {
         "id": "path-plugin",

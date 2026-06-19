@@ -346,6 +346,8 @@ def wait_for_server(port: int, timeout: float = 45.0) -> bool:
     import json
     import time
 
+    from friday.boot_timing import log_summary, mark as boot_mark
+
     deadline = time.time() + timeout
     url = f"http://127.0.0.1:{port}/api/health"
     while time.time() < deadline:
@@ -356,6 +358,11 @@ def wait_for_server(port: int, timeout: float = 45.0) -> bool:
                     continue
                 body = json.loads(resp.read().decode("utf-8"))
                 if body.get("status") == "ok":
+                    boot_mark("health_ok")
+                    skills = (body.get("services") or {}).get("bundled_skills") or {}
+                    if skills.get("status") == "ok":
+                        boot_mark("ppt_health_ok")
+                    log_summary(trigger="health_ok")
                     return True
         except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, ValueError):
             time.sleep(0.05)
@@ -365,6 +372,9 @@ def wait_for_server(port: int, timeout: float = 45.0) -> bool:
 def _prepare_backend() -> None:
     import uvicorn
 
+    from friday.boot_timing import mark as boot_mark
+
+    boot_mark("backend_thread")
     try:
         port = find_free_port()
         from friday.auth import ensure_api_token, set_api_token
@@ -423,6 +433,9 @@ def _is_internal_app_url(url: str) -> bool:
 def main() -> None:
     global _log
     os.environ.setdefault("FRIDAY_GUI", "1")
+    from friday.boot_timing import mark as boot_mark
+
+    boot_mark("desktop_main")
     from friday.crash_handler import install_crash_handler
 
     install_crash_handler()
@@ -637,6 +650,9 @@ def main() -> None:
                 pass
         _splash_status("正在加载界面…")
         boot_phase["step"] = "main"
+        from friday.boot_timing import mark as boot_mark
+
+        boot_mark("main_ui_load")
         try:
             from friday.scheduler import start_scheduler
 
