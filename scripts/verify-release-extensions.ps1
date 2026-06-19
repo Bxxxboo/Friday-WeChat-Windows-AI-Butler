@@ -14,7 +14,7 @@ Set-Location -LiteralPath $FridayRepo
 
 if (-not $DistExtensions) {
     $DistApp = Get-FridayDistDir -Root $FridayRepo
-    $DistExtensions = Join-Path $DistApp "_internal" "extensions"
+    $DistExtensions = Join-Path (Join-Path $DistApp "_internal") "extensions"
 }
 
 $SrcRoot = Join-Path $FridayRepo "extensions"

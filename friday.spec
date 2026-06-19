@@ -28,8 +28,11 @@ def _extension_datas() -> list[tuple[str, str]]:
     ext_root = ROOT / "extensions"
     if not ext_root.is_dir():
         return items
+    skip_prefix = ext_root / "ppt-master" / "references" / "ai-image-comparison"
     for path in sorted(ext_root.rglob("*")):
         if not path.is_file():
+            continue
+        if skip_prefix in path.parents or path == skip_prefix:
             continue
         dest = str(Path("extensions") / path.parent.relative_to(ext_root))
         items.append((str(path), dest))
