@@ -524,7 +524,8 @@ if ($CleanupDir -and (Test-Path -LiteralPath $CleanupDir)) {
 exit 0
 """
     path = _updates_dir() / "apply-update.ps1"
-    path.write_text(script, encoding="utf-8")
+    # PowerShell 5.1 无 BOM 时按系统 ANSI 读 UTF-8 中文，会导致脚本语法错误、updater 静默失败。
+    path.write_text(script, encoding="utf-8-sig")
     return path
 
 
@@ -550,6 +551,33 @@ def notify_last_apply_failure_on_startup(*, current: str) -> None:
 
 def format_last_apply_failure(*, current: str) -> str:
     data = read_last_apply_result()
+    if data.get("ok") is True:
+        return ""
+    if data.get("ok") is None and str(data.get("detail") or "") == "updater_dispatched":
+        target = str(data.get("version") or "").strip()
+        if target:
+            from friday.updates import _is_newer
+
+            if _is_newer(current, target):
+                return (
+                    f"上次自动更新 v{target} 已下载但未完成安装（更新脚本可能未运行）。"
+                    "请重试「一键更新」；若仍失败，请完全退出星期五后下载 Friday-Setup 安装。"
+                )
+        return ""
+    detail = str(data.get("detail") or "")
+    if data.get("ok") is False and detail == "updater_started":
+        target = str(data.get("version") or "").strip()
+        if target:
+            from friday.updates import _is_newer
+
+            if not _is_newer(current, target):
+                clear_last_apply_result()
+                return ""
+            return (
+                f"上次自动更新 v{target} 在安装过程中中断。"
+                "请重试「一键更新」；若仍失败，请下载 Friday-Setup 覆盖安装。"
+            )
+        return ""
     if data.get("ok") is not False:
         return ""
     target = str(data.get("version") or "").strip()
@@ -582,6 +610,26 @@ def format_last_apply_failure(*, current: str) -> str:
     )
 
 
+def _mark_updater_dispatched(*, version: str, target_dir: Path) -> None:
+    """记录已派发外部 updater；若进程树被误杀，启动时可提示重试。"""
+    import json
+
+    payload = {
+        "ok": None,
+        "detail": "updater_dispatched",
+        "version": version,
+        "target_dir": str(target_dir),
+        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    try:
+        last_apply_result_path().write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        _log.warning("无法写入 updater 派发标记")
+
+
 def _launch_updater(
     *,
     target_dir: Path,
@@ -591,8 +639,8 @@ def _launch_updater(
     version: str,
 ) -> None:
     script = _write_updater_script()
-    args = [
-        "powershell",
+    ps_args = [
+        "powershell.exe",
         "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
@@ -613,14 +661,15 @@ def _launch_updater(
         "-Version",
         version,
     ]
-    creationflags = subprocess.CREATE_NO_WINDOW
-    if sys.platform == "win32":
-        creationflags |= getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+    # 须用 cmd start 脱离 Friday 进程树；否则 os._exit 会连带杀掉 DETACHED 子进程，
+    # 表现为「下载解压完成 → 应用关闭 → 无重启、版本未变」。
+    args = ["cmd.exe", "/c", "start", "", "/MIN", *ps_args]
     subprocess.Popen(
         args,
-        creationflags=creationflags,
+        creationflags=subprocess.CREATE_NO_WINDOW,
         close_fds=True,
     )
+    _mark_updater_dispatched(version=version, target_dir=target_dir)
 
 
 def _apply_worker(*, download_url: str, version: str, expected_sha256: str = "") -> None:
@@ -674,7 +723,7 @@ def _apply_worker(*, download_url: str, version: str, expected_sha256: str = "")
         ok = True
         message = "更新已开始，应用即将重启。"
         hint = ""
-        request_app_quit(delay=0.5, force=True)
+        request_app_quit(delay=1.2, force=True)
     except Exception as exc:
         _log.exception("一键更新失败")
         detail, hint = _format_update_error(exc)

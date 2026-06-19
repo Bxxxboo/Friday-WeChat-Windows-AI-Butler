@@ -198,6 +198,25 @@ def test_format_last_apply_failure_clears_when_already_updated(tmp_path, monkeyp
     assert format_last_apply_failure(current="1.3.5") == ""
 
 
+def test_format_last_apply_failure_updater_dispatched(tmp_path, monkeypatch):
+    monkeypatch.setattr("friday.update_installer._updates_dir", lambda: tmp_path)
+    last_apply_result_path().write_text(
+        '{"ok": null, "version": "1.4.10", "detail": "updater_dispatched"}',
+        encoding="utf-8",
+    )
+    hint = format_last_apply_failure(current="1.4.9")
+    assert "1.4.10" in hint
+    assert "未完成" in hint
+
+
+def test_updater_script_has_utf8_bom(tmp_path, monkeypatch):
+    monkeypatch.setattr("friday.update_installer._updates_dir", lambda: tmp_path)
+    from friday.update_installer import _write_updater_script
+
+    path = _write_updater_script()
+    assert path.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
 def test_updater_script_restarts_from_install_dir(tmp_path, monkeypatch):
     """robocopy 后须从 TargetDir 启动，不能从临时解压目录（随后会被删除）。"""
     monkeypatch.setattr("friday.update_installer._updates_dir", lambda: tmp_path)
@@ -210,6 +229,37 @@ def test_updater_script_restarts_from_install_dir(tmp_path, monkeypatch):
     assert "files_not_replaced" in text
     assert "Get-CimInstance Win32_Process" in text
     assert "Start-Process -FilePath $ExePath" not in text
+
+
+def test_launch_updater_uses_cmd_start_survives_parent_exit(tmp_path, monkeypatch):
+    """updater 须经 cmd start 启动，避免 os._exit 杀掉 PowerShell 子进程。"""
+    monkeypatch.setattr("friday.update_installer._updates_dir", lambda: tmp_path)
+    launched: list[list[str]] = []
+
+    def _fake_popen(args, **kwargs):
+        launched.append(list(args))
+        return None
+
+    monkeypatch.setattr("friday.update_installer.subprocess.Popen", _fake_popen)
+    from friday.update_installer import _launch_updater
+
+    _launch_updater(
+        target_dir=tmp_path / "install",
+        source_dir=tmp_path / "stage",
+        exe_path=tmp_path / "stage" / "Friday.exe",
+        cleanup_dir=tmp_path / "work",
+        version="1.4.11",
+    )
+    assert launched
+    cmd = launched[0]
+    assert cmd[0].lower().endswith("cmd.exe")
+    assert cmd[1:4] == ["/c", "start", ""]
+    assert "/MIN" in cmd
+    assert "powershell.exe" in cmd
+    assert (tmp_path / "last-apply-result.json").is_file()
+    data = read_last_apply_result()
+    assert data.get("detail") == "updater_dispatched"
+    assert data.get("version") == "1.4.11"
 
 
 def test_format_last_apply_failure_files_not_replaced(tmp_path, monkeypatch):
