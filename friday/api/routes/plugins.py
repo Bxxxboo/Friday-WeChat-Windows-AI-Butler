@@ -492,6 +492,7 @@ def register_plugins_routes(app: FastAPI) -> None:
             update_available=info.update_available,
             download_url=info.download_url,
             download_sha256=info.download_sha256,
+            manual_download_url=info.manual_download_url,
             release_notes=info.release_notes,
             checked=info.checked,
             source_repo=info.source_repo,

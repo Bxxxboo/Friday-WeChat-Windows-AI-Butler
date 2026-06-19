@@ -157,10 +157,11 @@ Gitee Pages 首次启用：https://gitee.com/Bxxxboo/friday/pages → 分支 **`
    顺序：**先 push Gitee** → **启用 GitHub 代理** → **push origin** → **`Assert-FridayRemotesAligned`**（两端 `main` SHA 须一致）
 5. **Gitee Release**（国内更新源，必做）— `scripts\publish-gitee-release.ps1`  
    **上传前自动** `prune_gitee_releases.py --keep 3`（`-SkipPrune` 仅调试）  
-   构建并上传三附件：
+   构建并上传四附件（**顺序与 SHA256 见下节「SHA256SUMS.txt」**）：
    - `Friday-Windows-{v}.zip` — **仅** `Friday-Setup-{v}.exe` + `VERSION.txt`（安装包 ZIP，无教程/脚本）
-   - `Friday-Update-{v}.zip` — 便携 `Friday/`（应用内更新）
+   - `Friday-Update-{v}.zip` — 便携 `Friday/`（**应用内一键更新**）
    - `Friday-Setup-{v}.exe`
+   - `SHA256SUMS.txt` — **须最后上传**；与上述三文件哈希一致
 6. **GitHub Release**（必做；失败须开代理重试 `publish-github-release.cmd -SkipBuild`，不得在汇报中默认跳过）— `scripts\publish-github-release.ps1`（`publish-full-release.ps1` 第 5/5 步）  
    **上传前自动** `prune_github_releases.py --keep 3`（`-SkipPrune` 仅调试）  
    仓库名：`Friday-WeChat-Windows-AI-Butler`；脚本开头自动 `Enable-FridayGithubNetwork`
@@ -201,9 +202,12 @@ curl.exe -sL "https://bxxxboo.gitee.io/friday/download.json"
 # 本地版本与产物
 Select-String -Path friday\version.py -Pattern '__version__|__dev_version__'
 Get-ChildItem release\Friday-*-$((Select-String friday\version.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value).*
+
+# 应用内更新 SHA256（Gitee 公网直链须与 SHA256SUMS 一致，见上节）
+python -c "from friday.updates import check_for_updates; import hashlib, urllib.request as u; i=check_for_updates('Bxxxboo/friday'); b=u.urlopen(i.download_url,timeout=120).read(); print('update_sha256_match', hashlib.sha256(b).hexdigest()==i.download_sha256)"
 ```
 
-预期：`origin` 与 `gitee` 的 `refs/heads/main` **SHA 相同**；**Vercel** `download.json` 的 `version` = `__version__`；Gitee/GitHub Release 含三附件 + `SHA256SUMS.txt`；**Gitee Pages** 已部署或汇报中说明未启用原因。
+预期：`origin` 与 `gitee` 的 `refs/heads/main` **SHA 相同**；**Vercel** `download.json` 的 `version` = `__version__`；Gitee/GitHub Release 含三附件 + `SHA256SUMS.txt`；**`update_sha256_match True`**；**Gitee Pages** 已部署或汇报中说明未启用原因。
 
 ## 官网与应用内更新（勿混淆）
 
@@ -228,6 +232,69 @@ python scripts/prune_github_releases.py --keep 3 --dry-run
 python scripts/prune_github_releases.py --keep 3
 ```
 
+## SHA256SUMS.txt（应用内更新门禁，强制）
+
+应用内「检查更新 → 一键更新」会下载 `Friday-Update-{v}.zip`，并用 Release 上的 **`SHA256SUMS.txt`** 校验完整性。**清单与 zip 不一致 → 用户看到「SHA256 不匹配」且无法更新。**
+
+### 生成（本地）
+
+`scripts\make-release.ps1` 在打包完成后写入 `release\SHA256SUMS.txt`，覆盖：
+
+- `Friday-Setup-{v}.exe`
+- `Friday-Windows-{v}.zip`
+- `Friday-Update-{v}.zip`
+
+**只要重新打过包（哪怕同版本号），必须先跑 `make-release.ps1` 再发 Release**，不得沿用旧 `SHA256SUMS.txt`。
+
+### 上传顺序（Gitee / GitHub）
+
+1. 三个二进制附件（Windows zip → Update zip → Setup exe）
+2. **`SHA256SUMS.txt` 必须最后上传**（且须与当前 `release\` 目录内文件一致）
+
+### Gitee 特规（防重复附件）
+
+Gitee **`releases/{id}` 返回的 `assets` 不含 `id`**，无法可靠删除旧附件；**必须用**：
+
+`GET /repos/{owner}/{repo}/releases/{release_id}/attach_files`
+
+`publish_gitee_release.py` 已改为经 **attach_files** 删除**同名全部**旧附件后再上传。若只换 zip 不换清单，或清单叠了两份，CDN 可能仍返回**旧 SHA256** → 自动更新必挂。
+
+**禁止**手动 `attach_files` 叠加上传而不删旧附件。
+
+### 发版脚本门禁
+
+`publish-gitee-release.ps1` 上传结束后自动调用 `verify_public_download_matches_sums`：
+
+- 从 Gitee **公网直链**下载 `Friday-Update-{v}.zip`
+- 与 **公网直链** `SHA256SUMS.txt` 中对应行比对
+- **不一致则脚本 exit 1**，不得声称发版完成
+
+### 发版后核对（Agent 须贴结果）
+
+```powershell
+$v = (Select-String friday\version.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+python -c "
+from friday.updates import check_for_updates
+import hashlib, urllib.request
+info = check_for_updates('Bxxxboo/friday')
+print('download_url:', info.download_url)
+print('expected  :', info.download_sha256)
+blob = urllib.request.urlopen(info.download_url, timeout=120).read()
+actual = hashlib.sha256(blob).hexdigest()
+print('actual    :', actual)
+print('match     :', actual == info.download_sha256)
+"
+```
+
+预期：`match: True`。若为 `False`，**补跑** `scripts\publish-gitee-release.ps1 -SkipBuild`（会删重复附件并重传 `SHA256SUMS.txt`），直到通过。
+
+补传仅清单（zip 未变时）：
+
+```powershell
+# 须先 make-release 生成最新 release\SHA256SUMS.txt
+scripts\publish-gitee-release.ps1 -SkipBuild -SkipPrune
+```
+
 ## 官网下载区文案约定
 
 - 按钮：**下载安装包**（不是「下载压缩包」）
@@ -246,6 +313,8 @@ python scripts/prune_github_releases.py --keep 3
 - **`publish-release` 后未部署官网**（未跑 Vercel alias + Gitee Pages）
 - 只改 `website/download.json` 不 `vercel deploy` + `alias`（线上会仍显示旧版本）
 - bump / 发 Release **未**先写 `assets/changelog.json` + `CHANGELOG.md` 目标版本条目
+- **重打包后只换 zip 不重传 `SHA256SUMS.txt`**，或 Gitee 上叠两份同名清单
+- **Gitee Release 上传未通过 `verify_public_download_matches_sums`（`update_sha256_match` 非 True）却声称发版完成**
 - Windows ZIP 里塞 `安装教程.txt`、`解除锁定.ps1` 等冗长文件
 - 擅自 `git commit`（**本规则触发的发版除外**——用户已明确授权整条流水线）
 
@@ -255,6 +324,7 @@ python scripts/prune_github_releases.py --keep 3
 - 已核对 `__version__` 与 `__dev_version__`（`X.Y.Z` / `X.Y.Z-dev`）
 - 更新公告：`assets/changelog.json` `entries[0]` 版本 + title；`CHANGELOG.md` 首条 `##` 已同步
 - 已上传附件列表（Gitee + GitHub URL；**GitHub 若未对齐 origin SHA 须标红补推**）
+- **应用内更新**：Gitee `Friday-Update-{v}.zip` 公网 SHA256 与 `SHA256SUMS.txt` 一致（`update_sha256_match True`）
 - `git ls-remote origin` 与 `gitee` 的 `main` SHA（须一致）
 - 官网：`fridayaiagent.vercel.app/download.json` 的 `version`；`bxxxboo.gitee.io/friday/download.json`（或说明 Pages 未启用）
 - 未改动范围 / 若某步跳过须说明原因

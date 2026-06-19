@@ -394,6 +394,18 @@ function Write-ApplyResult([bool]$Ok, [int]$ExitCode, [string]$Detail) {
     $payload | ConvertTo-Json -Compress | Set-Content -LiteralPath $ResultFile -Encoding UTF8
 }
 
+function Show-UpdateFailure([string]$Message) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.MessageBox]::Show(
+            $Message,
+            "星期五 - 更新未完成",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Warning
+        ) | Out-Null
+    } catch {}
+}
+
 function Stop-FridayInstallProcesses([string]$InstallDir) {
     if (-not $InstallDir) { return }
     $root = ($InstallDir -replace '\\+$', '').ToLowerInvariant()
@@ -435,6 +447,7 @@ $exeLeaf = Split-Path -Leaf $ExePath
 
 if (-not (Test-Path -LiteralPath $SourceDir)) {
     Write-ApplyResult $false 2 "source_missing"
+    Show-UpdateFailure "更新源目录丢失，请重新「检查更新」或下载 Friday-Setup 安装程序。"
     exit 2
 }
 if (-not (Test-Path -LiteralPath $TargetDir)) { New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null }
@@ -456,6 +469,7 @@ if ($code -ge 8) {
         & robocopy $BackupDir $TargetDir /E /COPY:DAT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /LOG:$restoreLog | Out-Null
     }
     Write-ApplyResult $false $code ("robocopy_failed log=" + $robolog)
+    Show-UpdateFailure "未能替换安装目录中的文件（可能被占用）。请完全退出星期五后重试，或下载 Friday-Setup 安装程序覆盖安装。"
     exit $code
 }
 
@@ -480,6 +494,7 @@ if ((Test-Path -LiteralPath $srcExe) -and (Test-Path -LiteralPath $dstExe)) {
             & robocopy $BackupDir $TargetDir /E /COPY:DAT /IS /IT /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /LOG:$restoreLog | Out-Null
         }
         Write-ApplyResult $false 5 ("files_not_replaced log=" + $robolog)
+        Show-UpdateFailure "程序文件未被替换（Friday.exe 可能仍被占用）。请从任务管理器结束所有 Friday 进程后重试。"
         exit 5
     }
 }
@@ -495,6 +510,7 @@ if (-not (Test-Path -LiteralPath $installedExe)) {
 }
 if (-not (Test-Path -LiteralPath $installedExe)) {
     Write-ApplyResult $false 3 "restart_exe_missing target=$TargetDir leaf=$exeLeaf"
+    Show-UpdateFailure "更新文件已复制但找不到 Friday.exe。请从 Gitee Releases 下载 Friday-Setup 重新安装。"
     exit 3
 }
 Start-Process -FilePath $installedExe -ArgumentList "--install-launch" -WorkingDirectory $TargetDir
@@ -510,6 +526,26 @@ exit 0
     path = _updates_dir() / "apply-update.ps1"
     path.write_text(script, encoding="utf-8")
     return path
+
+
+def notify_last_apply_failure_on_startup(*, current: str) -> None:
+    """打包版启动时提示上次一键更新失败（hidden updater 无界面时用户看不到）。"""
+    if sys.platform != "win32" or not is_frozen():
+        return
+    hint = format_last_apply_failure(current=current)
+    if not hint:
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(  # type: ignore[attr-defined]
+            None,
+            hint + "\n\n也可在「设置 → 关于」查看更新说明。",
+            "星期五 - 更新未完成",
+            0x30,
+        )
+    except (AttributeError, OSError):
+        _log.warning("上次更新失败 | %s", hint)
 
 
 def format_last_apply_failure(*, current: str) -> str:

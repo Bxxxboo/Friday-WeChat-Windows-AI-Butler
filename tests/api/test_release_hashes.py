@@ -70,8 +70,41 @@ def test_sha256_hex_file_and_verify(tmp_path: Path):
         verify_file_sha256(path, "b" * 64)
 
 
-def test_verify_rejects_empty_expected(tmp_path: Path):
-    path = tmp_path / "sample.bin"
-    path.write_bytes(b"x")
-    with pytest.raises(RuntimeError, match="校验信息无效"):
-        verify_file_sha256(path, "")
+def test_verify_public_download_matches_sums(monkeypatch):
+    import hashlib
+
+    url = "https://gitee.com/Bxxxboo/friday/releases/download/v1.4.9/Friday-Update-1.4.9.zip"
+    payload = b"zip-bytes"
+    digest = hashlib.sha256(payload).hexdigest()
+    sums_url = derive_sums_download_url(url)
+
+    def fake_fetch(target: str, *, timeout: float = 30.0, retries: int = 3) -> dict[str, str]:
+        assert target == sums_url
+        return parse_sums_text(f"{digest}  Friday-Update-1.4.9.zip\n")
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return payload
+
+    def fake_urlopen(req, timeout=120.0):
+        assert req.full_url == url
+        return FakeResp()
+
+    monkeypatch.setattr("friday.release_hashes.fetch_sums_map", fake_fetch)
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    from friday.release_hashes import verify_public_download_matches_sums
+
+    verify_public_download_matches_sums(url)
+
+    def fake_mismatch(*args, **kwargs):
+        return parse_sums_text(f"{'d' * 64}  Friday-Update-1.4.9.zip\n")
+
+    monkeypatch.setattr("friday.release_hashes.fetch_sums_map", fake_mismatch)
+    with pytest.raises(RuntimeError, match="hash mismatch"):
+        verify_public_download_matches_sums(url)

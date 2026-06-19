@@ -10,7 +10,7 @@ alwaysApply: true
 1. **写更新公告**（`assets/changelog.json` 插入目标版本 `entries[0]` + 同步 `CHANGELOG.md`；`bump-version.ps1` 不代写；格式与核对见 `publish-release.mdc`「更新公告」）
 2. **bump 版本号**（`friday/version.py` 的 `__version__` + `__dev_version__`（`{版本}-dev`，测试版 `run.py --dev` 显示用）+ `scripts/version_info.py`）
 3. **同时 push** `origin`（GitHub）与 `gitee`（Gitee），且 **两端 `main` 提交哈希一致**
-4. **同时发 Release**（`Friday-Windows.zip`）：Gitee **必做**（国内更新源）；GitHub **必做**（与 Gitee 同步展示；失败须重试，不得默认跳过）；**发新 Release 前自动清理过旧 Release**（默认保留最近 3 个，见下节）
+4. **同时发 Release**（`Friday-Windows.zip` + `Friday-Update.zip` + Setup + **`SHA256SUMS.txt`**）：Gitee **必做**（国内更新源）；GitHub **必做**；**发新 Release 前自动清理过旧 Release**（默认保留最近 3 个）；**SHA256 须与 Update zip 一致**（见 `publish-release.mdc`「SHA256SUMS.txt」）
 5. **部署官网**（`website/download.json` 上线）：Vercel **必做**；Gitee Pages（国内镜像）**必做**（`pages` 分支 + 构建）
 
 ## semver
@@ -94,6 +94,20 @@ python scripts/prune_gitee_releases.py --keep 3 --dry-run
 python scripts/prune_github_releases.py --keep 3 --dry-run
 ```
 
+## SHA256SUMS.txt（应用内更新，强制）
+
+一键更新读 Gitee Release 的 **`SHA256SUMS.txt`** 校验 `Friday-Update-{v}.zip`。**清单与 zip 不一致 → 用户无法自动更新。**
+
+| 要求 | 说明 |
+|------|------|
+| 生成 | `make-release.ps1` → `release\SHA256SUMS.txt`；**重打包后必须重生成** |
+| 上传顺序 | 三个二进制附件 → **`SHA256SUMS.txt` 最后** |
+| Gitee 删除旧附件 | 经 `attach_files` API（`release.assets` 无 id，不能删） |
+| 发版门禁 | `publish-gitee-release.ps1` 公网直链校验须 **OK** |
+| 发版后核对 | 见 `publish-release.mdc`「SHA256SUMS.txt」核对命令，`update_sha256_match` 须 **True** |
+
+**禁止**：只换 zip 不换清单；Gitee 叠两份同名 `SHA256SUMS.txt`；校验未过却声称发版完成。
+
 ## 一键发布（推荐）
 
 用户**明确说发版并给出版本号**时，走完整流水线（含 commit、双端 push、Release、**官网 Vercel + Gitee Pages**）→ 见 **`publish-release.mdc`**。
@@ -140,6 +154,8 @@ git log -1 --oneline
 
 $v = (Select-String friday\version.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
 (Invoke-WebRequest -Uri "https://fridayaiagent.vercel.app/download.json" -UseBasicParsing).Content | Select-String $v
+# 应用内更新 SHA256（须 True）：
+python -c "from friday.updates import check_for_updates; import hashlib, urllib.request as u; i=check_for_updates('Bxxxboo/friday'); b=u.urlopen(i.download_url,timeout=120).read(); print('update_sha256_match', hashlib.sha256(b).hexdigest()==i.download_sha256)"
 # 国内镜像（Pages 已开启时）：
 # curl.exe -sL https://bxxxboo.gitee.io/friday/download.json | Select-String $v
 ```
@@ -163,3 +179,4 @@ $v = (Select-String friday\version.py -Pattern '__version__ = "(.+)"').Matches[0
 - 发版后未跑官网部署（用了 `-SkipVercel`/`-SkipGiteePages` 却未补部署）
 - 只改 `website/download.json` 不 `vercel deploy` + `alias`（线上仍旧版）
 - 发版未写 `assets/changelog.json` / `CHANGELOG.md` 目标版本更新公告
+- **重打包后未重传 `SHA256SUMS.txt`**，或 Gitee 校验未过（`update_sha256_match` 非 True）

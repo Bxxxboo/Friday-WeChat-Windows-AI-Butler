@@ -27,6 +27,7 @@ class UpdateInfo:
     source_url: str = ""
     source_kind: str = ""  # gitee | github
     download_sha256: str = ""
+    manual_download_url: str = ""  # 手动下载：Setup 安装程序（非 Update 便携包）
 
 
 def github_repo() -> str:
@@ -62,6 +63,21 @@ def _canonical_update_download_url(repo: str, version: str, source_kind: str) ->
         return ""
     owner, name = repo.split("/", 1)
     fname = release_update_zip_name(ver)
+    if source_kind == "gitee":
+        return f"https://gitee.com/{owner}/{name}/releases/download/v{ver}/{fname}"
+    if source_kind == "github":
+        return f"https://github.com/{owner}/{name}/releases/download/v{ver}/{fname}"
+    return ""
+
+
+def _canonical_setup_download_url(repo: str, version: str, source_kind: str) -> str:
+    from friday.version import release_setup_name
+
+    ver = (version or "").strip().lstrip("vV")
+    if not ver or "/" not in repo:
+        return ""
+    owner, name = repo.split("/", 1)
+    fname = release_setup_name(ver)
     if source_kind == "gitee":
         return f"https://gitee.com/{owner}/{name}/releases/download/v{ver}/{fname}"
     if source_kind == "github":
@@ -176,12 +192,14 @@ def _info_from_release(
     latest = str(data.get("tag_name", "")).lstrip("vV") or current
     notes = str(data.get("body", ""))[:800]
     download = _pick_download_url(data, repo=repo, source_kind=source_kind)
+    manual = _canonical_setup_download_url(repo, latest, source_kind)
     return UpdateInfo(
         current=current,
         latest=latest,
         update_available=_is_newer(current, latest),
         download_url=download,
         download_sha256=_pick_download_sha256(data, download, repo=repo, source_kind=source_kind),
+        manual_download_url=manual or download,
         release_notes=notes,
         checked=True,
         source_repo=repo,

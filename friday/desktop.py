@@ -479,27 +479,75 @@ def main() -> None:
     def _wants_install_launch_focus() -> bool:
         return os.environ.get("FRIDAY_INSTALL_LAUNCH") == "1" or "--install-launch" in sys.argv
 
-    def _bring_window_to_front() -> None:
+    # 安装/更新后 --install-launch：仅短暂尝试置顶，用户切到其他窗口后不再抢焦点
+    install_focus = {
+        "enabled": False,
+        "cancelled": False,
+        "attempts": 0,
+        "max_attempts": 3,
+        "ever_foreground": False,
+    }
+
+    def _cancel_install_launch_focus() -> None:
+        install_focus["cancelled"] = True
+
+    def _is_app_foreground() -> bool:
         if sys.platform != "win32":
+            return True
+        try:
+            hwnd = window_api._resolve_hwnd()
+            if not hwnd:
+                return False
+            from friday.win32_chrome import is_window_foreground
+
+            return is_window_foreground(hwnd)
+        except (AttributeError, OSError, TypeError):
+            return False
+
+    def _bring_window_to_front(*, force: bool = False) -> None:
+        if sys.platform != "win32":
+            return
+        if (
+            not force
+            and install_focus["enabled"]
+            and (install_focus["cancelled"] or install_focus["attempts"] >= install_focus["max_attempts"])
+        ):
+            return
+        if (
+            not force
+            and install_focus["enabled"]
+            and install_focus["ever_foreground"]
+            and not _is_app_foreground()
+        ):
+            _cancel_install_launch_focus()
             return
         try:
             window_api.activate_window()
-            return
         except (AttributeError, OSError, TypeError):
             pass
+        else:
+            if install_focus["enabled"] and not force:
+                install_focus["attempts"] += 1
+                if _is_app_foreground():
+                    install_focus["ever_foreground"] = True
+            return
         try:
             from friday.win32_chrome import find_app_window, focus_window
 
             hwnd = find_app_window()
             if hwnd:
                 focus_window(hwnd)
+                if install_focus["enabled"] and not force:
+                    install_focus["attempts"] += 1
+                    if _is_app_foreground():
+                        install_focus["ever_foreground"] = True
         except (AttributeError, OSError, TypeError):
             pass
 
-    def _schedule_foreground_focus() -> None:
-        if not _wants_install_launch_focus():
+    def _schedule_install_launch_focus() -> None:
+        if not install_focus["enabled"] or install_focus["cancelled"]:
             return
-        for delay in (0.0, 0.35, 0.8, 1.5, 2.5, 4.0, 6.0, 9.0, 14.0, 20.0):
+        for delay in (0.0, 0.55, 1.25):
             threading.Timer(delay, _bring_window_to_front).start()
 
     def _schedule_chrome_apply() -> None:
@@ -537,7 +585,7 @@ def main() -> None:
                         user32.ShowWindow(hwnd, 5)  # SW_SHOW
             except (AttributeError, OSError, TypeError):
                 pass
-        if _wants_install_launch_focus():
+        if _wants_install_launch_focus() and not install_focus["cancelled"]:
             _bring_window_to_front()
         _schedule_chrome_apply()
 
@@ -621,8 +669,9 @@ def main() -> None:
             _apply_window_chrome(clip_thumbnail=False)
             if not window_visible["shown"]:
                 _force_show_window()
-            elif step == "main" and _wants_install_launch_focus():
-                _bring_window_to_front()
+            elif step == "main" and install_focus["enabled"] and not install_focus["cancelled"]:
+                if install_focus["attempts"] == 0:
+                    _bring_window_to_front()
 
     def _on_restored() -> None:
         _apply_window_chrome()
@@ -642,6 +691,8 @@ def main() -> None:
         threading.Timer(0.05, _repaint).start()
 
     def _on_minimized() -> None:
+        if install_focus["enabled"]:
+            _cancel_install_launch_focus()
         _apply_window_chrome(clip_thumbnail=True)
 
     _log.info("创建启动窗口（先显示启动页，后端并行加载）")
@@ -672,15 +723,16 @@ def main() -> None:
     window.events.minimized += _on_minimized
     window.events.resized += lambda _w, _h: _apply_window_chrome(clip_thumbnail=False)
 
+    if _wants_install_launch_focus():
+        install_focus["enabled"] = True
+
     def _on_gui_start() -> None:
-        _schedule_foreground_focus()
-        if _wants_install_launch_focus():
+        _schedule_install_launch_focus()
+        if install_focus["enabled"] and not install_focus["cancelled"]:
             _bring_window_to_front()
         if not window_visible["shown"]:
             threading.Timer(0.35, _force_show_window).start()
         threading.Timer(4.0, _force_show_window).start()
-        if _wants_install_launch_focus():
-            threading.Timer(8.0, _bring_window_to_front).start()
 
     webview_dir = get_appdata_dir() / "webview2"
     webview_dir.mkdir(parents=True, exist_ok=True)

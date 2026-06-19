@@ -118,3 +118,27 @@ def verify_file_sha256(path: Path, expected_hex: str) -> None:
             "更新包校验失败（SHA256 不匹配），可能下载不完整或被篡改。"
             "请重新「检查更新」，或从 Gitee Releases 手动下载 Friday-Update.zip。"
         )
+
+
+def verify_public_download_matches_sums(download_url: str, *, timeout: float = 120.0) -> None:
+    """发版门禁：公网直链文件哈希须与 SHA256SUMS.txt 一致（防 Gitee 重复附件/旧清单）。"""
+    url = (download_url or "").strip()
+    if not url:
+        raise RuntimeError("verify_public_download_matches_sums: empty download_url")
+    sums_url = derive_sums_download_url(url)
+    if not sums_url:
+        raise RuntimeError(f"cannot derive SHA256SUMS URL from {url}")
+    mapping = fetch_sums_map(sums_url, timeout=timeout)
+    name = filename_from_download_url(url).lower()
+    expected = (mapping.get(name) or "").strip().lower()
+    if not expected:
+        raise RuntimeError(f"SHA256SUMS.txt missing entry for {name}")
+    req = urllib.request.Request(url, headers={"User-Agent": "Friday-Desktop"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        payload = resp.read()
+    actual = hashlib.sha256(payload).hexdigest()
+    if actual != expected:
+        raise RuntimeError(
+            f"Release hash mismatch for {name}: file={actual} sums={expected}. "
+            "Gitee may be serving stale SHA256SUMS or duplicate attach_files."
+        )

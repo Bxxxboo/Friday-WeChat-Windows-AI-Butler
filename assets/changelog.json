@@ -1,9 +1,30 @@
 {
   "entries": [
     {
+      "version": "1.4.10",
+      "date": "2026-06-19",
+      "title": "更新更稳、安装不再反复抢焦点",
+      "sections": [
+        {
+          "label": "改进",
+          "items": [
+            "「手动下载」改为安装程序 Friday-Setup，避免误解压 Update.zip 后闪退",
+            "安装/更新完成后仅短暂尝试置顶窗口，切到其他应用后不再反复弹出"
+          ]
+        },
+        {
+          "label": "修复",
+          "items": [
+            "修复 Gitee 一键更新 SHA256 校验失败（Release 清单与安装包不一致）",
+            "一键更新替换失败时会弹窗提示；下次启动也会提醒上次更新未完成"
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.4.9",
       "date": "2026-06-18",
-      "title": "离线 PPT、更新不丢设置、发版更稳",
+      "title": "PPT 技能内置、更新不丢设置、发版更稳",
       "sections": [
         {
           "label": "新功能",
@@ -15,7 +36,7 @@
         {
           "label": "改进",
           "items": [
-            "安装包内嵌完整 ppt-master，断网也可做专业 PPT（体积会有所增加）",
+            "安装包内嵌 ppt-master 技能资源，启动时不再从 GitHub 额外下载（做 PPT 仍须大模型 API 联网）",
             "启动与 /api/health 可查看 PPT 等内置 skill 是否就绪",
             "发版流程自动清理 Gitee/GitHub 上过旧的 Release，保留最近 3 个版本",
             "欢迎页 SciPilot 插件显示「科研数据可视化」，不再出现「未命名」"

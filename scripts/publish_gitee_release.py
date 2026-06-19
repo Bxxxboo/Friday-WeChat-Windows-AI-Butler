@@ -99,27 +99,31 @@ def delete_release(repo: str, release_id: int, token: str) -> None:
         pass
 
 
+def list_attach_files(repo: str, release_id: int, token: str) -> list[dict]:
+    """Gitee Release 附件列表（含 id；release.assets 不含 id，不能用于删除）。"""
+    url = f"{API}/repos/{repo}/releases/{release_id}/attach_files?access_token={token}"
+    data = _get_json(url)
+    return data if isinstance(data, list) else []
+
+
+def delete_attach_file(repo: str, release_id: int, attach_id: int, token: str) -> None:
+    req = urllib.request.Request(
+        f"{API}/repos/{repo}/releases/{release_id}/attach_files/{attach_id}?access_token={token}",
+        method="DELETE",
+    )
+    with urllib.request.urlopen(req, timeout=60):
+        pass
+
+
 def upload_asset(repo: str, release_id: int, token: str, zip_path: Path) -> None:
-    release = _get_json(f"{API}/repos/{repo}/releases/{release_id}?access_token={token}")
-    removed = 0
-    for asset in release.get("assets") or []:
+    for asset in list_attach_files(repo, release_id, token):
         if asset.get("name") != zip_path.name:
             continue
         aid = asset.get("id")
         if aid is None:
             continue
         print(f"Removing existing asset {zip_path.name} (id {aid}) ...")
-        req = urllib.request.Request(
-            f"{API}/repos/{repo}/releases/assets/{aid}?access_token={token}",
-            method="DELETE",
-        )
-        with urllib.request.urlopen(req, timeout=60):
-            pass
-        removed += 1
-    if removed == 0:
-        names = [a.get("name") for a in (release.get("assets") or []) if a.get("name") == zip_path.name]
-        if names:
-            print(f"Warning: Gitee asset {zip_path.name} has no id; upload may fail if duplicate exists.")
+        delete_attach_file(repo, release_id, int(aid), token)
 
     print(f"Uploading {zip_path.name} ({zip_path.stat().st_size // (1024 * 1024)} MB) ...")
     body, boundary = _multipart(
@@ -261,6 +265,22 @@ def main() -> int:
             if artifact == zip_path.name and not ok:
                 print("ERROR: main release zip not downloadable from Gitee.", file=sys.stderr)
                 return 1
+
+        from friday.release_hashes import verify_public_download_matches_sums
+
+        owner, name = repo.split("/", 1)
+        ver = tag.lstrip("vV")
+        update_url = (
+            f"https://gitee.com/{owner}/{name}/releases/download/v{ver}/"
+            f"{release_update_zip_name(args.version)}"
+        )
+        print(f"Verifying public update hash: {update_url} ...")
+        try:
+            verify_public_download_matches_sums(update_url)
+            print("Public update hash: OK")
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
     else:
         print("Skip upload.")
 

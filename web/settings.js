@@ -1989,15 +1989,21 @@
           resultEl.className = "settings-result ok";
           const hint = data.can_auto_update
             ? "可点「一键更新并重启」自动完成，无需手动解压。"
-            : (data.auto_update_hint || "请下载 zip 后覆盖解压。");
+            : (data.auto_update_hint || data.manual_download_hint || "请下载安装程序 Friday-Setup 后运行。");
           resultEl.textContent = `${t("updates.found", { latest: data.latest, current: data.current })}\n${hint}`;
         }
         if (applyBtn && data.can_auto_update && data.download_url && data.download_sha256) {
           applyBtn.classList.remove("hidden");
         }
-        if (downloadLink && data.download_url) {
-          downloadLink.href = data.download_url;
-          downloadLink.classList.remove("hidden");
+        if (downloadLink) {
+          const manualUrl = data.manual_download_url || data.download_url;
+          if (manualUrl) {
+            downloadLink.href = manualUrl;
+            downloadLink.classList.remove("hidden");
+            downloadLink.title = data.manual_download_hint || "";
+          } else {
+            downloadLink.classList.add("hidden");
+          }
         }
       } else if (data.release_notes && data.latest === data.current && !data.download_url) {
         if (resultEl) {

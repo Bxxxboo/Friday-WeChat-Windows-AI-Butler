@@ -79,8 +79,12 @@ if __name__ == "__main__":
     if sys.platform == "win32" and getattr(sys, "frozen", False):
         from friday.update_rollback import guard_startup_after_update
 
-        if not guard_startup_after_update():
-            raise SystemExit(0)
+    if not guard_startup_after_update():
+        raise SystemExit(0)
+    from friday.update_installer import notify_last_apply_failure_on_startup
+    from friday.version import __version__
+
+    notify_last_apply_failure_on_startup(current=__version__)
     if sys.platform == "win32" and getattr(sys, "frozen", False):
         from friday.win10_runtime import ensure_win10_runtime, notify_runtime_failure
 

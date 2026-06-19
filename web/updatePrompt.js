@@ -67,7 +67,7 @@
     if (hintEl) {
       const hint = info.can_auto_update
         ? (t("updates.prompt.hintAuto") || "可一键下载安装并自动重启，无需手动解压。")
-        : (info.auto_update_hint || t("updates.prompt.hintManual") || "请手动下载安装包后覆盖安装。");
+        : (info.manual_download_hint || info.auto_update_hint || t("updates.prompt.hintManual") || "请下载 Friday-Setup 安装程序后运行。");
       hintEl.textContent = hint;
     }
     if (applyBtn) {
@@ -76,9 +76,11 @@
       applyBtn.disabled = false;
     }
     if (downloadLink) {
-      if (info.download_url) {
-        downloadLink.href = info.download_url;
+      const manualUrl = info.manual_download_url || info.download_url;
+      if (manualUrl) {
+        downloadLink.href = manualUrl;
         downloadLink.classList.remove("hidden");
+        downloadLink.title = info.manual_download_hint || "";
       } else {
         downloadLink.classList.add("hidden");
       }

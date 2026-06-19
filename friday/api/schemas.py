@@ -442,6 +442,11 @@ class UpdateCheckResponse(BaseModel):
     auto_update_hint: str = ""
     last_apply_failed: bool = False
     last_apply_hint: str = ""
+    manual_download_url: str = ""
+    manual_download_hint: str = (
+        "手动更新请下载安装程序 Friday-Setup-*.exe 并运行；"
+        "勿解压 Friday-Update.zip 后直接运行其中的 exe（会与正在运行的旧版冲突并闪退）。"
+    )
 
 
 class UpdateApplyResponse(BaseModel):

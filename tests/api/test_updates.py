@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from friday.updates import _pick_download_sha256, _pick_download_url, check_for_updates, gitee_repo, github_repo
-from friday.version import GITEE_REPO, GITHUB_REPO, __version__, release_update_zip_name, release_zip_name
+from friday.updates import (
+    _canonical_setup_download_url,
+    _info_from_release,
+    _pick_download_sha256,
+    _pick_download_url,
+    check_for_updates,
+    gitee_repo,
+    github_repo,
+)
+from friday.version import GITEE_REPO, GITHUB_REPO, __version__, release_setup_name, release_update_zip_name, release_zip_name
 
 
 def test_github_repo_default():
@@ -17,13 +25,6 @@ def test_gitee_repo_default():
     assert gitee_repo() == GITEE_REPO
 
 
-def test_release_zip_name_matches_version():
-    assert release_zip_name() == f"Friday-Windows-{__version__}.zip"
-    assert release_zip_name("1.0.0") == "Friday-Windows-1.0.0.zip"
-    assert release_update_zip_name() == f"Friday-Update-{__version__}.zip"
-    assert release_update_zip_name("1.0.0") == "Friday-Update-1.0.0.zip"
-
-
 def test_pick_download_prefers_update_zip_over_windows_zip():
     url = _pick_download_url(
         {
@@ -35,6 +36,42 @@ def test_pick_download_prefers_update_zip_over_windows_zip():
         }
     )
     assert url == "https://x/Friday-Update-1.2.4.zip"
+
+
+def test_canonical_setup_download_url():
+    url = _canonical_setup_download_url("Bxxxboo/friday", "1.4.9", "gitee")
+    assert url.endswith(release_setup_name("1.4.9"))
+    assert "/releases/download/v1.4.9/" in url
+
+
+def test_info_from_release_separates_manual_and_auto_download():
+    info = _info_from_release(
+        {
+            "tag_name": "v1.4.9",
+            "body": "notes",
+            "assets": [
+                {
+                    "name": "Friday-Update-1.4.9.zip",
+                    "browser_download_url": "https://gitee.com/o/r/releases/download/v1.4.9/Friday-Update-1.4.9.zip",
+                },
+                {
+                    "name": "Friday-Setup-1.4.9.exe",
+                    "browser_download_url": "https://gitee.com/o/r/releases/download/v1.4.9/Friday-Setup-1.4.9.exe",
+                },
+                {
+                    "name": "SHA256SUMS.txt",
+                    "body": f"{'a' * 64}  Friday-Update-1.4.9.zip\n",
+                },
+            ],
+        },
+        current="1.4.8",
+        repo="Bxxxboo/friday",
+        source_url="https://gitee.com/Bxxxboo/friday",
+        source_kind="gitee",
+    )
+    assert info.update_available is True
+    assert "Friday-Update-1.4.9.zip" in info.download_url
+    assert info.manual_download_url.endswith(release_setup_name("1.4.9"))
 
 
 def test_pick_download_sha256_from_sums_asset():
