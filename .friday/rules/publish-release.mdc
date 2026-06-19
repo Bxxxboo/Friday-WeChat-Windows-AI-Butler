@@ -156,11 +156,13 @@ Gitee Pages 首次启用：https://gitee.com/Bxxxboo/friday/pages → 分支 **`
 4. **Git 双端** — `scripts\sync-remotes.ps1`（**不传** `-Bump`）  
    顺序：**先 push Gitee** → **启用 GitHub 代理** → **push origin** → **`Assert-FridayRemotesAligned`**（两端 `main` SHA 须一致）
 5. **Gitee Release**（国内更新源，必做）— `scripts\publish-gitee-release.ps1`  
+   **上传前自动** `prune_gitee_releases.py --keep 3`（`-SkipPrune` 仅调试）  
    构建并上传三附件：
    - `Friday-Windows-{v}.zip` — **仅** `Friday-Setup-{v}.exe` + `VERSION.txt`（安装包 ZIP，无教程/脚本）
    - `Friday-Update-{v}.zip` — 便携 `Friday/`（应用内更新）
    - `Friday-Setup-{v}.exe`
 6. **GitHub Release**（必做；失败须开代理重试 `publish-github-release.cmd -SkipBuild`，不得在汇报中默认跳过）— `scripts\publish-github-release.ps1`（`publish-full-release.ps1` 第 5/5 步）  
+   **上传前自动** `prune_github_releases.py --keep 3`（`-SkipPrune` 仅调试）  
    仓库名：`Friday-WeChat-Windows-AI-Butler`；脚本开头自动 `Enable-FridayGithubNetwork`
 7. **官网 Vercel**（必做）— `Set-Location website; npx vercel deploy --prod --yes`  
    生产域名：`https://fridayaiagent.vercel.app`（`friday/version.py` → `WEBSITE_HOME`）  
@@ -213,13 +215,17 @@ Get-ChildItem release\Friday-*-$((Select-String friday\version.py -Pattern '__ve
 
 发版三项须齐：**Release 附件** + **官网 download.json 上线** + **git 双端 push**。
 
-## Gitee 附件配额
+## Gitee 附件配额 / Release 清理
 
-上传失败且提示配额满 → 先 dry-run 再 prune：
+**默认行为**：`publish-gitee-release.ps1` / `publish-github-release.ps1` 在上传新 Release **之前**自动删除过旧 Release，**保留最近 3 个**（`-PruneKeep N` 可调；`-SkipPrune` 仅本地调试）。
+
+上传仍失败且提示 Gitee 配额满 → 先 dry-run 再手动 prune（或调低 `-PruneKeep`）：
 
 ```powershell
 python scripts/prune_gitee_releases.py --keep 3 --dry-run
 python scripts/prune_gitee_releases.py --keep 3
+python scripts/prune_github_releases.py --keep 3 --dry-run
+python scripts/prune_github_releases.py --keep 3
 ```
 
 ## 官网下载区文案约定

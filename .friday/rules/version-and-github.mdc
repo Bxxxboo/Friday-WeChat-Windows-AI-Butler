@@ -10,7 +10,7 @@ alwaysApply: true
 1. **写更新公告**（`assets/changelog.json` 插入目标版本 `entries[0]` + 同步 `CHANGELOG.md`；`bump-version.ps1` 不代写；格式与核对见 `publish-release.mdc`「更新公告」）
 2. **bump 版本号**（`friday/version.py` 的 `__version__` + `__dev_version__`（`{版本}-dev`，测试版 `run.py --dev` 显示用）+ `scripts/version_info.py`）
 3. **同时 push** `origin`（GitHub）与 `gitee`（Gitee），且 **两端 `main` 提交哈希一致**
-4. **同时发 Release**（`Friday-Windows.zip`）：Gitee **必做**（国内更新源）；GitHub **必做**（与 Gitee 同步展示；失败须重试，不得默认跳过）
+4. **同时发 Release**（`Friday-Windows.zip`）：Gitee **必做**（国内更新源）；GitHub **必做**（与 Gitee 同步展示；失败须重试，不得默认跳过）；**发新 Release 前自动清理过旧 Release**（默认保留最近 3 个，见下节）
 5. **部署官网**（`website/download.json` 上线）：Vercel **必做**；Gitee Pages（国内镜像）**必做**（`pages` 分支 + 构建）
 
 ## semver
@@ -28,7 +28,7 @@ alwaysApply: true
 然后：
 
 1. **先 commit + 双端 push**（`sync-remotes.ps1` 或 `publish-full-release` 第 3 步会自动 `git add -A` + commit）
-2. **再打包发布**（`make-release` → Gitee Release → GitHub Release）
+2. **再打包发布**（`make-release` → **清理过旧 Release** → Gitee Release → GitHub Release）
 3. **最后部署官网**（`sync-website-download.ps1` → Vercel production + alias → Gitee Pages `pages` 分支）
 
 `publish-release.cmd` 在 Git + 双端 Release **之后**自动跑官网部署（`deploy-website.ps1`：sync → Vercel + alias → Gitee Pages）。仅跳过部署时用 `-SkipVercel` / `-SkipGiteePages`。
@@ -77,6 +77,23 @@ scripts\deploy-gitee-pages.cmd
 
 Gitee Pages **首次**须在网页开启：https://gitee.com/Bxxxboo/friday/pages ，分支选 **`pages`**，保存后点更新。
 
+## Release 清理（自动，发版必做）
+
+Gitee/GitHub Release 附件体积大，历史版本堆积会占满 Gitee 配额或 clutter 列表。**`publish-gitee-release.ps1` / `publish-github-release.ps1` 在上传新 Release 前会自动 prune**：
+
+| 脚本 | 清理脚本 | 默认保留 |
+|------|----------|----------|
+| Gitee | `scripts/prune_gitee_releases.py` | 最近 **3** 个 Release |
+| GitHub | `scripts/prune_github_releases.py` | 最近 **3** 个 Release |
+
+- 参数 `-PruneKeep N` 可改保留数；`-SkipPrune` 仅调试时跳过（**发版禁止默认跳过**）
+- 手动 dry-run（排查配额问题时）：
+
+```powershell
+python scripts/prune_gitee_releases.py --keep 3 --dry-run
+python scripts/prune_github_releases.py --keep 3 --dry-run
+```
+
 ## 一键发布（推荐）
 
 用户**明确说发版并给出版本号**时，走完整流水线（含 commit、双端 push、Release、**官网 Vercel + Gitee Pages**）→ 见 **`publish-release.mdc`**。
@@ -101,7 +118,7 @@ scripts\publish-release.cmd -GitHubRepoName Friday-WeChat-Windows-AI-Butler -Ski
 scripts\publish-release.cmd -GitHubRepoName Friday-WeChat-Windows-AI-Butler
 ```
 
-步骤：bump（可选）→ **commit + push 双端** → Gitee Release → GitHub Release → **官网部署（Vercel + Gitee Pages）**
+步骤：bump（可选）→ **commit + push 双端** → **清理过旧 Release** → Gitee Release → GitHub Release → **官网部署（Vercel + Gitee Pages）**
 
 ## 仅同步代码（不发安装包）
 

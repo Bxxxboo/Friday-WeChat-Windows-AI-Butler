@@ -32,7 +32,15 @@ def test_health_payload_includes_service_states(tmp_appdata):
                 "friday.health_check._python_env_service",
                 return_value={"status": "ok", "detail": "已就绪", "ready": True, "setup_running": False},
             ):
-                payload = build_health_payload(backend_ready=True)
+                with patch(
+                    "friday.health_check._bundled_skills_service",
+                    return_value={
+                        "status": "ok",
+                        "detail": "已就绪",
+                        "skills": {"ppt-master": {"status": "ready", "detail": "已就绪"}},
+                    },
+                ):
+                    payload = build_health_payload(backend_ready=True)
 
     assert payload["status"] == "ok"
     assert payload["degraded"] is True
@@ -52,7 +60,7 @@ def test_api_health_returns_subservices(tmp_appdata):
     data = res.json()
     assert data["status"] == "ok"
     services = data.get("services") or {}
-    for name in ("backend", "webview", "gateway", "python_env"):
+    for name in ("backend", "webview", "gateway", "python_env", "bundled_skills"):
         assert name in services
         assert services[name]["status"] in {"ok", "degraded", "skipped", "starting"}
 
@@ -66,3 +74,22 @@ def test_api_health_starting_before_backend_ready(tmp_appdata):
     data = res.json()
     assert data["status"] == "starting"
     assert data["services"]["backend"]["status"] == "starting"
+
+
+def test_api_health_bootstrap_includes_bundled_skills(tmp_appdata, monkeypatch):
+    """P2-2：启动后 health 须暴露 bundled_skills 子服务（与 bootstrap warmup 对齐）。"""
+    server_mod._backend_ready = True
+    monkeypatch.setattr(
+        "friday.health_check._bundled_skills_service",
+        lambda: {
+            "status": "ok",
+            "detail": "已就绪",
+            "skills": {"ppt-master": {"status": "ready", "detail": "已就绪"}},
+        },
+    )
+    client = TestClient(server_mod.app)
+    res = client.get("/api/health")
+    assert res.status_code == 200
+    bs = res.json()["services"]["bundled_skills"]
+    assert "skills" in bs
+    assert "ppt-master" in bs["skills"]

@@ -2,8 +2,10 @@ param(
     [string]$GiteeUser = "Bxxxboo",
     [string]$RepoName = "friday",
     [string]$GiteeToken = $env:GITEE_TOKEN,
+    [int]$PruneKeep = 3,
     [switch]$SkipBuild,
-    [switch]$SkipUpload
+    [switch]$SkipUpload,
+    [switch]$SkipPrune
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +34,12 @@ if (-not (Test-Path -LiteralPath $Python)) {
     $Python = Join-Path $Root ".venv\Scripts\python.exe"
 }
 if (-not (Test-Path -LiteralPath $Python)) { $Python = "python" }
+
+if (-not $SkipPrune) {
+    Write-Host "Pruning old Gitee releases (keep $PruneKeep) ..." -ForegroundColor Cyan
+    & $Python (Join-Path $Root "scripts\prune_gitee_releases.py") --repo "$GiteeUser/$RepoName" --keep $PruneKeep
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 $pyArgs = @(
     (Join-Path $Root "scripts\publish_gitee_release.py"),

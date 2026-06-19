@@ -88,6 +88,12 @@
       if (healthBody?.status !== "ok") {
         throw new Error("服务未就绪 (starting)");
       }
+      const pptSkill = healthBody?.services?.bundled_skills?.skills?.["ppt-master"];
+      if (pptSkill?.status === "pending") {
+        F.setConnectionStatus("PPT 资源准备中…", true);
+      } else if (pptSkill?.status === "failed") {
+        F.setConnectionStatus(pptSkill.detail || "PPT 资源未就绪", false);
+      }
     };
 
     const waitBootMinimum = async () => {

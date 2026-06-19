@@ -56,6 +56,33 @@ def _gateway_service() -> dict[str, Any]:
     }
 
 
+def _bundled_skills_service() -> dict[str, Any]:
+    from friday.bundled import bundled_skills_health_snapshot
+
+    skills = bundled_skills_health_snapshot()
+    failed = [pid for pid, item in skills.items() if item.get("status") == "failed"]
+    pending = [pid for pid, item in skills.items() if item.get("status") == "pending"]
+    if failed:
+        names = "、".join(failed)
+        return {
+            "status": "degraded",
+            "detail": f"内置技能未就绪：{names}",
+            "skills": skills,
+        }
+    if pending:
+        names = "、".join(pending)
+        return {
+            "status": "degraded",
+            "detail": f"内置技能准备中：{names}",
+            "skills": skills,
+        }
+    return {
+        "status": "ok",
+        "detail": "已就绪",
+        "skills": skills,
+    }
+
+
 def _python_env_service() -> dict[str, Any]:
     from friday.python_env import get_setup_progress_dict, python_ready_light
     from friday.storage import load_settings, resolved_workspace
@@ -96,6 +123,7 @@ def build_health_payload(*, backend_ready: bool) -> dict[str, Any]:
         "webview": _webview_service(),
         "gateway": _gateway_service(),
         "python_env": _python_env_service(),
+        "bundled_skills": _bundled_skills_service(),
     }
     degraded = any(s.get("status") == "degraded" for s in services.values())
     payload: dict[str, Any] = {

@@ -23,8 +23,8 @@ def test_python_env_info_second_call_short_circuits(monkeypatch):
 
 def test_python_env_info_first_call_marks_used(monkeypatch):
     agent = _make_agent(monkeypatch)
-    monkeypatch.setattr("friday.agent.execute_tool", lambda *a, **k: "env ok")
-    monkeypatch.setattr("friday.agent.log_operation", lambda *a, **k: {})
+    monkeypatch.setattr("friday.agent_tool_exec.execute_tool", lambda *a, **k: "env ok")
+    monkeypatch.setattr("friday.agent_tool_exec.log_operation_from_meta", lambda *a, **k: {})
     result = agent._execute_single_tool("python_env_info", {}, 1, 1, None)
     assert result == "env ok"
     assert agent._python_env_info_used is True

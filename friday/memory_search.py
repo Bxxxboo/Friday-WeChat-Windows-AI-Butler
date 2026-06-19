@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from friday.pain_points import format_pain_point_line, search_pain_points
 from friday.storage import load_settings, resolved_workspace
 from friday.user_memory import load_facts
 from friday.workspace_memory import load_memory
@@ -38,6 +39,17 @@ def search_saved_memory(query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         return []
 
     hits: list[dict[str, Any]] = []
+    cap = max(1, min(limit, 30))
+    for item in search_pain_points(raw, limit=cap):
+        hits.append({
+            "source": "pain_point",
+            "id": item.get("id", ""),
+            "tag": item.get("tag", ""),
+            "text": format_pain_point_line(item),
+            "snippet": format_pain_point_line(item)[:160],
+            "score": item.get("score", 1),
+        })
+
     for item in load_facts():
         text = str(item.get("text", "")).strip()
         if needle not in _normalize_query(text):
@@ -47,6 +59,7 @@ def search_saved_memory(query: str, *, limit: int = 10) -> list[dict[str, Any]]:
             "id": item.get("id", ""),
             "text": text,
             "snippet": _snippet(text, raw),
+            "score": 1,
         })
 
     workspace = resolved_workspace(load_settings())
@@ -62,6 +75,8 @@ def search_saved_memory(query: str, *, limit: int = 10) -> list[dict[str, Any]]:
             "workspace": workspace,
             "text": piece[:240],
             "snippet": _snippet(piece, raw),
+            "score": 0,
         })
 
+    hits.sort(key=lambda h: (-int(h.get("score", 0)), h.get("source") != "pain_point"))
     return hits[: max(1, min(limit, 30))]

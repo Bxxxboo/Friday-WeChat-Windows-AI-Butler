@@ -79,6 +79,27 @@ def log_operation(
     return entry
 
 
+def log_operation_from_meta(
+    meta: dict[str, Any] | None,
+    tool_name: str,
+    args: dict[str, Any],
+    result: str,
+    *,
+    approved: bool | None = None,
+) -> dict[str, Any]:
+    """从 agent.operation_meta 写入操作日志，避免重复拼装 session/trigger 字段。"""
+    bag = meta or {}
+    return log_operation(
+        tool_name,
+        args,
+        result,
+        session_id=str(bag.get("session_id", "")),
+        trigger=str(bag.get("trigger", "chat")),
+        schedule_id=str(bag.get("schedule_id", "")),
+        approved=approved,
+    )
+
+
 def list_operations(
     *,
     limit: int = 50,

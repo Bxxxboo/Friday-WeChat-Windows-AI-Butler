@@ -20,9 +20,9 @@ def test_agent_emits_file_generated_for_docx(monkeypatch):
     def on_event(event_type: str, payload: dict) -> None:
         events.append((event_type, payload))
 
-    monkeypatch.setattr("friday.agent.evaluate_tool", _allowed_tool)
+    monkeypatch.setattr("friday.agent_tool_exec.evaluate_tool", _allowed_tool)
     monkeypatch.setattr(
-        "friday.agent.execute_tool",
+        "friday.agent_tool_exec.execute_tool",
         lambda *_a, **_k: "已创建 Word 文档: C:\\work\\a.docx",
     )
     agent = _agent()
@@ -42,9 +42,9 @@ def test_agent_emits_image_generated_for_screenshot(monkeypatch):
     def on_event(event_type: str, payload: dict) -> None:
         events.append((event_type, payload))
 
-    monkeypatch.setattr("friday.agent.evaluate_tool", _allowed_tool)
+    monkeypatch.setattr("friday.agent_tool_exec.evaluate_tool", _allowed_tool)
     monkeypatch.setattr(
-        "friday.agent.execute_tool",
+        "friday.agent_tool_exec.execute_tool",
         lambda *_a, **_k: "截图已保存: C:\\work\\s.png (800x600)",
     )
     agent = _agent()
@@ -64,9 +64,9 @@ def test_agent_emits_file_generated_for_md_write(monkeypatch):
     def on_event(event_type: str, payload: dict) -> None:
         events.append((event_type, payload))
 
-    monkeypatch.setattr("friday.agent.evaluate_tool", _allowed_tool)
+    monkeypatch.setattr("friday.agent_tool_exec.evaluate_tool", _allowed_tool)
     monkeypatch.setattr(
-        "friday.agent.execute_tool",
+        "friday.agent_tool_exec.execute_tool",
         lambda *_a, **_k: "已写入: notes.md",
     )
     agent = _agent()
@@ -86,9 +86,9 @@ def test_agent_skips_file_generated_for_non_text_write(monkeypatch):
     def on_event(event_type: str, payload: dict) -> None:
         events.append((event_type, payload))
 
-    monkeypatch.setattr("friday.agent.evaluate_tool", _allowed_tool)
+    monkeypatch.setattr("friday.agent_tool_exec.evaluate_tool", _allowed_tool)
     monkeypatch.setattr(
-        "friday.agent.execute_tool",
+        "friday.agent_tool_exec.execute_tool",
         lambda *_a, **_k: "已写入: script.py",
     )
     agent = _agent()
@@ -108,9 +108,9 @@ def test_agent_emits_file_generated_for_weixin_copy_to_delivered(monkeypatch):
     def on_event(event_type: str, payload: dict) -> None:
         events.append((event_type, payload))
 
-    monkeypatch.setattr("friday.agent.evaluate_tool", _allowed_tool)
+    monkeypatch.setattr("friday.agent_tool_exec.evaluate_tool", _allowed_tool)
     monkeypatch.setattr(
-        "friday.agent.execute_tool",
+        "friday.agent_tool_exec.execute_tool",
         lambda *_a, **_k: (
             "已复制: C:\\Users\\me\\Desktop\\第五节辅导课.docx "
             "-> C:\\work\\.friday\\delivered\\第五节辅导课.docx"
@@ -147,9 +147,9 @@ def test_agent_skips_file_generated_for_copy_outside_weixin(monkeypatch):
     def on_event(event_type: str, payload: dict) -> None:
         events.append((event_type, payload))
 
-    monkeypatch.setattr("friday.agent.evaluate_tool", _allowed_tool)
+    monkeypatch.setattr("friday.agent_tool_exec.evaluate_tool", _allowed_tool)
     monkeypatch.setattr(
-        "friday.agent.execute_tool",
+        "friday.agent_tool_exec.execute_tool",
         lambda *_a, **_k: "已复制: a.docx -> b.docx",
     )
     agent = _agent()
@@ -175,13 +175,13 @@ def test_agent_emits_file_generated_for_weixin_powershell_copy_to_delivered(monk
     delivered.mkdir(parents=True)
     doc = delivered / "第五节辅导课.docx"
 
-    monkeypatch.setattr("friday.agent.evaluate_tool", _allowed_tool)
+    monkeypatch.setattr("friday.agent_tool_exec.evaluate_tool", _allowed_tool)
 
     def fake_shell(*_a, **_k):
         doc.write_bytes(b"x" * 2048)
         return "exit=0\nOK"
 
-    monkeypatch.setattr("friday.agent.execute_tool", fake_shell)
+    monkeypatch.setattr("friday.agent_tool_exec.execute_tool", fake_shell)
     monkeypatch.setattr("friday.artifacts.resolved_workspace", lambda _s: str(ws))
     monkeypatch.setattr("friday.weixin.deliverables.resolved_workspace", lambda _s: str(ws))
 
@@ -217,14 +217,14 @@ def test_agent_emits_file_generated_for_weixin_powershell_copy_to_workspace_root
     doc = ws / "第五节辅导课.docx"
     old = time.time() - 86400 * 30
 
-    monkeypatch.setattr("friday.agent.evaluate_tool", _allowed_tool)
+    monkeypatch.setattr("friday.agent_tool_exec.evaluate_tool", _allowed_tool)
 
     def fake_shell(*_a, **_k):
         doc.write_bytes(b"x" * 2048)
         os.utime(doc, (old, old))
         return "exit=0\nOK"
 
-    monkeypatch.setattr("friday.agent.execute_tool", fake_shell)
+    monkeypatch.setattr("friday.agent_tool_exec.execute_tool", fake_shell)
     monkeypatch.setattr("friday.artifacts.resolved_workspace", lambda _s: str(ws))
     monkeypatch.setattr("friday.weixin.deliverables.resolved_workspace", lambda _s: str(ws))
 

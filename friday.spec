@@ -23,16 +23,13 @@ _tiktoken_datas = collect_data_files("tiktoken") + collect_data_files("tiktoken_
 
 
 def _extension_datas() -> list[tuple[str, str]]:
-    """打包 extensions/；ppt-master 体量大，安装包仅含 manifest，skill 首次启动下载。"""
+    """打包 extensions/（含 ppt-master 完整 skill，发版前由 sync_ppt_master_skill.ps1 同步）。"""
     items: list[tuple[str, str]] = []
     ext_root = ROOT / "extensions"
     if not ext_root.is_dir():
         return items
     for path in sorted(ext_root.rglob("*")):
         if not path.is_file():
-            continue
-        rel = path.relative_to(ext_root).as_posix()
-        if rel.startswith("ppt-master/") and rel != "ppt-master/friday-plugin.json":
             continue
         dest = str(Path("extensions") / path.parent.relative_to(ext_root))
         items.append((str(path), dest))

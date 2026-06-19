@@ -152,6 +152,7 @@ READ_ONLY_TOOLS = {
 
 MEMORY_TOOLS = frozenset({
     "remember_user_fact",
+    "remember_pain_point",
     "forget_user_fact",
     "append_work_note",
 })

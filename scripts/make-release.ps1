@@ -35,12 +35,27 @@ if ($Exe -and $TargetVersion) {
     }
 }
 
+Write-Host "Running credentials regression tests..." -ForegroundColor Cyan
+python -m pytest tests/api/test_credentials_store.py tests/providers/test_llm_profiles.py tests/providers/test_category_profiles.py -q
+if ($LASTEXITCODE -ne 0) {
+    throw "Credentials regression tests failed."
+}
+
 if ($needsBuild) {
     Write-Host "Building exe..." -ForegroundColor Yellow
     & (Join-Path $FridayRepo "scripts\build.ps1")
     $Exe = Get-FridayExe -DistDir (Get-FridayDistDir -Root $FridayRepo)
     if (-not $Exe) {
         throw "Build failed."
+    }
+}
+
+$VerifyExt = Join-Path $FridayRepo "scripts\verify-release-extensions.ps1"
+if (Test-Path -LiteralPath $VerifyExt) {
+    Write-Host "Verifying packaged extensions..." -ForegroundColor Cyan
+    & $VerifyExt
+    if ($LASTEXITCODE -ne 0) {
+        throw "Packaged extensions verify failed (see above)."
     }
 }
 

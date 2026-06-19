@@ -19,10 +19,12 @@ BUNDLED_PLUGIN_IDS: frozenset[str] = frozenset({
     "ppt-master",
 })
 
-# 首次启动从 GitHub 拉取 skill 脚本与模板（仓库 extensions/ 仅含 manifest）
+# 安装包应内嵌完整 skill；缺文件时后台从 GitHub 补拉（见 ensure_bundled_skill_assets）
 BUNDLED_SKILL_SOURCES: dict[str, str] = {
     "ppt-master": "hugohe3/ppt-master@v2.9.0/skills/ppt-master",
 }
+
+_skill_warmup: dict[str, dict[str, str]] = {}
 
 # 曾作为内置/推荐插件安装过的 ID，启动迁移时一并清理残留
 _LEGACY_BUNDLED_IDS: frozenset[str] = BUNDLED_PLUGIN_IDS | frozenset({"demo-office"})
@@ -167,26 +169,78 @@ def bundled_skill_assets_ready(plugin_id: str) -> bool:
     return _skill_package_complete(bundled_resource_dir(plugin_id))
 
 
+def _set_skill_warmup(plugin_id: str, status: str, detail: str = "") -> None:
+    _skill_warmup[plugin_id] = {
+        "status": status,
+        "detail": detail or _warmup_detail(status),
+    }
+
+
+def _warmup_detail(status: str) -> str:
+    return {
+        "pending": "资源准备中",
+        "ready": "已就绪",
+        "failed": "资源未就绪",
+    }.get(status, status)
+
+
+def refresh_skill_warmup_status() -> None:
+    """启动 warmup 前刷新：安装包/AppData 已有完整包则 ready，否则 pending。"""
+    for plugin_id in BUNDLED_SKILL_SOURCES:
+        if bundled_skill_assets_ready(plugin_id):
+            _set_skill_warmup(plugin_id, "ready")
+        else:
+            _set_skill_warmup(plugin_id, "pending")
+
+
+def bundled_skills_health_snapshot() -> dict[str, dict[str, str]]:
+    """供 /api/health 返回各内置 skill 就绪状态。"""
+    if not _skill_warmup:
+        refresh_skill_warmup_status()
+    out: dict[str, dict[str, str]] = {}
+    for plugin_id in BUNDLED_SKILL_SOURCES:
+        entry = _skill_warmup.get(plugin_id)
+        if entry is None:
+            ready = bundled_skill_assets_ready(plugin_id)
+            out[plugin_id] = {
+                "status": "ready" if ready else "pending",
+                "detail": "已就绪" if ready else "资源准备中",
+            }
+        else:
+            out[plugin_id] = dict(entry)
+    return out
+
+
 def ensure_bundled_skill_assets(*, fetch_timeout: float = 12.0) -> None:
     """按需从 GitHub 下载内置 skill 的脚本与模板到 AppData。"""
     from friday.plugins import _download_github_skill_folder, parse_github_skill_source
 
+    refresh_skill_warmup_status()
     for plugin_id, source in BUNDLED_SKILL_SOURCES.items():
         if plugin_id not in BUNDLED_PLUGIN_IDS:
             continue
         if bundled_skill_assets_ready(plugin_id):
+            _set_skill_warmup(plugin_id, "ready")
             continue
         ext_dir = extensions_dir() / plugin_id
         if _skill_package_complete(ext_dir):
+            _set_skill_warmup(plugin_id, "ready")
             continue
+        _set_skill_warmup(plugin_id, "pending")
         dest = get_appdata_dir() / "plugins" / plugin_id
         try:
             owner, repo, ref, skill_path = parse_github_skill_source(source)
             _download_github_skill_folder(
                 owner, repo, ref, skill_path, dest, fetch_timeout=fetch_timeout,
             )
-            _log.info("已下载内置 skill 资源 | id=%s files→%s", plugin_id, dest)
+            if bundled_skill_assets_ready(plugin_id):
+                _set_skill_warmup(plugin_id, "ready")
+                _log.info("已下载内置 skill 资源 | id=%s files→%s", plugin_id, dest)
+            else:
+                _set_skill_warmup(plugin_id, "failed", "下载后资源仍不完整")
+                _log.warning("内置 skill 下载后仍不完整 | id=%s dest=%s", plugin_id, dest)
         except Exception as exc:
+            _set_skill_warmup(plugin_id, "failed", str(exc)[:240])
             _log.warning("内置 skill 资源下载失败 | id=%s err=%s", plugin_id, exc)
 
 

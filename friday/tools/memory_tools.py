@@ -62,6 +62,49 @@ def list_user_memory() -> str:
 
 
 @register_tool(
+    name="remember_pain_point",
+    description=(
+        "记录结构化踩坑经验（跨会话保留）：场景 tag + 现象 + 原因 + 修复。"
+        "如微信发送失败、API Key 无效、PPT 路径错误等。"
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "tag": {
+                "type": "string",
+                "description": "场景标签，如 weixin_send、api_key、ppt、path",
+            },
+            "symptom": {
+                "type": "string",
+                "description": "用户看到的现象或错误，简短明确",
+            },
+            "cause": {
+                "type": "string",
+                "description": "根因（可选）",
+            },
+            "fix": {
+                "type": "string",
+                "description": "已验证的修复动作（可选）",
+            },
+        },
+        "required": ["tag", "symptom"],
+    },
+)
+def remember_pain_point(
+    tag: str,
+    symptom: str,
+    cause: str = "",
+    fix: str = "",
+) -> str:
+    from friday.pain_points import remember_pain_point as _remember
+
+    result = _remember(tag, symptom, cause=cause, fix=fix)
+    if not result.get("ok"):
+        return str(result.get("message") or "记录失败")
+    return str(result.get("message") or "已记录踩坑")
+
+
+@register_tool(
     name="append_work_note",
     description="向当前会话工作笔记追加一条要点（会并入下次检查点）。用于记录路径、决策、中间结论。",
     parameters={
@@ -158,7 +201,13 @@ def search_saved_memory(query: str, limit: int = 10) -> str:
         return f"未找到与「{cleaned}」相关的已保存记忆。"
     lines = [f"共 {len(hits)} 条与「{cleaned}」相关的记忆："]
     for idx, hit in enumerate(hits, 1):
-        source = "用户偏好" if hit.get("source") == "user_memory" else "工作区 MEMORY"
+        source = hit.get("source", "")
+        if source == "user_memory":
+            label = "用户偏好"
+        elif source == "pain_point":
+            label = "踩坑"
+        else:
+            label = "工作区 MEMORY"
         text = str(hit.get("text", "")).strip()
-        lines.append(f"{idx}. [{source}] {text}")
+        lines.append(f"{idx}. [{label}] {text}")
     return "\n".join(lines)

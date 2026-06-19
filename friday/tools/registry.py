@@ -323,6 +323,7 @@ _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "image_gen_status": "检查生图",
     "update_session_plan": "更新计划",
     "remember_user_fact": "记住偏好",
+    "remember_pain_point": "记住踩坑",
     "append_work_note": "工作笔记",
 }
 

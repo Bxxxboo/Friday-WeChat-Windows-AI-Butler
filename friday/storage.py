@@ -148,6 +148,9 @@ class UserSettings:
     artifact_auto_gc_enabled: bool = True
     context_smart_enabled: bool = True
     goal_verifier_enabled: bool = True
+    goal_verifier_evidence_required: bool = True
+    multi_agent_enabled: bool = False
+    max_sub_agents: int = 2
     dream_memory_enabled: bool = False
 
     @classmethod
@@ -352,6 +355,7 @@ def load_settings() -> UserSettings:
 
     from friday.llm_profiles import (
         active_provider_id,
+        align_llm_active_from_profile,
         normalize_profiles,
         repair_llm_key_alignment,
         seed_profiles_from_active,
@@ -371,6 +375,14 @@ def load_settings() -> UserSettings:
         save_settings(aligned)
         _log.info("已修复大模型 Key 与当前服务商 profile 不一致 | provider=%s", active)
         settings = aligned
+    aligned_llm = align_llm_active_from_profile(settings)
+    if aligned_llm != settings:
+        save_settings(aligned_llm)
+        _log.info(
+            "已从 profile 恢复大模型服务商 | provider=%s",
+            active_provider_id(aligned_llm),
+        )
+        settings = aligned_llm
     return settings
 
 
@@ -578,7 +590,10 @@ def merge_settings(current: UserSettings, payload: dict) -> UserSettings:
         merged = merged.merge({"model": UserSettings.model})
     if any(k in payload for k in ("api_key", "base_url", "model", "llm_provider")):
         merged = persist_active_profile(merged)
-    if any(k in payload for k in ("vision_api_key", "vision_base_url", "vision_model", "vision_provider")):
+    if any(
+        k in payload
+        for k in ("vision_api_key", "vision_base_url", "vision_model", "vision_provider", "vision_enabled")
+    ):
         merged = persist_category_profile(merged, "vision")
     if any(
         k in payload
@@ -589,6 +604,7 @@ def merge_settings(current: UserSettings, payload: dict) -> UserSettings:
             "image_gen_provider",
             "image_gen_fallback_urls",
             "image_gen_default_size",
+            "image_gen_enabled",
         )
     ):
         merged = persist_category_profile(merged, "image_gen")

@@ -74,9 +74,29 @@ def verify_goal_complete(
     *,
     settings: UserSettings | None = None,
     brain: Any | None = None,
+    evidence: list[dict[str, Any]] | None = None,
+    evidence_since: float | None = None,
 ) -> dict[str, Any]:
     """校验助手是否过早宣告完成。返回 ok/block/reason。"""
-    if not should_verify(session_id, reply, settings=settings):
+    cfg = settings or load_settings()
+    if not getattr(cfg, "goal_verifier_enabled", True):
+        return {"ok": True, "block": False}
+
+    from friday.goal_evidence import (
+        check_evidence_gates,
+        collect_session_evidence,
+        format_evidence_for_llm,
+    )
+
+    bundle = evidence
+    if bundle is None:
+        bundle = collect_session_evidence(session_id, since=evidence_since)
+    evidence_required = getattr(cfg, "goal_verifier_evidence_required", True)
+    gate = check_evidence_gates(reply, bundle, evidence_required=evidence_required)
+    if gate:
+        return gate
+
+    if not should_verify(session_id, reply, settings=cfg):
         return {"ok": True, "block": False}
 
     open_items = _open_todos(session_id)
@@ -84,7 +104,6 @@ def verify_goal_complete(
         reason = "计划中仍有未完成待办：" + "；".join(open_items[:5])
         return {"ok": False, "block": True, "reason": reason, "open_todos": open_items}
 
-    cfg = settings or load_settings()
     if brain is None:
         from friday.brain import DeepSeekBrain
 
@@ -110,19 +129,25 @@ def verify_goal_complete(
 
     try:
         brain.record_api_call()
+        evidence_text = format_evidence_for_llm(bundle)
         response = brain.client.chat.completions.create(
             model=cfg.model,
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "你是任务完成审核员。根据助手回复与上下文，判断任务是否真的可以收尾。"
+                        "你是任务完成审核员。根据助手回复与会话内工具证据，判断任务是否真的可以收尾。"
+                        "若回复声称已发送微信/已写入文件，但证据中无对应成功工具，必须 complete=false。"
                         "仅回答 JSON：{\"complete\": true/false, \"reason\": \"简短中文\"}"
                     ),
                 },
                 {
                     "role": "user",
-                    "content": f"助手回复：\n{reply[:2000]}\n\n请判断是否真的完成。",
+                    "content": (
+                        f"助手回复：\n{reply[:2000]}\n\n"
+                        f"工具证据（新→旧）：\n{evidence_text}\n\n"
+                        "请判断是否真的完成。"
+                    ),
                 },
             ],
             max_tokens=200,

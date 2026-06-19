@@ -211,6 +211,58 @@ def llm_config_hint(settings: UserSettings) -> str:
     return ""
 
 
+def _llm_profile_configured(profiles: dict[str, dict[str, str]], provider_id: str) -> bool:
+    saved = profiles.get(provider_id) or {}
+    key = str(saved.get("api_key") or "").strip()
+    if not key or key in {"sk-your-key-here"}:
+        return False
+    return bool(str(saved.get("model") or "").strip() or str(saved.get("base_url") or "").strip())
+
+
+def align_llm_active_from_profile(settings: UserSettings) -> UserSettings:
+    """顶层 llm_provider / Key / URL / 模型为空或与 profile 脱节时，从 profile 回填（更新后防回退 DeepSeek）。"""
+    active = active_provider_id(settings)
+    if is_custom_provider_id(active):
+        return settings
+
+    profiles = normalize_profiles(settings.llm_profiles)
+    if not profiles:
+        return settings
+
+    saved = profiles.get(active) or {}
+    patch: dict[str, Any] = {}
+    for field, prof_key in (
+        ("api_key", "api_key"),
+        ("base_url", "base_url"),
+        ("model", "model"),
+    ):
+        current = str(getattr(settings, field) or "").strip()
+        stored = str(saved.get(prof_key) or "").strip()
+        if not current and stored:
+            patch[field] = stored
+
+    merged = settings.merge(patch) if patch else settings
+    if _llm_profile_configured(profiles, active):
+        return merged
+
+    current_key = merged.api_key.strip()
+    current_url = (merged.base_url or "").strip().rstrip("/")
+    for pid, entry in profiles.items():
+        if pid == active or not _llm_profile_configured(profiles, pid):
+            continue
+        p_key = str(entry.get("api_key") or "").strip()
+        p_url = str(entry.get("base_url") or "").strip().rstrip("/")
+        if current_key and p_key == current_key:
+            return switch_llm_provider(merged, pid)
+        if current_url and p_url and current_url == p_url:
+            return switch_llm_provider(merged, pid)
+
+    configured = [pid for pid in profiles if _llm_profile_configured(profiles, pid)]
+    if len(configured) == 1 and configured[0] != active:
+        return switch_llm_provider(merged, configured[0])
+    return merged
+
+
 def repair_llm_key_alignment(settings: UserSettings) -> UserSettings:
     """顶层 api_key 与当前服务商 profile 不一致时，以 profile 为准。"""
     active = active_provider_id(settings)

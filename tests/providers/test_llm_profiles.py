@@ -177,3 +177,59 @@ def test_load_settings_repairs_desynced_llm_key(tmp_appdata):
     )
     loaded = load_settings()
     assert loaded.api_key == "sk-mimo-key-12345678"
+
+
+def test_load_settings_restores_llm_provider_from_profile_after_update(tmp_appdata):
+    """模拟更新后 llm_provider 被重置为 deepseek，应从 profile 恢复。"""
+    import json
+
+    from friday.io_utils import load_json
+
+    save_settings(
+        UserSettings(
+            llm_provider="mimo",
+            api_key="sk-mimo-key-12345678",
+            base_url="https://api.xiaomimimo.com/v1",
+            model="mimo-v2-flash",
+            llm_profiles={
+                "mimo": {
+                    "api_key": "sk-mimo-key-12345678",
+                    "base_url": "https://api.xiaomimimo.com/v1",
+                    "model": "mimo-v2-flash",
+                }
+            },
+        )
+    )
+    raw = load_json(tmp_appdata / "settings.json")
+    raw["llm_provider"] = "deepseek"
+    raw["api_key"] = "sk-mimo-key-12345678"
+    raw["base_url"] = "https://api.xiaomimimo.com/v1"
+    raw["model"] = "mimo-v2-flash"
+    (tmp_appdata / "settings.json").write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = load_settings()
+    assert loaded.llm_provider == "mimo"
+    assert loaded.model == "mimo-v2-flash"
+
+
+def test_merge_settings_persists_vision_enabled_in_profile(tmp_appdata):
+    save_settings(
+        UserSettings(
+            vision_enabled=False,
+            vision_provider="ark",
+            vision_api_key="ark-secret-key-123456",
+            vision_base_url="https://ark.cn-beijing.volces.com/api/v3",
+            vision_model="ep-20260611011923-jdgm5",
+        )
+    )
+    merged = merge_settings(load_settings(), {"vision_enabled": True})
+    save_settings(merged)
+    loaded = load_settings()
+    assert loaded.vision_enabled is True
+    assert loaded.vision_profiles["ark"]["enabled"] is True
+
+    merged_off = merge_settings(loaded, {"vision_enabled": False})
+    save_settings(merged_off)
+    disabled = load_settings()
+    assert disabled.vision_enabled is False
+    assert disabled.vision_profiles["ark"]["enabled"] is False
